@@ -21,19 +21,21 @@ ENTRY_POINT = "any_mcp_tatara_orchestrator:OrchestratorPlugin"
 ANY_MCP = "any-mcp @ git+https://github.com/szymonrychu/any-mcp@v0.5.0"
 UV = shutil.which("uv")
 assert UV, "uv is a pinned mise tool and must be on PATH"
-ELEVEN = [
-    "orchestrator_me",
-    "orchestrator_leadership_handover",
-    "orchestrator_lock_claim",
-    "orchestrator_lock_release",
-    "orchestrator_lock_list",
-    "orchestrator_lock_reassign",
-    "orchestrator_scale",
-    "orchestrator_init_scripts_get",
-    "orchestrator_init_scripts_edit",
-    "orchestrator_sessions_list",
-    "orchestrator_session_send",
-]
+ELEVEN = sorted(
+    [
+        "orchestrator_me",
+        "orchestrator_leadership_handover",
+        "orchestrator_lock_claim",
+        "orchestrator_lock_release",
+        "orchestrator_lock_list",
+        "orchestrator_lock_reassign",
+        "orchestrator_scale",
+        "orchestrator_init_scripts_get",
+        "orchestrator_init_scripts_edit",
+        "orchestrator_sessions_list",
+        "orchestrator_session_send",
+    ]
+)
 # Literal values only: the plugin does no network I/O at load.
 CONFIG = {
     "base_url": "http://orch.test:8081",
@@ -56,7 +58,7 @@ def _run(cmd: list[str | Path], **kwargs) -> subprocess.CompletedProcess[str]:
 
 def _list_tools(any_mcp: Path, config: Path, env: dict[str, str]) -> list[str]:
     listed = _run([any_mcp, "--config", config, "--list-tools"], env=env, cwd=config.parent)
-    return [tool["name"] for tool in json.loads(listed.stdout)]
+    return sorted(tool["name"] for tool in json.loads(listed.stdout))
 
 
 def _config(path: Path, source: str) -> Path:
