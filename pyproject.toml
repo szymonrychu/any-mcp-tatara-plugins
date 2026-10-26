@@ -6,10 +6,14 @@ exclude = ["tests/*", ".*/*"]
 
 [dependency-groups]
 dev = [
+    "any-mcp",
     "pytest>=8.3",
     "pytest-asyncio",
     "ruff",
 ]
+
+[tool.uv.sources]
+any-mcp = { git = "https://github.com/szymonrychu/any-mcp", tag = "v0.5.0" }
 
 [tool.ruff]
 line-length = 100
@@ -17,6 +21,11 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+# any-mcp and the plugins import as one first-party block, as in any-mcp itself, so code moved
+# from any-mcp keeps its import layout.
+known-first-party = ["any_mcp", "any_mcp_tatara_orchestrator"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "*/*/tests"]
