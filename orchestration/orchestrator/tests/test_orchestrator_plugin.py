@@ -22,7 +22,7 @@ CONFIG: dict[str, Any] = {
     "max_replicas": 3,
     "hive": True,
 }
-ELEVEN = {
+FIFTEEN = {
     "orchestrator_me",
     "orchestrator_leadership_handover",
     "orchestrator_lock_claim",
@@ -34,6 +34,10 @@ ELEVEN = {
     "orchestrator_init_scripts_edit",
     "orchestrator_sessions_list",
     "orchestrator_session_send",
+    "orchestrator_chat_rooms",
+    "orchestrator_chat_send",
+    "orchestrator_chat_react",
+    "orchestrator_chat_status",
 }
 
 
@@ -55,9 +59,9 @@ async def descriptions(**overrides: Any) -> dict[str, str]:
         return {t["name"]: t["description"] for t in await h.list_tools()}
 
 
-async def test_lists_eleven_tools() -> None:
-    assert set(await descriptions()) == ELEVEN
-    assert set(await descriptions(hive=False)) == ELEVEN
+async def test_lists_fifteen_tools() -> None:
+    assert set(await descriptions()) == FIFTEEN
+    assert set(await descriptions(hive=False)) == FIFTEEN
 
 
 async def test_tools_call_agent_routes() -> None:
@@ -176,6 +180,122 @@ async def test_session_send_errors_surface_code() -> None:
             assert result.structured["error"]["status"] == status
             assert TOKEN not in result.text
             assert TOKEN not in json.dumps(result.structured)
+
+
+async def test_chat_tools_call_agent_routes() -> None:
+    seen: list[tuple[str, str, Any, httpx.Headers]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body, request.headers))
+        return httpx.Response(200, json={"echo": request.url.path})
+
+    calls: list[tuple[str, dict[str, Any], tuple[str, str, Any]]] = [
+        ("chat_rooms", {}, ("GET", "/agent/v1/chat/rooms", None)),
+        (
+            "chat_send",
+            {"text": "hi"},
+            ("POST", "/agent/v1/chat/messages", {"text": "hi"}),
+        ),
+        (
+            "chat_send",
+            {"text": "hi", "room": "!r:hs"},
+            ("POST", "/agent/v1/chat/messages", {"text": "hi", "room": "!r:hs"}),
+        ),
+        (
+            "chat_send",
+            {"text": "hi", "room": "!r:hs", "reply_to": "m12"},
+            (
+                "POST",
+                "/agent/v1/chat/messages",
+                {"text": "hi", "room": "!r:hs", "reply_to": "m12"},
+            ),
+        ),
+        (
+            "chat_send",
+            {"text": "hi", "reply_to": "s3"},
+            ("POST", "/agent/v1/chat/messages", {"text": "hi", "reply_to": "s3"}),
+        ),
+        (
+            "chat_react",
+            {"to": "m12", "key": "\N{THUMBS UP SIGN}"},
+            ("POST", "/agent/v1/chat/reactions", {"to": "m12", "key": "\N{THUMBS UP SIGN}"}),
+        ),
+        ("chat_status", {"id": "s7"}, ("GET", "/agent/v1/chat/messages/s7", None)),
+    ]
+    async with harness(handler) as h:
+        for tool, args, expected in calls:
+            seen.clear()
+            result = await h.call(f"orchestrator_{tool}", args)
+            assert not result.is_error, result.text
+            assert [(m, p, b) for m, p, b, _ in seen] == [expected]
+            assert seen[0][3]["authorization"] == f"Bearer {TOKEN}"
+            assert seen[0][3]["x-orch-session"] == "s-1"
+            assert json.loads(result.text) == {"echo": expected[1]}
+
+
+async def test_chat_errors_surface_code() -> None:
+    errors = {
+        "room_not_allowed": 403,
+        "room_not_authorised": 403,
+        "room_bound": 409,
+        "session_bound": 409,
+        "bad_reference": 422,
+        "rate_limited": 429,
+        "not_leader": 403,
+        "chat_unavailable": 503,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        code = json.loads(request.content)["text"]
+        return httpx.Response(
+            errors[code], json={"error": {"code": code, "message": f"refused, token {TOKEN}"}}
+        )
+
+    async with harness(handler) as h:
+        for code, status in errors.items():
+            result = await h.call("orchestrator_chat_send", {"text": code})
+            assert result.is_error
+            assert code in result.text
+            assert f"HTTP {status}" in result.text
+            assert result.structured is not None
+            assert result.structured["error"]["code"] == code
+            assert result.structured["error"]["status"] == status
+            assert TOKEN not in result.text
+            assert TOKEN not in json.dumps(result.structured)
+
+
+async def test_chat_descriptions() -> None:
+    on = await descriptions()
+    send = on["orchestrator_chat_send"]
+    assert "only for chat-started turns" in send
+    assert "Asynchronous" in send
+    assert "s<n>" in send
+    assert "reply_to" in send
+    assert "m<n>" in send
+    assert "Leader only" in send
+    assert "at most one chat room" in send
+    assert "bound room" in send
+    assert "unbound" in send
+    assert "agents_may_initiate" in send
+    assert "room_bound" in send
+    assert "session_bound" in send
+    assert "orchestrator_chat_status" in send
+    rooms = on["orchestrator_chat_rooms"]
+    assert "bound room" in rooms
+    assert "unbound" in rooms
+    assert "Leader only" in rooms
+    react = on["orchestrator_chat_react"]
+    assert "m<n>" in react
+    assert "s<n>" in react
+    assert "Leader only" in react
+    assert "bound room" in react
+    status = on["orchestrator_chat_status"]
+    assert "s<n>" in status
+    assert "queued" in status
+    assert "Leader only" in status
+    for text in (await descriptions(hive=False)).values():
+        assert "You are agent" not in text
 
 
 async def test_credentials_headers() -> None:
@@ -301,7 +421,7 @@ async def test_no_io_at_load() -> None:
     )
     await plugin.setup()
     specs = await plugin.load_tools()
-    assert len(specs) == 11
+    assert len(specs) == 15
 
 
 async def test_scale_and_init_tools_match_contracts() -> None:
