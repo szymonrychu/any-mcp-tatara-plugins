@@ -462,6 +462,14 @@ async def test_handover_threshold_hint() -> None:
     assert "compacting" not in (await descriptions())[name]
 
 
+async def test_handover_advice_uses_the_floored_threshold() -> None:
+    name = "orchestrator_leadership_handover"
+    low = (await descriptions(auto_compact_pct=10))[name]
+    assert "hand over instead of compacting once your context passes 1%" in low
+    high = (await descriptions(auto_compact_pct=80))[name]
+    assert "hand over instead of compacting once your context passes 65%" in high
+
+
 async def test_error_mapping_redacts_token(caplog: pytest.LogCaptureFixture) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
