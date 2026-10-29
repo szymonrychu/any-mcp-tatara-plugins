@@ -21,6 +21,8 @@ __all__ = ["OrchestratorPlugin"]
 
 _BASE = "/agent/v1"
 _ERROR_LIMIT = 1000
+# Mirrors HANDOVER_MARGIN_PCT in agents-orchestrator dispatcher/hive.py (handover_threshold).
+_HANDOVER_MARGIN_PCT = 15
 
 
 class OrchestratorConfig(BaseModel):
@@ -115,7 +117,7 @@ class OrchestratorPlugin(Plugin):
         if cfg.auto_compact_pct is not None:
             handover += (
                 " Advice: hand over instead of compacting once your context passes "
-                f"{cfg.auto_compact_pct - 15}%."
+                f"{max(cfg.auto_compact_pct - _HANDOVER_MARGIN_PCT, 1)}%."
             )
         locks = (
             "Locks are advisory: a write to a file another agent claimed is warned, not blocked. "
