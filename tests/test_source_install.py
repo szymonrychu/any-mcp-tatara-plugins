@@ -21,7 +21,7 @@ ENTRY_POINT = "any_mcp_tatara_orchestrator:OrchestratorPlugin"
 ANY_MCP = "any-mcp @ git+https://github.com/szymonrychu/any-mcp@v0.5.0"
 UV = shutil.which("uv")
 assert UV, "uv is a pinned mise tool and must be on PATH"
-FIFTEEN = sorted(
+ALL_TOOLS = sorted(
     [
         "orchestrator_me",
         "orchestrator_leadership_handover",
@@ -38,6 +38,7 @@ FIFTEEN = sorted(
         "orchestrator_chat_send",
         "orchestrator_chat_react",
         "orchestrator_chat_status",
+        "orchestrator_activity",
     ]
 )
 # Literal values only: the plugin does no network I/O at load.
@@ -116,7 +117,7 @@ def test_orchestrator_plugin_installs_from_sources(tmp_path):
     assert installed.stdout.splitlines() == [f"{local} {DIST} local"]
     # The same directory named absolutely is the same manifest entry: no reinstall at load.
     config = _config(tmp_path / "local.json", str(PLUGIN))
-    assert _list_tools(any_mcp, config, env) == FIFTEEN
+    assert _list_tools(any_mcp, config, env) == ALL_TOOLS
 
     # git::file:// form of this repository, with //subdir and ?ref= pinned to the HEAD sha.
     sha = _run(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip()
@@ -124,4 +125,4 @@ def test_orchestrator_plugin_installs_from_sources(tmp_path):
     installed = _run([any_mcp, "plugins", "install", source], env=env, cwd=tmp_path)
     assert installed.stdout.splitlines() == [f"{source} {DIST} {sha}"]
     config = _config(tmp_path / "git.json", source)
-    assert _list_tools(any_mcp, config, env) == FIFTEEN
+    assert _list_tools(any_mcp, config, env) == ALL_TOOLS
