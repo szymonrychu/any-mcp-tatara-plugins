@@ -22,7 +22,7 @@ CONFIG: dict[str, Any] = {
     "max_replicas": 3,
     "hive": True,
 }
-FIFTEEN = {
+ALL_TOOLS = {
     "orchestrator_me",
     "orchestrator_leadership_handover",
     "orchestrator_lock_claim",
@@ -38,6 +38,7 @@ FIFTEEN = {
     "orchestrator_chat_send",
     "orchestrator_chat_react",
     "orchestrator_chat_status",
+    "orchestrator_activity",
 }
 
 
@@ -59,9 +60,9 @@ async def descriptions(**overrides: Any) -> dict[str, str]:
         return {t["name"]: t["description"] for t in await h.list_tools()}
 
 
-async def test_lists_fifteen_tools() -> None:
-    assert set(await descriptions()) == FIFTEEN
-    assert set(await descriptions(hive=False)) == FIFTEEN
+async def test_lists_all_tools() -> None:
+    assert set(await descriptions()) == ALL_TOOLS
+    assert set(await descriptions(hive=False)) == ALL_TOOLS
 
 
 async def test_tools_call_agent_routes() -> None:
@@ -298,6 +299,78 @@ async def test_chat_descriptions() -> None:
         assert "You are agent" not in text
 
 
+async def test_activity_tool_calls_route() -> None:
+    seen: list[tuple[str, str, dict[str, str], Any, httpx.Headers]] = []
+    answer = {"lines": [{"id": 4, "agent": "pod-1", "text": "pod-1 ran: ls (ok)", "ts": "t"}]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append(
+            (request.method, request.url.path, dict(request.url.params), body, request.headers)
+        )
+        return httpx.Response(200, json=answer)
+
+    async with harness(handler) as h:
+        both = await h.call("orchestrator_activity", {"agent": "pod-1", "limit": 20})
+        bare = await h.call("orchestrator_activity")
+        limit_only = await h.call("orchestrator_activity", {"limit": 200})
+    for result in (both, bare, limit_only):
+        assert not result.is_error, result.text
+        assert json.loads(result.text) == answer
+    assert [(m, p, q, b) for m, p, q, b, _ in seen] == [
+        ("GET", "/agent/v1/activity", {"agent": "pod-1", "limit": "20"}, None),
+        ("GET", "/agent/v1/activity", {}, None),
+        ("GET", "/agent/v1/activity", {"limit": "200"}, None),
+    ]
+    for *_, headers in seen:
+        assert headers["authorization"] == f"Bearer {TOKEN}"
+        assert headers["x-orch-session"] == "s-1"
+
+
+async def test_activity_tool_schema_and_description() -> None:
+    async with harness(ok) as h:
+        tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_activity")
+    props = tool["inputSchema"]["properties"]
+    assert set(props) == {"agent", "limit"}
+    assert props["agent"]["type"] == "string"
+    assert props["limit"]["type"] == "integer"
+    assert props["limit"]["minimum"] == 1
+    assert props["limit"]["maximum"] == 200
+    assert not tool["inputSchema"].get("required")
+    text = tool["description"]
+    assert text.startswith(
+        "You are agent agent-0, one of up to 3 agents in hive my-hive; the workdir is shared."
+    )
+    assert (
+        "What the other agents did recently (commands with exit status, files written, "
+        "finished turns): newest last. Call it when you need it; nothing is streamed to you."
+    ) in text
+    off = (await descriptions(hive=False))["orchestrator_activity"]
+    assert "You are agent" not in off
+    assert off.startswith("What the other agents did recently")
+
+
+async def test_handover_description_protocol() -> None:
+    text = (await descriptions())["orchestrator_leadership_handover"]
+    assert "handover_due" in text
+    assert "mcp__ccw__send_message" in text
+    assert "notify_when_idle" in text
+    assert '"ready"' in text
+    assert "to, the current epoch and a reason" in text
+    assert "leadership-request note" in text
+    assert "applied, or rejected with the reason" in text
+    assert "outcome arrives as a hive-state note" not in text
+
+
+async def test_me_description_points_to_activity() -> None:
+    text = (await descriptions())["orchestrator_me"]
+    assert "orchestrator_activity" in text
+    assert "nothing is streamed" in text
+    off = (await descriptions(hive=False))["orchestrator_me"]
+    assert "orchestrator_activity" in off
+    assert "nothing is streamed" in off
+
+
 async def test_credentials_headers() -> None:
     headers: list[httpx.Headers] = []
 
@@ -421,7 +494,7 @@ async def test_no_io_at_load() -> None:
     )
     await plugin.setup()
     specs = await plugin.load_tools()
-    assert len(specs) == 15
+    assert len(specs) == len(ALL_TOOLS) == 16
 
 
 async def test_scale_and_init_tools_match_contracts() -> None:
