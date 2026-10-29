@@ -16,6 +16,7 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | Tool | Route |
 |------|-------|
 | `orchestrator_me` | `GET /agent/v1/me` |
+| `orchestrator_activity(agent?, limit?)` | `GET /agent/v1/activity` (query `agent`, a pod name, and `limit` 1..200; what the session's agents did recently, newest last) |
 | `orchestrator_leadership_handover(reason, epoch, to?)` | `POST /agent/v1/leadership/handover` |
 | `orchestrator_lock_claim(paths)` | `POST /agent/v1/locks/claim` |
 | `orchestrator_lock_release(paths)` | `POST /agent/v1/locks/release` |
@@ -31,7 +32,7 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_chat_react(to, key)` | `POST /agent/v1/chat/reactions` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_status(id)` | `GET /agent/v1/chat/messages/{id}` (delivery status of a send `s<n>`) |
 
-The plugin always lists all fifteen tools. Which an agent sees is decided by the `allow` list of the
+The plugin always lists all sixteen tools. Which an agent sees is decided by the `allow` list of the
 entry the orchestrator renders (`scale` only on a scalable session, the hive tools only in a hive).
 The session tools `sessions_list` and `session_send` are rendered for every session; the
 orchestrator decides what each session may list and send: a superleader session's leader lists and
@@ -51,6 +52,14 @@ hive tool descriptions start with "You are agent <agent>, one of up to <max_repl
 <slug>; the workdir is shared."; with `auto_compact_pct` set the handover description advises
 handing over once context passes `auto_compact_pct - 15` percent.
 
+Peers' work is never streamed to an agent: it pulls it on demand with `orchestrator_activity`
+(optional `agent` pod name, `limit` 1..200; answers `{"lines": [...]}`, newest last), and the
+`orchestrator_me` description says so. The `orchestrator_leadership_handover` description carries
+the brief-then-handover protocol: when a `handover_due` note names the candidates, the leader briefs
+the chosen successor with `mcp__ccw__send_message(notify_when_idle=true)`, waits for its "ready",
+then calls the tool with `to`, the current epoch and a reason. The requester learns the outcome as
+a keyed `leadership_request` note: applied, or rejected with the reason.
+
 ## Configuration
 
 any-mcp installs the plugin from its source on load (or ahead of time with
@@ -60,7 +69,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 plugins:
   - name: orchestrator
     source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.2.0
-    allow: [me, leadership_handover, lock_*, init_scripts_*]
+    allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081
       token: ${ORCH_AGENT_TOKEN}
