@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "any-mcp-tatara-orchestrator"
-version = "0.2.0"
+version = "0.4.0"
 source = { editable = "orchestration/orchestrator" }
 dependencies = [
     { name = "any-mcp" },
