@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sys
@@ -222,3 +223,48 @@ async def test_tool_rejects_bad_names() -> None:
         for preset, name in (("p/../x", "TOK"), ("p", "bad name"), ("p", "1X"), ("", "TOK")):
             res = await h.call("secret_set", {"preset": preset, "name": name, "from_env": "X"})
             assert res.is_error
+
+
+# ---- review follow-up
+
+
+async def test_not_utf8_error_keeps_no_raw_bytes(tmp_path: Path) -> None:
+    f = tmp_path / "b"
+    f.write_bytes(b"\xff\xfe" + CANARY.encode())
+    with pytest.raises(SecretResolveError) as e:
+        await resolve_secret(from_file=str(f))
+    assert str(e.value) == "value_not_utf8"
+    assert e.value.__cause__ is None
+    assert e.value.__context__ is None
+
+
+async def test_fifo_is_rejected_without_blocking(tmp_path: Path) -> None:
+    import os
+
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    with pytest.raises(SecretResolveError) as e:
+        await asyncio.wait_for(resolve_secret(from_file=str(fifo)), 2)
+    assert str(e.value) == "file_not_regular"
+
+
+async def test_non_string_args_rejected() -> None:
+    async with make_harness(put_handler([])) as h:
+        for key in ("from_file", "from_env", "from_command"):
+            res = await h.call("secret_set", {"preset": "p", "name": "TOK", key: 123})
+            assert res.is_error
+    for kwargs in ({"from_file": 3}, {"from_env": 3}, {"from_command": 3}):
+        with pytest.raises(SecretResolveError) as e:
+            await resolve_secret(**kwargs)  # type: ignore[arg-type]
+        assert str(e.value) == "invalid_source"
+
+
+async def test_timeout_is_one_overall_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    from any_mcp_tatara_orchestrator import secrets_local
+
+    monkeypatch.setattr(secrets_local, "COMMAND_TIMEOUT", 0.6)
+    # prints at 0.4 s, exits at 0.8 s: each phase is under 0.6 s, the total is not
+    code = "import sys,time; time.sleep(.4); print('x', flush=True); time.sleep(.4)"
+    with pytest.raises(SecretResolveError) as e:
+        await resolve_secret(from_command=f'{sys.executable} -c "{code}"')
+    assert str(e.value) == "command_timeout"

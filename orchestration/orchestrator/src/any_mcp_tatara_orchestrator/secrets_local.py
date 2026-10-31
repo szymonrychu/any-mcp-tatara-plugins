@@ -12,6 +12,7 @@ import contextlib
 import os
 import re
 import shlex
+import stat
 from typing import Any
 from urllib.parse import quote
 
@@ -47,7 +48,9 @@ def _strip_newline(raw: bytes) -> str:
     try:
         value = raw.decode("utf-8")
     except UnicodeDecodeError:
-        raise SecretResolveError("value_not_utf8") from None
+        value = None
+    if value is None:
+        raise SecretResolveError("value_not_utf8")
     if not value:
         raise SecretResolveError("value_empty")
     return value
@@ -55,10 +58,18 @@ def _strip_newline(raw: bytes) -> str:
 
 def _read_file(path: str) -> bytes:
     try:
-        with open(path, "rb") as fh:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError:
+        raise SecretResolveError("file_missing") from None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise SecretResolveError("file_not_regular")
+        with os.fdopen(fd, "rb", closefd=False) as fh:
             raw = fh.read(MAX_BYTES + 1)
     except OSError:
         raise SecretResolveError("file_missing") from None
+    finally:
+        os.close(fd)
     if len(raw) > MAX_BYTES:
         raise SecretResolveError("value_too_large")
     return raw
@@ -95,10 +106,11 @@ async def _run(command: str) -> bytes:
         raise SecretResolveError("command_not_found") from None
     assert proc.stdout is not None
     try:
-        raw = await asyncio.wait_for(_read_capped(proc.stdout), COMMAND_TIMEOUT)
-        if len(raw) > MAX_BYTES:
-            raise SecretResolveError("value_too_large")
-        code = await asyncio.wait_for(proc.wait(), COMMAND_TIMEOUT)
+        async with asyncio.timeout(COMMAND_TIMEOUT):
+            raw = await _read_capped(proc.stdout)
+            if len(raw) > MAX_BYTES:
+                raise SecretResolveError("value_too_large")
+            code = await proc.wait()
     except TimeoutError:
         raise SecretResolveError("command_timeout") from None
     finally:
@@ -116,6 +128,8 @@ async def resolve_secret(
 ) -> str:
     """Resolve exactly one source to the secret value (one trailing newline stripped)."""
     given = [s for s in (from_file, from_env, from_command) if s is not None]
+    if not all(isinstance(s, str) for s in given):
+        raise SecretResolveError("invalid_source")
     if len(given) != 1:
         raise SecretResolveError("exactly_one_source")
     if from_file is not None:
