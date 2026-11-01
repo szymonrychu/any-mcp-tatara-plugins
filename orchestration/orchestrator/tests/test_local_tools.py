@@ -216,7 +216,7 @@ async def test_a_failed_file_write_leaks_nothing(tmp_path: Path, monkeypatch: An
     def boom(*a: Any, **k: Any) -> None:
         raise OSError(CANARY)
 
-    monkeypatch.setattr(secrets_local.os, "replace", boom)
+    monkeypatch.setattr(secrets_local.os, "fsync", boom)
     root = tmp_path / "root"
     async with harness(fake([]), root) as h:
         res = await h.call("webhook_create", {**ARGS["webhook_create"], "to_file": str(root / "c")})

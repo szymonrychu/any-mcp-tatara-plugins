@@ -222,16 +222,38 @@ def validate_to_file(path: object, root: str, overwrite: bool = False) -> str:
     return target
 
 
-def write_credential(path: str, value: str) -> None:
-    """Write ``value`` to ``path`` with mode 0600: a temp file in the same directory, then an
-    atomic replace, so a reader never sees a partial file."""
+def write_credential(path: str, value: str, overwrite: bool = False) -> None:
+    """Write ``value`` to ``path`` with mode 0600.
+
+    Without ``overwrite`` the file is created with O_CREAT|O_EXCL|O_NOFOLLOW, so an existing
+    file or symlink (even one that appeared after validation) is refused atomically. With
+    ``overwrite`` a temp file in the same directory is atomically replaced over the target, so a
+    reader never sees a partial file."""
+    data = value.encode("utf-8")
+    if not overwrite:
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            raise SecretResolveError("to_file_exists") from None
+        except OSError:
+            raise SecretResolveError("to_file_failed") from None
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+                fh.flush()
+                os.fsync(fh.fileno())
+        except OSError:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            raise SecretResolveError("to_file_failed") from None
+        return
     directory, base = os.path.split(path)
     tmp = os.path.join(directory, f".{base}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(fd, "wb") as fh:
-                fh.write(value.encode("utf-8"))
+                fh.write(data)
                 fh.flush()
                 os.fsync(fh.fileno())
         except BaseException:
