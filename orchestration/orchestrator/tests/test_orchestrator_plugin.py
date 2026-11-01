@@ -10,6 +10,7 @@ import pytest
 from any_mcp.context import PluginContext
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
+from any_mcp_tatara_orchestrator.admin import ADMIN_TOOLS
 
 OLD_UNIT = "clus" + "ter"
 TOKEN = "s3cr3t-token-value"
@@ -61,8 +62,9 @@ async def descriptions(**overrides: Any) -> dict[str, str]:
 
 
 async def test_lists_all_tools() -> None:
-    assert set(await descriptions()) == ALL_TOOLS
-    assert set(await descriptions(hive=False)) == ALL_TOOLS
+    every = ALL_TOOLS | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS}
+    assert set(await descriptions()) == every
+    assert set(await descriptions(hive=False)) == every
 
 
 async def test_tools_call_agent_routes() -> None:
@@ -510,7 +512,7 @@ async def test_no_io_at_load() -> None:
     )
     await plugin.setup()
     specs = await plugin.load_tools()
-    assert len(specs) == len(ALL_TOOLS) == 16
+    assert len(specs) == len(ALL_TOOLS) + len(ADMIN_TOOLS) == 16 + len(ADMIN_TOOLS)
 
 
 async def test_scale_and_init_tools_match_contracts() -> None:

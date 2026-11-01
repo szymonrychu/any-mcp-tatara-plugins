@@ -1,0 +1,262 @@
+{
+ "paths": {
+  "/agent/v1/activity": {
+   "get": {
+    "operationId": "activity_agent_v1_activity_get"
+   }
+  },
+  "/agent/v1/admin/chats/rooms": {
+   "get": {
+    "operationId": "admin_connector_get_rooms"
+   }
+  },
+  "/agent/v1/admin/chats/rooms/{room_id}/settings": {
+   "put": {
+    "operationId": "admin_connector_put_rooms_room_id_settings"
+   }
+  },
+  "/agent/v1/admin/chats/rules": {
+   "get": {
+    "operationId": "admin_connector_get_rules"
+   },
+   "post": {
+    "operationId": "admin_connector_post_rules"
+   }
+  },
+  "/agent/v1/admin/chats/rules/{rule_id}": {
+   "delete": {
+    "operationId": "admin_connector_delete_rules_rule_id"
+   }
+  },
+  "/agent/v1/admin/commands/{command_id}": {
+   "get": {
+    "operationId": "get_command_agent_v1_admin_commands__command_id__get"
+   }
+  },
+  "/agent/v1/admin/presets": {
+   "get": {
+    "operationId": "list_presets_agent_v1_admin_presets_get"
+   },
+   "post": {
+    "operationId": "create_preset_agent_v1_admin_presets_post"
+   }
+  },
+  "/agent/v1/admin/presets/{ref}": {
+   "delete": {
+    "operationId": "delete_preset_agent_v1_admin_presets__ref__delete"
+   },
+   "get": {
+    "operationId": "get_preset_agent_v1_admin_presets__ref__get"
+   },
+   "put": {
+    "operationId": "replace_preset_agent_v1_admin_presets__ref__put"
+   }
+  },
+  "/agent/v1/admin/presets/{ref}/copy": {
+   "post": {
+    "operationId": "copy_preset_agent_v1_admin_presets__ref__copy_post"
+   }
+  },
+  "/agent/v1/admin/presets/{ref}/secrets/{name}": {
+   "put": {
+    "operationId": "set_preset_secret_agent_v1_admin_presets__ref__secrets__name__put"
+   }
+  },
+  "/agent/v1/admin/schedules/runs": {
+   "get": {
+    "operationId": "admin_schedule_get_runs"
+   }
+  },
+  "/agent/v1/admin/schedules/runs/{run_id}": {
+   "get": {
+    "operationId": "admin_schedule_get_runs_run_id"
+   }
+  },
+  "/agent/v1/admin/schedules/schedules": {
+   "get": {
+    "operationId": "admin_schedule_get_schedules"
+   },
+   "post": {
+    "operationId": "admin_schedule_post_schedules"
+   }
+  },
+  "/agent/v1/admin/schedules/schedules/preview": {
+   "post": {
+    "operationId": "admin_schedule_post_schedules_preview"
+   }
+  },
+  "/agent/v1/admin/schedules/schedules/{schedule_id}": {
+   "delete": {
+    "operationId": "admin_schedule_delete_schedules_schedule_id"
+   },
+   "get": {
+    "operationId": "admin_schedule_get_schedules_schedule_id"
+   },
+   "put": {
+    "operationId": "admin_schedule_put_schedules_schedule_id"
+   }
+  },
+  "/agent/v1/admin/schedules/schedules/{schedule_id}/run": {
+   "post": {
+    "operationId": "admin_schedule_post_schedules_schedule_id_run"
+   }
+  },
+  "/agent/v1/admin/schedules/schedules/{schedule_id}/runs": {
+   "get": {
+    "operationId": "admin_schedule_get_schedules_schedule_id_runs"
+   }
+  },
+  "/agent/v1/admin/sessions": {
+   "post": {
+    "operationId": "create_session_agent_v1_admin_sessions_post"
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}": {
+   "delete": {
+    "operationId": "discard_session_agent_v1_admin_sessions__slug__delete"
+   },
+   "get": {
+    "operationId": "get_session_agent_v1_admin_sessions__slug__get"
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}/agents/{pod}/restart": {
+   "post": {
+    "operationId": "restart_agent_agent_v1_admin_sessions__slug__agents__pod__restart_post"
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}/restart": {
+   "post": {
+    "operationId": "restart_session_agent_v1_admin_sessions__slug__restart_post"
+   }
+  },
+  "/agent/v1/admin/webhooks/endpoints": {
+   "get": {
+    "operationId": "admin_webhook_get_endpoints"
+   },
+   "post": {
+    "operationId": "admin_webhook_post_endpoints"
+   }
+  },
+  "/agent/v1/admin/webhooks/endpoints/{id}": {
+   "delete": {
+    "operationId": "admin_webhook_delete_endpoints_id"
+   },
+   "patch": {
+    "operationId": "admin_webhook_patch_endpoints_id"
+   }
+  },
+  "/agent/v1/admin/webhooks/endpoints/{id}/clone": {
+   "post": {
+    "operationId": "admin_webhook_post_endpoints_id_clone"
+   }
+  },
+  "/agent/v1/admin/webhooks/endpoints/{id}/filters": {
+   "put": {
+    "operationId": "admin_webhook_put_endpoints_id_filters"
+   }
+  },
+  "/agent/v1/admin/webhooks/endpoints/{id}/rotate": {
+   "post": {
+    "operationId": "admin_webhook_post_endpoints_id_rotate"
+   }
+  },
+  "/agent/v1/admin/webhooks/events": {
+   "get": {
+    "operationId": "admin_webhook_get_events"
+   }
+  },
+  "/agent/v1/admin/webhooks/events/{id}": {
+   "get": {
+    "operationId": "admin_webhook_get_events_id"
+   }
+  },
+  "/agent/v1/admin/webhooks/meta": {
+   "get": {
+    "operationId": "admin_webhook_get_meta"
+   }
+  },
+  "/agent/v1/admin/webhooks/templates/preview": {
+   "post": {
+    "operationId": "admin_webhook_post_templates_preview"
+   }
+  },
+  "/agent/v1/chat/messages": {
+   "post": {
+    "operationId": "send_message_agent_v1_chat_messages_post"
+   }
+  },
+  "/agent/v1/chat/messages/{send_id}": {
+   "get": {
+    "operationId": "message_status_agent_v1_chat_messages__send_id__get"
+   }
+  },
+  "/agent/v1/chat/reactions": {
+   "post": {
+    "operationId": "send_reaction_agent_v1_chat_reactions_post"
+   }
+  },
+  "/agent/v1/chat/rooms": {
+   "get": {
+    "operationId": "rooms_agent_v1_chat_rooms_get"
+   }
+  },
+  "/agent/v1/init-scripts": {
+   "get": {
+    "operationId": "init_scripts_get_agent_v1_init_scripts_get"
+   },
+   "put": {
+    "operationId": "init_scripts_put_agent_v1_init_scripts_put"
+   }
+  },
+  "/agent/v1/leadership/handover": {
+   "post": {
+    "operationId": "handover_agent_v1_leadership_handover_post"
+   }
+  },
+  "/agent/v1/locks": {
+   "get": {
+    "operationId": "locks_list_agent_v1_locks_get"
+   }
+  },
+  "/agent/v1/locks/check": {
+   "post": {
+    "operationId": "locks_check_agent_v1_locks_check_post"
+   }
+  },
+  "/agent/v1/locks/claim": {
+   "post": {
+    "operationId": "locks_claim_agent_v1_locks_claim_post"
+   }
+  },
+  "/agent/v1/locks/reassign": {
+   "post": {
+    "operationId": "locks_reassign_agent_v1_locks_reassign_post"
+   }
+  },
+  "/agent/v1/locks/release": {
+   "post": {
+    "operationId": "locks_release_agent_v1_locks_release_post"
+   }
+  },
+  "/agent/v1/me": {
+   "get": {
+    "operationId": "me_agent_v1_me_get"
+   }
+  },
+  "/agent/v1/scale": {
+   "post": {
+    "operationId": "scale_agent_v1_scale_post"
+   }
+  },
+  "/agent/v1/sessions": {
+   "get": {
+    "operationId": "sessions_list_agent_v1_sessions_get"
+   }
+  },
+  "/agent/v1/sessions/{slug}/messages": {
+   "post": {
+    "operationId": "session_send_agent_v1_sessions__slug__messages_post"
+   }
+  }
+ }
+}

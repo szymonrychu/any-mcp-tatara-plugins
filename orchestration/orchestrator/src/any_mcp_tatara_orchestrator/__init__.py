@@ -17,6 +17,8 @@ from any_mcp.errors import UpstreamError, error_result, redact
 from any_mcp.plugin import Plugin
 from any_mcp.types import HttpBinding, ToolCall, ToolResult, ToolSpec
 
+from .admin import ADMIN_TOOLS
+
 __all__ = ["OrchestratorPlugin"]
 
 _BASE = "/agent/v1"
@@ -233,7 +235,19 @@ class OrchestratorPlugin(Plugin):
                 http=HttpBinding(method, f"{_BASE}{path}", query=query, body=body, base_url=base),
             )
 
+        admin = [
+            ToolSpec(
+                name=r.name,
+                description=r.description,
+                input_schema=r.schema,
+                http=HttpBinding(
+                    r.method, f"{_BASE}{r.path}", query=r.query, body=r.body, base_url=base
+                ),
+            )
+            for r in ADMIN_TOOLS
+        ]
         return [
+            *admin,
             spec("me", "GET", "/me", _schema({})),
             spec(
                 "activity",

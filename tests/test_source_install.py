@@ -14,6 +14,8 @@ import tomllib
 from importlib.metadata import distribution
 from pathlib import Path
 
+from any_mcp_tatara_orchestrator.admin import ADMIN_TOOLS
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "orchestration" / "orchestrator"
 DIST = "any-mcp-tatara-orchestrator"
@@ -39,6 +41,7 @@ ALL_TOOLS = sorted(
         "orchestrator_chat_react",
         "orchestrator_chat_status",
         "orchestrator_activity",
+        *(f"orchestrator_{r.name}" for r in ADMIN_TOOLS),
     ]
 )
 # Literal values only: the plugin does no network I/O at load.
