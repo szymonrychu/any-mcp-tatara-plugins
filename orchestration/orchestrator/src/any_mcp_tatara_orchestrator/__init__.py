@@ -21,10 +21,14 @@ from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSp
 from .admin import ADMIN_TOOLS
 from .secrets_local import (
     CREDENTIAL_TOOLS,
+    OVERWRITE_SCHEMA,
+    SPEC_TOOLS,
     TO_FILE_SCHEMA,
     SecretResolveError,
     local_secret_tool,
+    refuse_protected_values,
     secret_error_result,
+    secrets_root,
     validate_to_file,
     write_credential,
 )
@@ -49,6 +53,7 @@ class OrchestratorConfig(BaseModel):
     static: bool = False
     hive: bool = False
     auto_compact_pct: int | None = None
+    secrets_dir: str | None = None
 
 
 def _schema(properties: dict[str, Any], required: Sequence[str] = ()) -> dict[str, Any]:
@@ -63,7 +68,14 @@ def _schema(properties: dict[str, Any], required: Sequence[str] = ()) -> dict[st
 
 
 def _with_to_file(schema: dict[str, Any]) -> dict[str, Any]:
-    return {**schema, "properties": {**schema["properties"], "to_file": TO_FILE_SCHEMA}}
+    return {
+        **schema,
+        "properties": {
+            **schema["properties"],
+            "to_file": TO_FILE_SCHEMA,
+            "overwrite": OVERWRITE_SCHEMA,
+        },
+    }
 
 
 _PATHS = {"type": "array", "items": {"type": "string"}, "description": "File paths in the workdir."}
@@ -90,13 +102,16 @@ class OrchestratorPlugin(Plugin):
         }
 
     async def call(self, call: ToolCall) -> RawResponse:
+        if call.spec.name in SPEC_TOOLS:
+            refuse_protected_values(call.arguments.get("spec"))
         if call.spec.name not in CREDENTIAL_TOOLS:
             return await super().call(call)
         # An issued credential goes to ``to_file`` or nowhere: it never reaches the result.
         args = dict(call.arguments)
         target = args.pop("to_file", None)
+        overwrite = args.pop("overwrite", False) is True
         if target is not None:
-            validate_to_file(target)
+            target = validate_to_file(target, secrets_root(self.cfg.secrets_dir), overwrite)
         headers = dict(await self.credentials(call))
         if target is not None:
             headers["X-Orch-Tool"] = "local"

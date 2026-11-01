@@ -23,9 +23,13 @@ from any_mcp.types import ToolCall, ToolResult, ToolSpec
 
 __all__ = [
     "CREDENTIAL_TOOLS",
+    "OVERWRITE_SCHEMA",
+    "SPEC_TOOLS",
     "SecretResolveError",
     "local_secret_tool",
+    "refuse_protected_values",
     "resolve_secret",
+    "secrets_root",
     "secret_error_result",
     "validate_to_file",
     "write_credential",
@@ -40,10 +44,30 @@ TO_FILE_SCHEMA = {
     "type": "string",
     "description": (
         "Absolute path in this pod to write the issued credential to (mode 0600, replaced "
-        "atomically). The credential is never returned to you; the answer says whether it was "
-        "written."
+        "atomically) and inside the secrets directory (default ~/.agent-secrets). An existing "
+        "file is refused unless overwrite is true. The credential is never returned to you; "
+        "the answer says whether it was written."
     ),
 }
+OVERWRITE_SCHEMA = {"type": "boolean", "description": "Replace an existing to_file target."}
+
+# Tools whose ``spec`` input may declare env variables; a protected one never carries a value.
+SPEC_TOOLS = frozenset({"preset_create", "preset_replace", "session_create"})
+
+
+def refuse_protected_values(spec: object) -> None:
+    """Raise if a protected env entry of ``spec`` carries a value (it would enter the
+    transcript); the error names the variable only."""
+    env = spec.get("env") if isinstance(spec, dict) else None
+    if not isinstance(env, dict):
+        return
+    for name, entry in env.items():
+        if isinstance(entry, dict) and entry.get("protected") and entry.get("value") is not None:
+            raise SecretResolveError(
+                f"protected_value_refused env={name}: never put a protected value in a tool "
+                "call; declare it protected without a value and use secret_set"
+            )
+
 
 MAX_BYTES = 64 * 1024
 COMMAND_TIMEOUT = 10.0
@@ -168,13 +192,34 @@ async def resolve_secret(
     return _strip_newline(await _run(from_command))
 
 
-def validate_to_file(path: object) -> str:
-    """The target path if it is an absolute path in an existing directory, else raise."""
+def secrets_root(configured: str | None) -> str:
+    """The real path of the allowed root for ``to_file``, created 0700 if missing."""
+    root = os.path.expanduser(configured or "~/.agent-secrets")
+    try:
+        os.makedirs(root, mode=0o700, exist_ok=True)
+        os.chmod(root, 0o700)
+        return os.path.realpath(root)
+    except OSError:
+        raise SecretResolveError("to_file_failed") from None
+
+
+def validate_to_file(path: object, root: str, overwrite: bool = False) -> str:
+    """The real target path if it lies directly inside or below ``root`` (symlinks and ``..``
+    resolved), is not a symlink or directory, and either is new or ``overwrite`` is set."""
     if not isinstance(path, str) or not path or "\0" in path or not os.path.isabs(path):
         raise SecretResolveError("to_file_invalid")
-    if os.path.isdir(path) or not os.path.isdir(os.path.dirname(path)):
+    real_root = os.path.realpath(root)
+    parent = os.path.realpath(os.path.dirname(path))
+    if not os.path.isdir(parent) or os.path.commonpath([parent, real_root]) != real_root:
         raise SecretResolveError("to_file_invalid")
-    return path
+    target = os.path.join(parent, os.path.basename(path))
+    if not os.path.basename(path) or target == real_root or os.path.islink(target):
+        raise SecretResolveError("to_file_invalid")
+    if os.path.isdir(target):
+        raise SecretResolveError("to_file_invalid")
+    if os.path.exists(target) and not overwrite:
+        raise SecretResolveError("to_file_exists")
+    return target
 
 
 def write_credential(path: str, value: str) -> None:

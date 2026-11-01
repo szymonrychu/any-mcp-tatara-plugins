@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import secrets
 import stat
 from pathlib import Path
@@ -36,10 +35,13 @@ ARGS: dict[str, dict[str, Any]] = {
 }
 
 
-def harness(handler: Any) -> PluginHarness:
+def harness(handler: Any, root: Path | None = None) -> PluginHarness:
+    config = dict(CONFIG)
+    if root is not None:
+        config["secrets_dir"] = str(root)
     return PluginHarness(
         OrchestratorPlugin,
-        config=CONFIG,
+        config=config,
         name="orchestrator",
         transport=httpx.MockTransport(handler),
     )
@@ -112,9 +114,9 @@ async def test_to_file_writes_the_credential_and_the_result_is_metadata_only(
     tool: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.DEBUG)
-    target = tmp_path / "cred"
+    target = tmp_path / "root" / "cred"
     seen: list[httpx.Request] = []
-    async with harness(fake(seen)) as h:
+    async with harness(fake(seen), tmp_path / "root") as h:
         res = await h.call(tool, {**ARGS[tool], "to_file": str(target)})
     assert not res.is_error, res.text
     assert target.read_text() == CANARY
@@ -141,34 +143,71 @@ async def test_without_to_file_the_local_header_is_not_sent_and_a_credential_is_
     assert CANARY not in blob(res)
 
 
-async def test_to_file_replaces_an_existing_file_atomically(tmp_path: Path) -> None:
-    target = tmp_path / "cred"
+async def test_existing_file_is_refused_unless_overwrite(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    target = root / "cred"
     target.write_text("old")
-    async with harness(fake([])) as h:
+    seen: list[httpx.Request] = []
+    async with harness(fake(seen), root) as h:
         res = await h.call("webhook_rotate", {"id": "w1", "to_file": str(target)})
+        assert res.is_error and "to_file_exists" in res.text
+        assert target.read_text() == "old" and seen == []
+        res = await h.call(
+            "webhook_rotate", {"id": "w1", "to_file": str(target), "overwrite": True}
+        )
     assert not res.is_error and target.read_text() == CANARY
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["cred"]
+    assert sorted(p.name for p in root.iterdir()) == ["cred"]
+    assert b"overwrite" not in seen[0].content
+
+
+async def test_default_root_is_created_0700_under_home(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = tmp_path / ".agent-secrets" / "cred"
+    async with harness(fake([])) as h:
+        res = await h.call("webhook_create", {**ARGS["webhook_create"], "to_file": str(target)})
+    assert not res.is_error, res.text
+    assert stat.S_IMODE(os.stat(target.parent).st_mode) == 0o700
+    assert target.read_text() == CANARY
+
+
+async def test_paths_outside_the_root_are_refused(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "link").symlink_to(outside)
+    (root / "filelink").symlink_to(outside / "victim")
+    bad = [
+        tmp_path / "hooks.json",
+        root / ".." / "hooks.json",
+        root / "link" / "cred",
+        root / "filelink",
+        root / "sub" / "cred",
+        "relative/cred",
+        "",
+        root,
+    ]
+    seen: list[httpx.Request] = []
+    async with harness(fake(seen), root) as h:
+        for path in bad:
+            res = await h.call(
+                "webhook_create",
+                {**ARGS["webhook_create"], "to_file": str(path), "overwrite": True},
+            )
+            assert res.is_error and "to_file_invalid" in res.text, path
+    assert seen == [] and list(outside.iterdir()) == []
 
 
 async def test_to_file_without_a_credential_in_the_answer_reports_not_written(
     tmp_path: Path,
 ) -> None:
-    target = tmp_path / "cred"
-    async with harness(fake([], with_credential=False)) as h:
+    target = tmp_path / "root" / "cred"
+    async with harness(fake([], with_credential=False), tmp_path / "root") as h:
         res = await h.call("webhook_update", {"id": "w1", "to_file": str(target)})
     assert not res.is_error
     assert res.structured["to_file"] == {"written": False}
     assert not target.exists()
-
-
-async def test_bad_to_file_is_refused_before_any_request(tmp_path: Path) -> None:
-    seen: list[httpx.Request] = []
-    async with harness(fake(seen)) as h:
-        for bad in ("relative/cred", str(tmp_path / "missing-dir" / "cred"), str(tmp_path), ""):
-            res = await h.call("webhook_create", {**ARGS["webhook_create"], "to_file": bad})
-            assert res.is_error, bad
-            assert re.search(r"to_file_(invalid|failed)", res.text), res.text
-    assert [r for r in seen if r.method == "POST"] == []
 
 
 async def test_a_failed_file_write_leaks_nothing(tmp_path: Path, monkeypatch: Any) -> None:
@@ -178,13 +217,31 @@ async def test_a_failed_file_write_leaks_nothing(tmp_path: Path, monkeypatch: An
         raise OSError(CANARY)
 
     monkeypatch.setattr(secrets_local.os, "replace", boom)
-    async with harness(fake([])) as h:
-        res = await h.call(
-            "webhook_create", {**ARGS["webhook_create"], "to_file": str(tmp_path / "c")}
-        )
+    root = tmp_path / "root"
+    async with harness(fake([]), root) as h:
+        res = await h.call("webhook_create", {**ARGS["webhook_create"], "to_file": str(root / "c")})
     assert res.is_error and "to_file_failed" in res.text
     assert CANARY not in blob(res)
-    assert list(tmp_path.iterdir()) == []
+    assert list(root.iterdir()) == []
+
+
+@pytest.mark.parametrize("tool", ["preset_create", "preset_replace", "session_create"])
+async def test_protected_env_value_is_refused(tool: str) -> None:
+    seen: list[httpx.Request] = []
+    args: dict[str, Any] = {
+        "preset_create": {"name": "n"},
+        "preset_replace": {"ref": "n", "name": "n"},
+        "session_create": {},
+    }[tool]
+    spec = {"env": {"TOK": {"protected": True, "value": CANARY}}}
+    async with harness(fake(seen)) as h:
+        res = await h.call(tool, {**args, "spec": spec})
+        assert res.is_error and "secret_set" in res.text and "TOK" in res.text
+        assert CANARY not in blob(res)
+        ok = {"env": {"TOK": {"protected": True}, "PLAIN": {"value": "x", "protected": False}}}
+        res = await h.call(tool, {**args, "spec": ok})
+    assert not res.is_error
+    assert len(seen) == 1 and CANARY.encode() not in seen[0].content
 
 
 async def test_upstream_errors_of_credential_tools_keep_their_code(tmp_path: Path) -> None:
@@ -193,9 +250,9 @@ async def test_upstream_errors_of_credential_tools_keep_their_code(tmp_path: Pat
             503, json={"error": {"code": "credential_not_stored", "message": "x"}}
         )
 
-    async with harness(handler) as h:
+    async with harness(handler, tmp_path / "root") as h:
         res = await h.call(
-            "webhook_create", {**ARGS["webhook_create"], "to_file": str(tmp_path / "c")}
+            "webhook_create", {**ARGS["webhook_create"], "to_file": str(tmp_path / "root" / "c")}
         )
     assert res.is_error and "credential_not_stored" in res.text
 

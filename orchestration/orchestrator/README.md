@@ -45,6 +45,8 @@ allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`). A contract test pins every row's method and
 path to `tests/fixtures/orchestrator_openapi.json`.
 
+Preset and session tools refuse a protected env entry that carries a `value` (use `secret_set`).
+
 Local tool `orchestrator_secret_set(preset, name, from_file | from_env | from_command)`: the value
 is resolved in the plugin process (file capped at 64 KiB, an env var of the pod, or a command run
 without a shell with a 10 s limit) and sent as the body of `PUT /agent/v1/admin/presets/{ref}/secrets/{name}`
@@ -52,7 +54,7 @@ without a shell with a 10 s limit) and sent as the body of `PUT /agent/v1/admin/
 CI variables model: write-only, overwrite-only). The result is `{name, set, version, bytes}`;
 errors carry a fixed class name, never a value, a path or command output.
 `webhook_create`, `webhook_update`, `webhook_clone` and `webhook_rotate` take an optional `to_file`
-(absolute path in the pod): the credential the upstream issues once is written there (mode 0600,
+(absolute path inside the secrets directory, config `secrets_dir`, default `~/.agent-secrets`, created 0700; real paths are checked so symlinks and `..` cannot escape; an existing file is refused unless `overwrite` is true): the credential the upstream issues once is written there (mode 0600,
 atomic replace) from the orchestrator's single local-channel answer (`X-Orch-Tool: local`), and the
 result says only `to_file: {written, key, bytes}`. The same token reaches the same channel, so this
 guards the transcript, not a hostile model.
