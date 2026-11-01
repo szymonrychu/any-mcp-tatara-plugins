@@ -14,8 +14,24 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from any_mcp.errors import UpstreamError, error_result, redact
+from any_mcp.http import execute_binding
 from any_mcp.plugin import Plugin
-from any_mcp.types import HttpBinding, ToolCall, ToolResult, ToolSpec
+from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSpec
+
+from .admin import ADMIN_TOOLS
+from .secrets_local import (
+    CREDENTIAL_TOOLS,
+    OVERWRITE_SCHEMA,
+    SPEC_TOOLS,
+    TO_FILE_SCHEMA,
+    SecretResolveError,
+    local_secret_tool,
+    refuse_protected_values,
+    secret_error_result,
+    secrets_root,
+    validate_to_file,
+    write_credential,
+)
 
 __all__ = ["OrchestratorPlugin"]
 
@@ -37,6 +53,7 @@ class OrchestratorConfig(BaseModel):
     static: bool = False
     hive: bool = False
     auto_compact_pct: int | None = None
+    secrets_dir: str | None = None
 
 
 def _schema(properties: dict[str, Any], required: Sequence[str] = ()) -> dict[str, Any]:
@@ -48,6 +65,17 @@ def _schema(properties: dict[str, Any], required: Sequence[str] = ()) -> dict[st
     if required:
         schema["required"] = list(required)
     return schema
+
+
+def _with_to_file(schema: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **schema,
+        "properties": {
+            **schema["properties"],
+            "to_file": TO_FILE_SCHEMA,
+            "overwrite": OVERWRITE_SCHEMA,
+        },
+    }
 
 
 _PATHS = {"type": "array", "items": {"type": "string"}, "description": "File paths in the workdir."}
@@ -73,7 +101,49 @@ class OrchestratorPlugin(Plugin):
             "X-Orch-Session": self.cfg.session,
         }
 
+    async def call(self, call: ToolCall) -> RawResponse:
+        if call.spec.name in SPEC_TOOLS:
+            refuse_protected_values(call.arguments.get("spec"))
+        if call.spec.name not in CREDENTIAL_TOOLS:
+            return await super().call(call)
+        # An issued credential goes to ``to_file`` or nowhere: it never reaches the result.
+        args = dict(call.arguments)
+        target = args.pop("to_file", None)
+        overwrite = args.pop("overwrite", False) is True
+        if target is not None:
+            target = validate_to_file(target, secrets_root(self.cfg.secrets_dir), overwrite)
+        headers = dict(await self.credentials(call))
+        if target is not None:
+            headers["X-Orch-Tool"] = "local"
+        raw = await execute_binding(
+            self.ctx.http,
+            call.with_arguments(args),
+            headers=headers,
+            max_bytes=self.ctx.response_budget_chars * 4 + 1,
+        )
+        try:
+            body = raw.json()
+        except ValueError:
+            return raw
+        if not isinstance(body, dict):
+            return raw
+        credential = body.pop("credential", None)
+        if target is not None:
+            written: dict[str, Any] = {"written": False}
+            value = credential.get("value") if isinstance(credential, dict) else None
+            if isinstance(value, str) and value:
+                write_credential(target, value)
+                written = {
+                    "written": True,
+                    "key": str(credential.get("key", "")),
+                    "bytes": len(value.encode("utf-8")),
+                }
+            body["to_file"] = written
+        return RawResponse.from_value(body)
+
     async def on_error(self, call: ToolCall, exc: Exception) -> ToolResult:
+        if isinstance(exc, SecretResolveError):
+            return secret_error_result(exc, call.spec.name)
         secrets = [self.cfg.token]
         if not isinstance(exc, UpstreamError):
             return error_result(exc, plugin=self.ctx.name, secrets=secrets)
@@ -233,7 +303,20 @@ class OrchestratorPlugin(Plugin):
                 http=HttpBinding(method, f"{_BASE}{path}", query=query, body=body, base_url=base),
             )
 
+        admin = [
+            ToolSpec(
+                name=r.name,
+                description=r.description,
+                input_schema=_with_to_file(r.schema) if r.name in CREDENTIAL_TOOLS else r.schema,
+                http=HttpBinding(
+                    r.method, f"{_BASE}{r.path}", query=r.query, body=r.body, base_url=base
+                ),
+            )
+            for r in ADMIN_TOOLS
+        ]
         return [
+            *admin,
+            local_secret_tool(base, self.cfg.token, self.cfg.session, self.ctx),
             spec("me", "GET", "/me", _schema({})),
             spec(
                 "activity",

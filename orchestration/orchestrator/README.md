@@ -32,7 +32,34 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_chat_react(to, key)` | `POST /agent/v1/chat/reactions` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_status(id)` | `GET /agent/v1/chat/messages/{id}` (delivery status of a send `s<n>`) |
 
-The plugin always lists all sixteen tools. Which an agent sees is decided by the `allow` list of the
+Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
+orchestrator refuses them unless the caller is a superleader session and renders them into the
+allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
+`preset_replace`, `preset_delete`, `preset_copy`), sessions (`session_get`, `session_create`,
+`session_discard`, `session_restart`, `agent_restart`, `command_get`), webhooks (`webhooks_list`,
+`webhook_get_meta`, `webhook_create`, `webhook_update`, `webhook_clone`, `webhook_rotate`,
+`webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
+`webhook_template_preview`), schedules (`schedules_list`, `schedule_get`, `schedule_create`,
+`schedule_update`, `schedule_delete`, `schedule_run`, `schedule_runs`, `schedule_runs_all`,
+`schedule_run_get`, `schedule_preview`) and chats (`chat_admin_rooms`, `chat_room_settings`,
+`chat_rules`, `chat_rule_add`, `chat_rule_delete`). A contract test pins every row's method and
+path to `tests/fixtures/orchestrator_openapi.json`.
+
+Preset and session tools refuse a protected env entry that carries a `value` (use `secret_set`).
+
+Local tool `orchestrator_secret_set(preset, name, from_file | from_env | from_command)`: the value
+is resolved in the plugin process (file capped at 64 KiB, an env var of the pod, or a command run
+without a shell with a 10 s limit) and sent as the body of `PUT /agent/v1/admin/presets/{ref}/secrets/{name}`
+(the orchestrator refuses a name that is not a protected variable of the preset, as in the GitLab
+CI variables model: write-only, overwrite-only). The result is `{name, set, version, bytes}`;
+errors carry a fixed class name, never a value, a path or command output.
+`webhook_create`, `webhook_update`, `webhook_clone` and `webhook_rotate` take an optional `to_file`
+(absolute path inside the secrets directory, config `secrets_dir`, default `~/.agent-secrets`, created 0700; real paths are checked so symlinks and `..` cannot escape; an existing file is refused unless `overwrite` is true): the credential the upstream issues once is written there (mode 0600,
+atomic replace) from the orchestrator's single local-channel answer (`X-Orch-Tool: local`), and the
+result says only `to_file: {written, key, bytes}`. The same token reaches the same channel, so this
+guards the transcript, not a hostile model.
+
+The plugin always lists the sixteen agent tools, the admin tools and `secret_set`. Which an agent sees is decided by the `allow` list of the
 entry the orchestrator renders (`scale` only on a scalable session, the hive tools only in a hive).
 The session tools `sessions_list` and `session_send` are rendered for every session; the
 orchestrator decides what each session may list and send: a superleader session's leader lists and
@@ -68,7 +95,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.5.1
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.6.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

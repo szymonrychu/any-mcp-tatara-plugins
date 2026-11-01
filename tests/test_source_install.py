@@ -14,6 +14,8 @@ import tomllib
 from importlib.metadata import distribution
 from pathlib import Path
 
+from any_mcp_tatara_orchestrator.admin import ADMIN_TOOLS
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "orchestration" / "orchestrator"
 DIST = "any-mcp-tatara-orchestrator"
@@ -39,6 +41,8 @@ ALL_TOOLS = sorted(
         "orchestrator_chat_react",
         "orchestrator_chat_status",
         "orchestrator_activity",
+        "orchestrator_secret_set",
+        *(f"orchestrator_{r.name}" for r in ADMIN_TOOLS),
     ]
 )
 # Literal values only: the plugin does no network I/O at load.
@@ -76,14 +80,14 @@ def test_orchestrator_distribution_metadata():
     project = tomllib.loads((PLUGIN / "pyproject.toml").read_text())
     meta = project["project"]
     assert meta["name"] == DIST
-    assert meta["version"] == "0.5.1"
+    assert meta["version"] == "0.6.0"
     assert meta["requires-python"] == ">=3.12"
     assert meta["dependencies"] == ["any-mcp"]
     assert meta["entry-points"] == {"any_mcp.plugins": {"orchestrator": ENTRY_POINT}}
     assert project["build-system"]["build-backend"] == "hatchling.build"
 
     installed = distribution(DIST)
-    assert installed.version == "0.5.1"
+    assert installed.version == "0.6.0"
     assert installed.requires == ["any-mcp"]
     points = installed.entry_points.select(group="any_mcp.plugins")
     assert [(ep.name, ep.value) for ep in points] == [("orchestrator", ENTRY_POINT)]
