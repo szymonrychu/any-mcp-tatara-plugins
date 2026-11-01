@@ -45,7 +45,19 @@ allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`). A contract test pins every row's method and
 path to `tests/fixtures/orchestrator_openapi.json`.
 
-The plugin always lists the sixteen agent tools and the admin tools. Which an agent sees is decided by the `allow` list of the
+Local tool `orchestrator_secret_set(preset, name, from_file | from_env | from_command)`: the value
+is resolved in the plugin process (file capped at 64 KiB, an env var of the pod, or a command run
+without a shell with a 10 s limit) and sent as the body of `PUT /agent/v1/admin/presets/{ref}/secrets/{name}`
+(the orchestrator refuses a name that is not a protected variable of the preset, as in the GitLab
+CI variables model: write-only, overwrite-only). The result is `{name, set, version, bytes}`;
+errors carry a fixed class name, never a value, a path or command output.
+`webhook_create`, `webhook_update`, `webhook_clone` and `webhook_rotate` take an optional `to_file`
+(absolute path in the pod): the credential the upstream issues once is written there (mode 0600,
+atomic replace) from the orchestrator's single local-channel answer (`X-Orch-Tool: local`), and the
+result says only `to_file: {written, key, bytes}`. The same token reaches the same channel, so this
+guards the transcript, not a hostile model.
+
+The plugin always lists the sixteen agent tools, the admin tools and `secret_set`. Which an agent sees is decided by the `allow` list of the
 entry the orchestrator renders (`scale` only on a scalable session, the hive tools only in a hive).
 The session tools `sessions_list` and `session_send` are rendered for every session; the
 orchestrator decides what each session may list and send: a superleader session's leader lists and

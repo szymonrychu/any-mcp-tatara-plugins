@@ -14,10 +14,20 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from any_mcp.errors import UpstreamError, error_result, redact
+from any_mcp.http import execute_binding
 from any_mcp.plugin import Plugin
-from any_mcp.types import HttpBinding, ToolCall, ToolResult, ToolSpec
+from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSpec
 
 from .admin import ADMIN_TOOLS
+from .secrets_local import (
+    CREDENTIAL_TOOLS,
+    TO_FILE_SCHEMA,
+    SecretResolveError,
+    local_secret_tool,
+    secret_error_result,
+    validate_to_file,
+    write_credential,
+)
 
 __all__ = ["OrchestratorPlugin"]
 
@@ -52,6 +62,10 @@ def _schema(properties: dict[str, Any], required: Sequence[str] = ()) -> dict[st
     return schema
 
 
+def _with_to_file(schema: dict[str, Any]) -> dict[str, Any]:
+    return {**schema, "properties": {**schema["properties"], "to_file": TO_FILE_SCHEMA}}
+
+
 _PATHS = {"type": "array", "items": {"type": "string"}, "description": "File paths in the workdir."}
 
 
@@ -75,7 +89,46 @@ class OrchestratorPlugin(Plugin):
             "X-Orch-Session": self.cfg.session,
         }
 
+    async def call(self, call: ToolCall) -> RawResponse:
+        if call.spec.name not in CREDENTIAL_TOOLS:
+            return await super().call(call)
+        # An issued credential goes to ``to_file`` or nowhere: it never reaches the result.
+        args = dict(call.arguments)
+        target = args.pop("to_file", None)
+        if target is not None:
+            validate_to_file(target)
+        headers = dict(await self.credentials(call))
+        if target is not None:
+            headers["X-Orch-Tool"] = "local"
+        raw = await execute_binding(
+            self.ctx.http,
+            call.with_arguments(args),
+            headers=headers,
+            max_bytes=self.ctx.response_budget_chars * 4 + 1,
+        )
+        try:
+            body = raw.json()
+        except ValueError:
+            return raw
+        if not isinstance(body, dict):
+            return raw
+        credential = body.pop("credential", None)
+        if target is not None:
+            written: dict[str, Any] = {"written": False}
+            value = credential.get("value") if isinstance(credential, dict) else None
+            if isinstance(value, str) and value:
+                write_credential(target, value)
+                written = {
+                    "written": True,
+                    "key": str(credential.get("key", "")),
+                    "bytes": len(value.encode("utf-8")),
+                }
+            body["to_file"] = written
+        return RawResponse.from_value(body)
+
     async def on_error(self, call: ToolCall, exc: Exception) -> ToolResult:
+        if isinstance(exc, SecretResolveError):
+            return secret_error_result(exc, call.spec.name)
         secrets = [self.cfg.token]
         if not isinstance(exc, UpstreamError):
             return error_result(exc, plugin=self.ctx.name, secrets=secrets)
@@ -239,7 +292,7 @@ class OrchestratorPlugin(Plugin):
             ToolSpec(
                 name=r.name,
                 description=r.description,
-                input_schema=r.schema,
+                input_schema=_with_to_file(r.schema) if r.name in CREDENTIAL_TOOLS else r.schema,
                 http=HttpBinding(
                     r.method, f"{_BASE}{r.path}", query=r.query, body=r.body, base_url=base
                 ),
@@ -248,6 +301,7 @@ class OrchestratorPlugin(Plugin):
         ]
         return [
             *admin,
+            local_secret_tool(base, self.cfg.token, self.cfg.session, self.ctx),
             spec("me", "GET", "/me", _schema({})),
             spec(
                 "activity",

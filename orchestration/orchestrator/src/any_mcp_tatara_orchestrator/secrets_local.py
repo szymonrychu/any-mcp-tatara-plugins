@@ -21,7 +21,29 @@ import httpx
 from any_mcp.context import PluginContext
 from any_mcp.types import ToolCall, ToolResult, ToolSpec
 
-__all__ = ["SecretResolveError", "local_secret_tool", "resolve_secret", "secret_error_result"]
+__all__ = [
+    "CREDENTIAL_TOOLS",
+    "SecretResolveError",
+    "local_secret_tool",
+    "resolve_secret",
+    "secret_error_result",
+    "validate_to_file",
+    "write_credential",
+]
+
+# Webhook tools whose answer may carry a credential the upstream issues once; each takes an
+# optional ``to_file`` that receives it (see ``write_credential``).
+CREDENTIAL_TOOLS = frozenset(
+    {"webhook_create", "webhook_update", "webhook_clone", "webhook_rotate"}
+)
+TO_FILE_SCHEMA = {
+    "type": "string",
+    "description": (
+        "Absolute path in this pod to write the issued credential to (mode 0600, replaced "
+        "atomically). The credential is never returned to you; the answer says whether it was "
+        "written."
+    ),
+}
 
 MAX_BYTES = 64 * 1024
 COMMAND_TIMEOUT = 10.0
@@ -146,9 +168,40 @@ async def resolve_secret(
     return _strip_newline(await _run(from_command))
 
 
-def secret_error_result(exc: Exception) -> ToolResult:
+def validate_to_file(path: object) -> str:
+    """The target path if it is an absolute path in an existing directory, else raise."""
+    if not isinstance(path, str) or not path or "\0" in path or not os.path.isabs(path):
+        raise SecretResolveError("to_file_invalid")
+    if os.path.isdir(path) or not os.path.isdir(os.path.dirname(path)):
+        raise SecretResolveError("to_file_invalid")
+    return path
+
+
+def write_credential(path: str, value: str) -> None:
+    """Write ``value`` to ``path`` with mode 0600: a temp file in the same directory, then an
+    atomic replace, so a reader never sees a partial file."""
+    directory, base = os.path.split(path)
+    tmp = os.path.join(directory, f".{base}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(value.encode("utf-8"))
+                fh.flush()
+                os.fsync(fh.fileno())
+        except BaseException:
+            os.unlink(tmp)
+            raise
+        os.replace(tmp, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise SecretResolveError("to_file_failed") from None
+
+
+def secret_error_result(exc: Exception, tool: str = "secret_set") -> ToolResult:
     """The tool result of a ``SecretResolveError``: its fixed class text, nothing else."""
-    text = f"secret_set failed: {exc}"
+    text = f"{tool} failed: {exc}"
     return ToolResult(
         text=text, structured={"error": {"kind": "secret", "message": text}}, is_error=True
     )

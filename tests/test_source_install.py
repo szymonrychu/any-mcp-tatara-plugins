@@ -41,6 +41,7 @@ ALL_TOOLS = sorted(
         "orchestrator_chat_react",
         "orchestrator_chat_status",
         "orchestrator_activity",
+        "orchestrator_secret_set",
         *(f"orchestrator_{r.name}" for r in ADMIN_TOOLS),
     ]
 )

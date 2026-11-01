@@ -62,7 +62,9 @@ async def descriptions(**overrides: Any) -> dict[str, str]:
 
 
 async def test_lists_all_tools() -> None:
-    every = ALL_TOOLS | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS}
+    every = (
+        ALL_TOOLS | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS} | {"orchestrator_secret_set"}
+    )
     assert set(await descriptions()) == every
     assert set(await descriptions(hive=False)) == every
 
@@ -512,7 +514,7 @@ async def test_no_io_at_load() -> None:
     )
     await plugin.setup()
     specs = await plugin.load_tools()
-    assert len(specs) == len(ALL_TOOLS) + len(ADMIN_TOOLS) == 16 + len(ADMIN_TOOLS)
+    assert len(specs) == len(ALL_TOOLS) + len(ADMIN_TOOLS) + 1  # + the local secret_set
 
 
 async def test_scale_and_init_tools_match_contracts() -> None:
