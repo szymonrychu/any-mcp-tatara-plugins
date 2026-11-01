@@ -132,7 +132,7 @@ class OrchestratorPlugin(Plugin):
             written: dict[str, Any] = {"written": False}
             value = credential.get("value") if isinstance(credential, dict) else None
             if isinstance(value, str) and value:
-                write_credential(target, value)
+                write_credential(target, value, overwrite)
                 written = {
                     "written": True,
                     "key": str(credential.get("key", "")),
