@@ -38,6 +38,8 @@ from .tasks import task_tools
 __all__ = ["OrchestratorPlugin"]
 
 _BASE = "/agent/v1"
+# The relay sends the upstream's next page cursor in this header (also on an empty page).
+_NEXT_CURSOR_HEADER = "x-next-before-id"
 _ERROR_LIMIT = 1000
 # Mirrors HANDOVER_MARGIN_PCT in agents-orchestrator dispatcher/hive.py (handover_threshold).
 _HANDOVER_MARGIN_PCT = 15
@@ -106,6 +108,8 @@ class OrchestratorPlugin(Plugin):
     async def call(self, call: ToolCall) -> RawResponse:
         if call.spec.name in SPEC_TOOLS:
             refuse_protected_values(call.arguments.get("spec"))
+        if call.spec.name == "history_search":
+            return self._with_cursor(await super().call(call))
         if call.spec.name not in CREDENTIAL_TOOLS:
             return await super().call(call)
         # An issued credential goes to ``to_file`` or nowhere: it never reaches the result.
@@ -142,6 +146,21 @@ class OrchestratorPlugin(Plugin):
                 }
             body["to_file"] = written
         return RawResponse.from_value(body)
+
+    @staticmethod
+    def _with_cursor(raw: RawResponse) -> RawResponse:
+        """Wrap a history page as ``{sessions, next_before_id}``: the relay filters a page after
+        paging, so a page can be short or empty while more rows exist, and the cursor travels
+        only in a response header."""
+        try:
+            page = raw.json()
+        except ValueError:
+            return raw
+        if not isinstance(page, list):
+            return raw
+        header = next((v for k, v in raw.headers.items() if k.lower() == _NEXT_CURSOR_HEADER), "")
+        cursor = int(header) if header.isascii() and header.isdigit() else None
+        return RawResponse.from_value({"sessions": page, "next_before_id": cursor})
 
     async def on_error(self, call: ToolCall, exc: Exception) -> ToolResult:
         if isinstance(exc, SecretResolveError):

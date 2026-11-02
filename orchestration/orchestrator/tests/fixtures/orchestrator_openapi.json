@@ -33,6 +33,21 @@
     "operationId": "get_command_agent_v1_admin_commands__command_id__get"
    }
   },
+  "/agent/v1/admin/history/sessions": {
+   "get": {
+    "operationId": "admin_history_get_sessions"
+   }
+  },
+  "/agent/v1/admin/history/sessions/{session_id}": {
+   "get": {
+    "operationId": "admin_history_get_sessions_session_id"
+   }
+  },
+  "/agent/v1/admin/history/sessions/{session_id}/records": {
+   "get": {
+    "operationId": "admin_history_get_sessions_session_id_records"
+   }
+  },
   "/agent/v1/admin/presets": {
    "get": {
     "operationId": "list_presets_agent_v1_admin_presets_get"
