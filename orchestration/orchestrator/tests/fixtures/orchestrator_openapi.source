@@ -1,1 +1,1 @@
-agents-orchestrator branch superleader-admin 461a85d, openapi.json, /agent/v1 paths only (method + operationId). Refresh by re-running the filter after the orchestrator OpenAPI changes.
+agents-orchestrator branch hive-self-close 2736bda, openapi.json, /agent/v1 paths only (method + operationId). Refresh by re-running the filter after the orchestrator OpenAPI changes.

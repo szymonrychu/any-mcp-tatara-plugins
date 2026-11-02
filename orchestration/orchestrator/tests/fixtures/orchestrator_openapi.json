@@ -200,6 +200,11 @@
     "operationId": "rooms_agent_v1_chat_rooms_get"
    }
   },
+  "/agent/v1/close": {
+   "post": {
+    "operationId": "close_agent_v1_close_post"
+   }
+  },
   "/agent/v1/init-scripts": {
    "get": {
     "operationId": "init_scripts_get_agent_v1_init_scripts_get"
