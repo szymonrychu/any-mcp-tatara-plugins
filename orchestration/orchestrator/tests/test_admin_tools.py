@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from any_mcp.context import PluginContext
+from any_mcp.response import DEFAULT_BUDGET_CHARS
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.admin import ADMIN_TOOLS
@@ -199,7 +200,7 @@ def test_history_search_schema() -> None:
     assert row.schema["additionalProperties"] is False
     assert props["q"]["minLength"] == 3
     assert props["regex"]["type"] == "boolean"
-    assert props["limit"] == {"type": "integer", "minimum": 1, "maximum": 200}
+    assert props["limit"] == {"type": "integer", "minimum": 1, "maximum": 200, "default": 20}
     assert row.query == ("q", "regex", "from", "to", "preset", "session", "limit", "before_id")
     assert "case-insensitive" in row.description
     assert "Postgres regex" in row.description
@@ -291,6 +292,51 @@ async def test_history_search_exposes_the_next_cursor() -> None:
     assert first.structured == {"sessions": [{"id": 40, "slug": "a"}], "next_before_id": 37}
     assert empty.structured == {"sessions": [], "next_before_id": 12}
     assert last.structured == {"sessions": [{"id": 9, "slug": "b"}], "next_before_id": None}
+
+
+def _large_hit(i: int) -> dict[str, Any]:
+    """A realistic search hit: a ~420 char session summary and 3 snippets of ~250 chars."""
+    return {
+        "id": 1000 - i,
+        "slug": f"fix-traceback-{i:04d}",
+        "preset": "superleader",
+        "summary": f"session {i}: " + "investigated a Traceback in the reconciler loop " * 8,
+        "snippets": [f"snippet {i}.{n}: " + "Traceback (most recent call) " * 8 for n in range(3)],
+    }
+
+
+async def test_history_search_cursor_survives_the_output_budget() -> None:
+    # any-mcp cuts a tool text at DEFAULT_BUDGET_CHARS (any_mcp.response, 40000 chars, the
+    # `response_budget_chars` default of the config) and keeps the head, so the cursor must come
+    # first. A 50-hit page of ~1.2k chars per hit is ~60k chars and loses its tail.
+    page = [_large_hit(i) for i in range(50)]
+    assert len(json.dumps(page, separators=(",", ":"))) > DEFAULT_BUDGET_CHARS
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=page, headers={"X-Next-Before-Id": "951"})
+
+    async with harness(handler) as h:
+        res = await h.call("history_search", {"q": "Traceback", "limit": 50})
+    assert "[truncated:" in res.text
+    assert res.text.startswith('{"next_before_id":951,"sessions":[')
+
+
+async def test_history_search_default_page_fits_the_output_budget() -> None:
+    seen: list[str] = []
+    page = [_large_hit(i) for i in range(20)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.query.decode())
+        return httpx.Response(200, json=page, headers={"X-Next-Before-Id": "981"})
+
+    async with harness(handler) as h:
+        res = await h.call("history_search", {"q": "Traceback"})
+        explicit = await h.call("history_search", {"q": "Traceback", "limit": 7})
+    assert seen == ["q=Traceback&limit=20", "q=Traceback&limit=7"]
+    assert "[truncated:" not in res.text
+    assert res.structured is not None and res.structured["next_before_id"] == 981
+    assert len(res.structured["sessions"]) == 20
+    assert explicit.structured is not None
 
 
 async def test_history_search_ignores_a_malformed_cursor() -> None:

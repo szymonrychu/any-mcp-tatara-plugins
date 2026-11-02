@@ -90,6 +90,7 @@ _HISTORY_MATCH = (
     "q (3 to 500 characters) is a case-insensitive substring match, or with regex true a "
     "Postgres regex."
 )
+HISTORY_SEARCH_LIMIT = 20  # default page: 20 hits stay well inside the 40000 char tool budget
 _HISTORY_Q = {"type": "string", "minLength": 3, "maxLength": 500}
 _HISTORY_REGEX = {"type": "boolean", "description": "Treat q as a Postgres regex."}
 _HISTORY_BEFORE = {
@@ -455,8 +456,8 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         + _HISTORY_MATCH
         + " Filters: from and to (ISO 8601 timestamps), preset, session (id or slug part). "
         "Each entry shows the session and, for a q search, up to 3 snippets. A page holds up to "
-        "limit sessions (default 50, at most 200). The answer is "
-        "{sessions: [...], next_before_id}: a page can be short or even empty while more "
+        "limit sessions (default 20, at most 200). The answer is "
+        "{next_before_id, sessions: [...]}: a page can be short or even empty while more "
         "sessions exist, so while next_before_id is not null call again with it as before_id; "
         "null means the end." + _HISTORY_SCOPE,
         schema(
@@ -467,7 +468,7 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
                 "to": _str("Only sessions up to this ISO 8601 timestamp."),
                 "preset": _str("Preset id or name."),
                 "session": _str("Session id (uuid) or part of the slug."),
-                "limit": _LIMIT,
+                "limit": {**_LIMIT, "default": HISTORY_SEARCH_LIMIT},
                 "before_id": _HISTORY_BEFORE,
             }
         ),
