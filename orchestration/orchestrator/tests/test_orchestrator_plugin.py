@@ -39,6 +39,7 @@ ALL_TOOLS = {
     "orchestrator_chat_send",
     "orchestrator_chat_react",
     "orchestrator_chat_status",
+    "orchestrator_self_close",
     "orchestrator_activity",
 }
 TASK_TOOLS = {
@@ -283,6 +284,59 @@ async def test_chat_errors_surface_code() -> None:
             assert result.structured["error"]["status"] == status
             assert TOKEN not in result.text
             assert TOKEN not in json.dumps(result.structured)
+
+
+async def test_self_close_calls_route() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(202, json={"close_requested_at": "2026-11-02T10:00:00Z"})
+
+    async with harness(handler) as h:
+        result = await h.call("orchestrator_self_close", {"reason": "done"})
+    assert not result.is_error, result.text
+    assert seen == [("POST", "/agent/v1/close", {"reason": "done"})]
+
+
+async def test_self_close_errors_surface_code() -> None:
+    errors = {"not_leader": 403, "own_session": 422, "session_deleting": 409}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        code = json.loads(request.content)["reason"]
+        return httpx.Response(
+            errors[code], json={"error": {"code": code, "message": f"refused, token {TOKEN}"}}
+        )
+
+    async with harness(handler) as h:
+        for code, status in errors.items():
+            result = await h.call("orchestrator_self_close", {"reason": code})
+            assert result.is_error
+            assert code in result.text
+            assert f"HTTP {status}" in result.text
+            assert result.structured is not None
+            assert result.structured["error"]["code"] == code
+            assert result.structured["error"]["status"] == status
+            assert TOKEN not in result.text
+            assert TOKEN not in json.dumps(result.structured)
+
+
+async def test_self_close_description() -> None:
+    d = (await descriptions())["orchestrator_self_close"]
+    assert "Leader only" in d
+    assert "last action of your turn" in d
+    assert "cancel it from the web UI" in d
+    assert "Superleader sessions cannot close themselves" in d
+
+
+async def test_self_close_schema_bounds() -> None:
+    async with harness(ok) as h:
+        tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_self_close")
+    schema = tool["inputSchema"]
+    assert schema["properties"]["reason"]["minLength"] == 1
+    assert schema["properties"]["reason"]["maxLength"] == 500
+    assert schema["required"] == ["reason"]
+    assert schema["additionalProperties"] is False
 
 
 async def test_chat_descriptions() -> None:

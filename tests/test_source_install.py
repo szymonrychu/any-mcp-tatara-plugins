@@ -40,6 +40,7 @@ ALL_TOOLS = sorted(
         "orchestrator_chat_send",
         "orchestrator_chat_react",
         "orchestrator_chat_status",
+        "orchestrator_self_close",
         "orchestrator_activity",
         "orchestrator_secret_set",
         "orchestrator_task_create",

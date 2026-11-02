@@ -3,7 +3,8 @@
 Besides leadership, locks, scale, init scripts, session messaging and the activity pull, it
 offers four chat tools (``chat_rooms``, ``chat_send``, ``chat_react``, ``chat_status``) through
 which a session leader reaches the user's chat. A chat room and a session are bound one to one: a
-session talks in at most one room, its bound room.
+session talks in at most one room, its bound room. ``self_close`` lets the leader of a finished
+session ask the orchestrator to discard it once every agent is idle.
 """
 
 from __future__ import annotations
@@ -283,6 +284,18 @@ class OrchestratorPlugin(Plugin):
                 "reason, room_id, created_at and sent_at. Only your own session's sends are "
                 "known."
             ),
+            "self_close": (
+                "Close this session for good once your work is done and reported. Leader only. "
+                "Call it as the last action of your turn, after your final answer or "
+                "orchestrator_chat_send has delivered the result: the session is discarded about "
+                "30 seconds after every agent is idle and no message is queued, exactly like a "
+                "user discard (workspace cache and transcripts are saved by the session's cache "
+                "rules; agents, workspace volume and chat history are deleted). A message that "
+                "arrives before then delays the close; the user can cancel it from the web UI. "
+                "reason (1 to 500 characters) tells the user why; it is shown with the pending "
+                "close. Superleader sessions cannot close themselves. Calling it again keeps the "
+                "first request."
+            ),
         }
 
     async def load_tools(self) -> Sequence[ToolSpec]:
@@ -432,5 +445,14 @@ class OrchestratorPlugin(Plugin):
                 "GET",
                 "/chat/messages/{id}",
                 _schema({"id": {"type": "string", "description": "The s<n> of a send."}}, ["id"]),
+            ),
+            spec(
+                "self_close",
+                "POST",
+                "/close",
+                _schema(
+                    {"reason": {"type": "string", "minLength": 1, "maxLength": 500}}, ["reason"]
+                ),
+                "*",
             ),
         ]
