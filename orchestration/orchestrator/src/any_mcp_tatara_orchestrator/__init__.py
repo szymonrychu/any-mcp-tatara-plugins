@@ -19,7 +19,7 @@ from any_mcp.http import execute_binding
 from any_mcp.plugin import Plugin
 from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSpec
 
-from .admin import ADMIN_TOOLS
+from .admin import ADMIN_TOOLS, HISTORY_SEARCH_LIMIT
 from .secrets_local import (
     CREDENTIAL_TOOLS,
     OVERWRITE_SCHEMA,
@@ -109,6 +109,7 @@ class OrchestratorPlugin(Plugin):
         if call.spec.name in SPEC_TOOLS:
             refuse_protected_values(call.arguments.get("spec"))
         if call.spec.name == "history_search":
+            call = call.with_arguments({"limit": HISTORY_SEARCH_LIMIT, **call.arguments})
             return self._with_cursor(await super().call(call))
         if call.spec.name not in CREDENTIAL_TOOLS:
             return await super().call(call)
@@ -149,9 +150,10 @@ class OrchestratorPlugin(Plugin):
 
     @staticmethod
     def _with_cursor(raw: RawResponse) -> RawResponse:
-        """Wrap a history page as ``{sessions, next_before_id}``: the relay filters a page after
+        """Wrap a history page as ``{next_before_id, sessions}``: the relay filters a page after
         paging, so a page can be short or empty while more rows exist, and the cursor travels
-        only in a response header."""
+        only in a response header. The cursor goes first: any-mcp cuts an over-budget tool text
+        at its tail, and a cursor behind a large page would be cut with it."""
         try:
             page = raw.json()
         except ValueError:
@@ -160,7 +162,7 @@ class OrchestratorPlugin(Plugin):
             return raw
         header = next((v for k, v in raw.headers.items() if k.lower() == _NEXT_CURSOR_HEADER), "")
         cursor = int(header) if header.isascii() and header.isdigit() else None
-        return RawResponse.from_value({"sessions": page, "next_before_id": cursor})
+        return RawResponse.from_value({"next_before_id": cursor, "sessions": page})
 
     async def on_error(self, call: ToolCall, exc: Exception) -> ToolResult:
         if isinstance(exc, SecretResolveError):

@@ -45,9 +45,11 @@ allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset
 `schedule_run_get`, `schedule_preview`), chats (`chat_admin_rooms`, `chat_room_settings`,
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`) and the history of discarded sessions
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
-tool). `history_search` answers `{sessions, next_before_id}`: the relay filters a page after
-paging, so a page can be short or empty while more sessions exist, and `next_before_id` (the
-relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id` of the next call. A
+tool). `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
+the relay filters a page after paging, so a page can be short or empty while more sessions exist,
+and `next_before_id` (the relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id`
+of the next call. The cursor comes first because any-mcp cuts an over-budget tool text (40000
+chars) at its tail, and a full page of hits can exceed it. A
 contract test pins every row's method and path to `tests/fixtures/orchestrator_openapi.json`.
 
 Preset and session tools refuse a protected env entry that carries a `value` (use `secret_set`).
