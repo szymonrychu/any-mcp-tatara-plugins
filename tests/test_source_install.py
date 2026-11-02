@@ -42,6 +42,16 @@ ALL_TOOLS = sorted(
         "orchestrator_chat_status",
         "orchestrator_activity",
         "orchestrator_secret_set",
+        "orchestrator_task_create",
+        "orchestrator_task_update",
+        "orchestrator_task_list",
+        "orchestrator_task_get",
+        "orchestrator_task_comment",
+        "orchestrator_decision_ask",
+        "orchestrator_decision_withdraw",
+        "orchestrator_todo_set",
+        "orchestrator_todo_update",
+        "orchestrator_session_labels_set",
         *(f"orchestrator_{r.name}" for r in ADMIN_TOOLS),
     ]
 )
@@ -80,14 +90,14 @@ def test_orchestrator_distribution_metadata():
     project = tomllib.loads((PLUGIN / "pyproject.toml").read_text())
     meta = project["project"]
     assert meta["name"] == DIST
-    assert meta["version"] == "0.6.1"
+    assert meta["version"] == "0.9.0"
     assert meta["requires-python"] == ">=3.12"
     assert meta["dependencies"] == ["any-mcp"]
     assert meta["entry-points"] == {"any_mcp.plugins": {"orchestrator": ENTRY_POINT}}
     assert project["build-system"]["build-backend"] == "hatchling.build"
 
     installed = distribution(DIST)
-    assert installed.version == "0.6.1"
+    assert installed.version == "0.9.0"
     assert installed.requires == ["any-mcp"]
     points = installed.entry_points.select(group="any_mcp.plugins")
     assert [(ep.name, ep.value) for ep in points] == [("orchestrator", ENTRY_POINT)]

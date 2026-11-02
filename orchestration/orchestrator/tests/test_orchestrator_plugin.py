@@ -41,6 +41,18 @@ ALL_TOOLS = {
     "orchestrator_chat_status",
     "orchestrator_activity",
 }
+TASK_TOOLS = {
+    "orchestrator_task_create",
+    "orchestrator_task_update",
+    "orchestrator_task_list",
+    "orchestrator_task_get",
+    "orchestrator_task_comment",
+    "orchestrator_decision_ask",
+    "orchestrator_decision_withdraw",
+    "orchestrator_todo_set",
+    "orchestrator_todo_update",
+    "orchestrator_session_labels_set",
+}
 
 
 def harness(handler: Any, **overrides: Any) -> PluginHarness:
@@ -63,7 +75,10 @@ async def descriptions(**overrides: Any) -> dict[str, str]:
 
 async def test_lists_all_tools() -> None:
     every = (
-        ALL_TOOLS | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS} | {"orchestrator_secret_set"}
+        ALL_TOOLS
+        | TASK_TOOLS
+        | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS}
+        | {"orchestrator_secret_set"}
     )
     assert set(await descriptions()) == every
     assert set(await descriptions(hive=False)) == every
@@ -514,7 +529,9 @@ async def test_no_io_at_load() -> None:
     )
     await plugin.setup()
     specs = await plugin.load_tools()
-    assert len(specs) == len(ALL_TOOLS) + len(ADMIN_TOOLS) + 1  # + the local secret_set
+    assert (
+        len(specs) == len(ALL_TOOLS) + len(TASK_TOOLS) + len(ADMIN_TOOLS) + 1
+    )  # + the local secret_set
 
 
 async def test_scale_and_init_tools_match_contracts() -> None:
@@ -561,3 +578,230 @@ async def test_scale_and_init_tools_match_contracts() -> None:
         seen.clear()
         r = await h.call("orchestrator_init_scripts_edit", {"scripts": ["echo b"]})
         assert seen == [("PUT", {"scripts": ["echo b"]})]
+
+
+async def tools_by_name() -> dict[str, dict[str, Any]]:
+    async with harness(ok) as h:
+        return {t["name"]: t for t in await h.list_tools()}
+
+
+async def test_task_tools_registered_with_names() -> None:
+    tools = await tools_by_name()
+    assert set(tools) >= TASK_TOOLS
+    for name in TASK_TOOLS:
+        assert tools[name]["description"].strip()
+
+
+async def test_schemas_strict_and_enums() -> None:
+    tools = await tools_by_name()
+    for name in TASK_TOOLS:
+        schema = tools[name]["inputSchema"]
+        assert schema["type"] == "object" and schema["additionalProperties"] is False, name
+        out = tools[name]["outputSchema"]
+        assert out["type"] == "object" and "url" in out["properties"], name
+    statuses = ["idea", "open", "in_progress", "done", "dropped"]
+    update = tools["orchestrator_task_update"]["inputSchema"]["properties"]
+    assert update["status"]["enum"] == statuses
+    listing = tools["orchestrator_task_list"]["inputSchema"]["properties"]
+    assert listing["status"]["enum"] == ["active", "done", "dropped", "all"]
+    assert tools["orchestrator_task_create"]["inputSchema"]["properties"]["kind"]["enum"] == [
+        "idea",
+        "task",
+    ]
+    create = tools["orchestrator_task_create"]["inputSchema"]
+    assert create["required"] == ["title", "client_key"]
+    todo = tools["orchestrator_todo_update"]["inputSchema"]["properties"]
+    assert todo["status"]["enum"] == ["todo", "inprogress", "done"]
+    items = tools["orchestrator_todo_set"]["inputSchema"]["properties"]["items"]
+    assert items["maxItems"] == 100
+    assert items["items"]["additionalProperties"] is False
+    assert items["items"]["properties"]["status"]["enum"] == ["todo", "inprogress", "done"]
+
+
+async def test_annotations_per_tool() -> None:
+    tools = await tools_by_name()
+
+    def hints(name: str) -> dict[str, Any]:
+        return tools[f"orchestrator_{name}"]["annotations"]
+
+    for name in ("task_list", "task_get"):
+        assert hints(name)["readOnlyHint"] is True
+        assert hints(name)["openWorldHint"] is False
+    for name in ("task_update", "todo_set", "todo_update", "decision_withdraw"):
+        assert hints(name)["idempotentHint"] is True, name
+        assert hints(name)["destructiveHint"] is False, name
+        assert hints(name).get("readOnlyHint") is not True, name
+    for name in ("task_create", "task_comment", "decision_ask"):
+        assert hints(name)["idempotentHint"] is False, name
+        assert hints(name)["readOnlyHint"] is False, name
+    for name in TASK_TOOLS:
+        assert tools[name]["annotations"]["openWorldHint"] is False, name
+
+
+async def test_task_get_path_and_method() -> None:
+    seen: list[tuple[str, str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, request.url.query.decode(), body))
+        return httpx.Response(200, json={"key": "T-5", "url": "https://x/tasks/T-5"})
+
+    options = [
+        {"label": "a", "recommended": True},
+        {"label": "b", "description": "d", "recommended": False},
+    ]
+    calls: list[tuple[str, dict[str, Any], tuple[str, str, str, Any]]] = [
+        ("task_get", {"key": "T-5"}, ("GET", "/agent/v1/tasks/T-5", "", None)),
+        (
+            "task_create",
+            {"title": "t", "client_key": "k1", "assignee_self": True},
+            (
+                "POST",
+                "/agent/v1/tasks",
+                "",
+                {"title": "t", "client_key": "k1", "assignee_self": True},
+            ),
+        ),
+        (
+            "task_update",
+            {"key": "T-5", "version": 3, "status": "done"},
+            ("PATCH", "/agent/v1/tasks/T-5", "", {"version": 3, "status": "done"}),
+        ),
+        (
+            "task_list",
+            {"status": "active", "mine": True, "label": ["a", "b"]},
+            ("GET", "/agent/v1/tasks", "status=active&mine=true&label=a&label=b", None),
+        ),
+        (
+            "task_comment",
+            {"key": "T-5", "body": "hi"},
+            ("POST", "/agent/v1/tasks/T-5/comments", "", {"body": "hi"}),
+        ),
+        (
+            "decision_ask",
+            {"key": "T-5", "question": "q?", "options": options, "client_key": "d1"},
+            (
+                "POST",
+                "/agent/v1/tasks/T-5/decisions",
+                "",
+                {"question": "q?", "options": options, "client_key": "d1"},
+            ),
+        ),
+        (
+            "decision_withdraw",
+            {"key": "T-5", "decision_id": "7"},
+            ("POST", "/agent/v1/tasks/T-5/decisions/7/withdraw", "", None),
+        ),
+        (
+            "todo_set",
+            {"key": "T-5", "items": [{"text": "x"}]},
+            ("PUT", "/agent/v1/tasks/T-5/todo", "", {"items": [{"text": "x"}]}),
+        ),
+        (
+            "todo_update",
+            {"key": "T-5", "item_id": "2", "status": "done"},
+            ("PATCH", "/agent/v1/tasks/T-5/todo/2", "", {"status": "done"}),
+        ),
+        (
+            "session_labels_set",
+            {"labels": ["a", "b"]},
+            ("PUT", "/agent/v1/session/labels", "", {"labels": ["a", "b"]}),
+        ),
+    ]
+    async with harness(handler) as h:
+        for tool, args, expected in calls:
+            seen.clear()
+            result = await h.call(f"orchestrator_{tool}", args)
+            assert not result.is_error, (tool, result.text)
+            assert seen == [expected], tool
+
+
+async def test_decision_ask_requires_one_recommended_schema_hint() -> None:
+    tools = await tools_by_name()
+    ask = tools["orchestrator_decision_ask"]
+    options = ask["inputSchema"]["properties"]["options"]
+    assert options["minItems"] == 2 and options["maxItems"] == 8
+    assert options["items"]["required"] == ["label", "recommended"]
+    assert options["items"]["additionalProperties"] is False
+    assert "exactly one" in options["description"].lower()
+    assert "recommended" in options["description"]
+    assert ask["inputSchema"]["required"] == ["key", "question", "options"]
+
+
+async def test_409_maps_to_is_error() -> None:
+    cases = {
+        ("task_update", 412): "stale_version",
+        ("decision_withdraw", 409): "already_answered",
+        ("task_get", 404): "not_found",
+    }
+
+    by_path = {
+        "/agent/v1/tasks/T-1": {"PATCH": (412, "stale_version"), "GET": (404, "not_found")},
+        "/agent/v1/tasks/T-1/decisions/3/withdraw": {"POST": (409, "already_answered")},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        status, code = by_path[request.url.path][request.method]
+        return httpx.Response(status, json={"error": {"code": code, "message": "no"}})
+
+    args = {
+        "task_update": {"key": "T-1", "version": 1},
+        "decision_withdraw": {"key": "T-1", "decision_id": "3"},
+        "task_get": {"key": "T-1"},
+    }
+    async with harness(handler) as h:
+        for (tool, status), code in cases.items():
+            result = await h.call(f"orchestrator_{tool}", args[tool])
+            assert result.is_error, tool
+            assert code in result.text and f"HTTP {status}" in result.text, tool
+            assert result.structured is not None
+            assert result.structured["error"]["code"] == code
+            assert result.structured["error"]["status"] == status
+
+
+async def test_description_mentions_lifecycle() -> None:
+    tools = await tools_by_name()
+    for name in ("task_create", "task_update", "todo_set", "todo_update"):
+        text = tools[f"orchestrator_{name}"]["description"].lower()
+        assert "create or claim" in text and "todo" in text and "close" in text, name
+    ask = tools["orchestrator_decision_ask"]["description"].lower()
+    assert "chat message" in ask and "link" in ask and "task_get" in ask
+
+
+async def test_labels_param_schema_pattern_and_max() -> None:
+    tools = await tools_by_name()
+    pattern = "^[a-z0-9-_.:]{1,40}$"
+    for name in ("task_create", "task_update", "session_labels_set"):
+        labels = tools[f"orchestrator_{name}"]["inputSchema"]["properties"]["labels"]
+        assert labels["type"] == "array" and labels["maxItems"] == 20, name
+        assert labels["items"]["type"] == "string" and labels["items"]["maxLength"] == 40, name
+        assert "pattern" not in labels["items"], name
+        assert pattern in labels["description"], name
+    assert tools["orchestrator_session_labels_set"]["inputSchema"]["required"] == ["labels"]
+    one = tools["orchestrator_task_list"]["inputSchema"]["properties"]["label"]
+    assert one["items"]["maxLength"] == 40 and pattern in one["description"]
+
+
+async def test_task_list_labels_mine_enum() -> None:
+    tools = await tools_by_name()
+    labels = tools["orchestrator_task_list"]["inputSchema"]["properties"]["labels"]
+    assert labels["enum"] == ["mine"]
+
+
+async def test_session_labels_set_tool_path_method_and_annotations() -> None:
+    tools = await tools_by_name()
+    tool = tools["orchestrator_session_labels_set"]
+    assert tool["annotations"]["idempotentHint"] is True
+    assert tool["annotations"]["destructiveHint"] is False
+    assert tool["annotations"]["openWorldHint"] is False
+    assert "own session" in tool["description"].lower()
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"session_id": "s-1", "labels": ["a"]})
+
+    async with harness(handler) as h:
+        result = await h.call("orchestrator_session_labels_set", {"labels": ["A "]})
+    assert not result.is_error, result.text
+    assert seen == [("PUT", "/agent/v1/session/labels", {"labels": ["A "]})]

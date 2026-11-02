@@ -32,6 +32,7 @@ from .secrets_local import (
     validate_to_file,
     write_credential,
 )
+from .tasks import task_tools
 
 __all__ = ["OrchestratorPlugin"]
 
@@ -316,6 +317,7 @@ class OrchestratorPlugin(Plugin):
         ]
         return [
             *admin,
+            *task_tools(base),
             local_secret_tool(base, self.cfg.token, self.cfg.session, self.ctx),
             spec("me", "GET", "/me", _schema({})),
             spec(
