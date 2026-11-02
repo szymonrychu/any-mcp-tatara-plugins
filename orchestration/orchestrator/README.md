@@ -42,9 +42,13 @@ allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset
 `webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
 `webhook_template_preview`), schedules (`schedules_list`, `schedule_get`, `schedule_create`,
 `schedule_update`, `schedule_delete`, `schedule_run`, `schedule_runs`, `schedule_runs_all`,
-`schedule_run_get`, `schedule_preview`) and chats (`chat_admin_rooms`, `chat_room_settings`,
-`chat_rules`, `chat_rule_add`, `chat_rule_delete`). A contract test pins every row's method and
-path to `tests/fixtures/orchestrator_openapi.json`.
+`schedule_run_get`, `schedule_preview`), chats (`chat_admin_rooms`, `chat_room_settings`,
+`chat_rules`, `chat_rule_add`, `chat_rule_delete`) and the history of discarded sessions
+(`history_search`, `history_get`, `history_records`; read and search only, there is no delete
+tool). `history_search` answers `{sessions, next_before_id}`: the relay filters a page after
+paging, so a page can be short or empty while more sessions exist, and `next_before_id` (the
+relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id` of the next call. A
+contract test pins every row's method and path to `tests/fixtures/orchestrator_openapi.json`.
 
 Preset and session tools refuse a protected env entry that carries a `value` (use `secret_set`).
 
@@ -96,7 +100,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.6.1
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.11.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

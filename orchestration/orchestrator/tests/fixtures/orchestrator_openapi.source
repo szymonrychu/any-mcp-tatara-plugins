@@ -1,1 +1,1 @@
-agents-orchestrator branch hive-self-close 2736bda, openapi.json, /agent/v1 paths only (method + operationId). Refresh by re-running the filter after the orchestrator OpenAPI changes.
+agents-orchestrator branch session-history 78923eac1cdbf5550fe6607a02747a2898633420, openapi.json, /agent/v1 paths only (method + operationId). Only the three /agent/v1/admin/history routes were taken from it; the rest is unchanged from hive-self-close 2736bda (the history branch predates /agent/v1/close, which is kept). Refresh by re-running the filter after the orchestrator OpenAPI changes.

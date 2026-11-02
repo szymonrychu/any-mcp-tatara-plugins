@@ -81,6 +81,22 @@ _SCHED_FIELDS = {
     "timezone": _NULL_STR,
 }
 _ROOM_ID = _str("Chat room id.")
+_HISTORY_SESSION_ID = _str("Session id (uuid) of the discarded session.")
+_HISTORY_SCOPE = (
+    " Results only cover sessions on presets you may manage; history is read-only, a stored "
+    "session is deleted by the user in the web UI."
+)
+_HISTORY_MATCH = (
+    "q (3 to 500 characters) is a case-insensitive substring match, or with regex true a "
+    "Postgres regex."
+)
+_HISTORY_Q = {"type": "string", "minLength": 3, "maxLength": 500}
+_HISTORY_REGEX = {"type": "boolean", "description": "Treat q as a Postgres regex."}
+_HISTORY_BEFORE = {
+    "type": "integer",
+    "minimum": 1,
+    "description": "Return rows with an id below this one (the next_before_id of a page).",
+}
 
 ADMIN_TOOLS: tuple[AdminRow, ...] = (
     # presets
@@ -429,5 +445,69 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         f"{_A}/chats/rules/{{rule_id}}",
         "Delete a chat rule.",
         schema({"rule_id": _str("Rule id.")}, ("rule_id",)),
+    ),
+    # history
+    AdminRow(
+        "history_search",
+        "GET",
+        f"{_A}/history/sessions",
+        "List or search the stored history of discarded sessions, newest first. "
+        + _HISTORY_MATCH
+        + " Filters: from and to (ISO 8601 timestamps), preset, session (id or slug part). "
+        "Each entry shows the session and, for a q search, up to 3 snippets. A page holds up to "
+        "limit sessions (default 50, at most 200). The answer is "
+        "{sessions: [...], next_before_id}: a page can be short or even empty while more "
+        "sessions exist, so while next_before_id is not null call again with it as before_id; "
+        "null means the end." + _HISTORY_SCOPE,
+        schema(
+            {
+                "q": _HISTORY_Q,
+                "regex": _HISTORY_REGEX,
+                "from": _str("Only sessions from this ISO 8601 timestamp on."),
+                "to": _str("Only sessions up to this ISO 8601 timestamp."),
+                "preset": _str("Preset id or name."),
+                "session": _str("Session id (uuid) or part of the slug."),
+                "limit": _LIMIT,
+                "before_id": _HISTORY_BEFORE,
+            }
+        ),
+        None,
+        ("q", "regex", "from", "to", "preset", "session", "limit", "before_id"),
+    ),
+    AdminRow(
+        "history_get",
+        "GET",
+        f"{_A}/history/sessions/{{session_id}}",
+        "Show one stored session of the history: provenance, preset, timestamps and record "
+        "counts." + _HISTORY_SCOPE,
+        schema({"session_id": _HISTORY_SESSION_ID}, ("session_id",)),
+    ),
+    AdminRow(
+        "history_records",
+        "GET",
+        f"{_A}/history/sessions/{{session_id}}/records",
+        "Page the stored records (chat events, commands and so on) of one session in id order. "
+        "Filter by kind and by text: "
+        + _HISTORY_MATCH
+        + " Page forward with after_id (the last id seen) or backward with before_id."
+        + _HISTORY_SCOPE,
+        schema(
+            {
+                "session_id": _HISTORY_SESSION_ID,
+                "kind": _str("Only records of this kind."),
+                "q": _HISTORY_Q,
+                "regex": _HISTORY_REGEX,
+                "before_id": _HISTORY_BEFORE,
+                "after_id": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Return rows with an id above this one.",
+                },
+                "limit": _LIMIT,
+            },
+            ("session_id",),
+        ),
+        None,
+        ("kind", "q", "regex", "before_id", "after_id", "limit"),
     ),
 )

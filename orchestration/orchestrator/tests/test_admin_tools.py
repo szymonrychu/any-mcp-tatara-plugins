@@ -32,6 +32,7 @@ EXPECTED = {
     "schedule_get", "schedule_create", "schedule_update", "schedule_delete", "schedule_run",
     "schedule_runs", "schedule_runs_all", "schedule_run_get", "schedule_preview",
     "chat_admin_rooms", "chat_room_settings", "chat_rules", "chat_rule_add", "chat_rule_delete",
+    "history_search", "history_get", "history_records",
 }  # fmt: skip
 
 
@@ -170,3 +171,146 @@ async def test_unknown_field_is_rejected() -> None:
         res = await h.call("preset_create", {"name": "a", "spec": {}, "password": "x"})
         assert res.is_error
     assert seen == []
+
+
+def rows_by_name() -> dict[str, Any]:
+    return {r.name: r for r in ADMIN_TOOLS}
+
+
+def test_history_rows_present() -> None:
+    assert {"history_search", "history_get", "history_records"} <= set(rows_by_name())
+
+
+def test_history_has_no_delete() -> None:
+    # Q6: history is read and search only; deleting a stored session is for the user.
+    assert "history_delete" not in rows_by_name()
+    for r in ADMIN_TOOLS:
+        if r.path.startswith("/admin/history"):
+            assert r.method == "GET", r.name
+    for path, methods in OPENAPI["paths"].items():
+        if "/admin/history" in path:
+            assert set(methods) == {"get"}, path
+
+
+def test_history_search_schema() -> None:
+    row = rows_by_name()["history_search"]
+    props = row.schema["properties"]
+    assert set(props) == {"q", "regex", "from", "to", "preset", "session", "limit", "before_id"}
+    assert row.schema["additionalProperties"] is False
+    assert props["q"]["minLength"] == 3
+    assert props["regex"]["type"] == "boolean"
+    assert props["limit"] == {"type": "integer", "minimum": 1, "maximum": 200}
+    assert row.query == ("q", "regex", "from", "to", "preset", "session", "limit", "before_id")
+    assert "case-insensitive" in row.description
+    assert "Postgres regex" in row.description
+    assert "next_before_id" in row.description
+
+
+def test_history_records_schema() -> None:
+    row = rows_by_name()["history_records"]
+    props = row.schema["properties"]
+    assert set(props) == {"session_id", "kind", "q", "regex", "before_id", "after_id", "limit"}
+    assert row.schema["additionalProperties"] is False
+    assert props["q"]["minLength"] == 3
+    assert props["limit"] == {"type": "integer", "minimum": 1, "maximum": 200}
+    assert row.query == ("kind", "q", "regex", "before_id", "after_id", "limit")
+
+
+def test_history_get_requires_id() -> None:
+    for name in ("history_get", "history_records"):
+        row = rows_by_name()[name]
+        assert row.schema["required"][0] == "session_id", name
+        assert row.schema["properties"]["session_id"]["description"] == (
+            "Session id (uuid) of the discarded session."
+        )
+
+
+def test_history_descriptions_scope_results_to_manageable_presets() -> None:
+    for name in ("history_search", "history_get", "history_records"):
+        assert "may manage" in rows_by_name()[name].description, name
+
+
+async def test_history_rows_call_their_routes() -> None:
+    seen: list[tuple[str, str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.url.query.decode()))
+        return httpx.Response(200, json=[])
+
+    sid = "6f1c1c0e-0000-4000-8000-000000000001"
+    calls = [
+        (
+            "history_search",
+            {"q": "deploy", "regex": False, "preset": "web", "limit": 20, "before_id": 9},
+            (
+                "GET",
+                "/agent/v1/admin/history/sessions",
+                "q=deploy&regex=false&preset=web&limit=20&before_id=9",
+            ),
+        ),
+        (
+            "history_get",
+            {"session_id": sid},
+            ("GET", f"/agent/v1/admin/history/sessions/{sid}", ""),
+        ),
+        (
+            "history_records",
+            {"session_id": sid, "kind": "event", "after_id": 0, "limit": 5},
+            (
+                "GET",
+                f"/agent/v1/admin/history/sessions/{sid}/records",
+                "kind=event&after_id=0&limit=5",
+            ),
+        ),
+    ]
+    async with harness(handler) as h:
+        for name, args, want in calls:
+            seen.clear()
+            res = await h.call(name, args)
+            assert not res.is_error, (name, res.text)
+            assert seen == [want], name
+
+
+async def test_history_search_exposes_the_next_cursor() -> None:
+    # Ruling S-R1: the relay sends the upstream cursor in X-Next-Before-Id, also for a short or
+    # empty page; the tool shows it as next_before_id so the caller can keep paging.
+    pages = [
+        ([{"id": 40, "slug": "a"}], {"X-Next-Before-Id": "37"}),
+        ([], {"X-Next-Before-Id": "12"}),
+        ([{"id": 9, "slug": "b"}], {}),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body, headers = pages.pop(0)
+        return httpx.Response(200, json=body, headers=headers)
+
+    async with harness(handler) as h:
+        first = await h.call("history_search", {"q": "abc"})
+        empty = await h.call("history_search", {"q": "abc", "before_id": 37})
+        last = await h.call("history_search", {"q": "abc", "before_id": 12})
+    assert first.structured == {"sessions": [{"id": 40, "slug": "a"}], "next_before_id": 37}
+    assert empty.structured == {"sessions": [], "next_before_id": 12}
+    assert last.structured == {"sessions": [{"id": 9, "slug": "b"}], "next_before_id": None}
+
+
+async def test_history_search_ignores_a_malformed_cursor() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[], headers={"X-Next-Before-Id": "nope"})
+
+    async with harness(handler) as h:
+        res = await h.call("history_search", {})
+    assert res.structured == {"sessions": [], "next_before_id": None}
+
+
+async def test_history_get_and_records_keep_their_answer_shape() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/records"):
+            return httpx.Response(200, json=[{"id": 1, "kind": "event"}])
+        return httpx.Response(200, json={"slug": "s"})
+
+    sid = "6f1c1c0e-0000-4000-8000-000000000001"
+    async with harness(handler) as h:
+        got = await h.call("history_get", {"session_id": sid})
+        recs = await h.call("history_records", {"session_id": sid})
+    assert got.structured == {"slug": "s"}
+    assert recs.structured == [{"id": 1, "kind": "event"}]
