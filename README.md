@@ -21,6 +21,8 @@ plugin's `tests/`.
 
 ## Development
 
+Run `pre-commit install` once per clone to enable the gitleaks hook.
+
 Python 3.12, uv and the tasks are pinned in `.mise.toml`:
 
     mise run install   # uv sync of every workspace member and the dev group
