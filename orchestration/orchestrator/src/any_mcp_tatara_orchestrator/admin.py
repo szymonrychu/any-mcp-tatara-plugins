@@ -454,7 +454,8 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "List or search the stored history of discarded sessions, newest first. "
         + _HISTORY_MATCH
         + " Filters: from and to (ISO 8601 timestamps), preset, session (id or slug part). "
-        "Each entry shows the session and, for a q search, up to 3 snippets. The answer is "
+        "Each entry shows the session and, for a q search, up to 3 snippets. A page holds up to "
+        "limit sessions (default 50, at most 200). The answer is "
         "{sessions: [...], next_before_id}: a page can be short or even empty while more "
         "sessions exist, so while next_before_id is not null call again with it as before_id; "
         "null means the end." + _HISTORY_SCOPE,

@@ -47,8 +47,8 @@ allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
 tool). `history_search` answers `{sessions, next_before_id}`: the relay filters a page after
 paging, so a page can be short or empty while more sessions exist, and `next_before_id` (the
-relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id` of the next call. A contract test pins every row's method and
-path to `tests/fixtures/orchestrator_openapi.json`.
+relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id` of the next call. A
+contract test pins every row's method and path to `tests/fixtures/orchestrator_openapi.json`.
 
 Preset and session tools refuse a protected env entry that carries a `value` (use `secret_set`).
 
