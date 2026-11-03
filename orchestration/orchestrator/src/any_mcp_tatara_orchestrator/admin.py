@@ -12,9 +12,36 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-__all__ = ["ADMIN_TOOLS", "AdminRow", "schema"]
+__all__ = ["ADMIN_TOOLS", "AdminRow", "schema", "summarize_presets"]
 
 _A = "/admin"
+
+
+# Spec keys kept in the presets_list summary; kube_access, session_messaging and docker are
+# privilege flags (absent means false), inactivity is shown only when set.
+_FLAGS = ("kube_access", "session_messaging", "docker")
+
+
+def summarize_presets(presets: list[Any]) -> list[Any]:
+    """Compact presets_list answer: the full specs of all presets exceed the 40000 char tool
+    output budget, so each preset keeps its name, labels, superleader_manageable (when the
+    upstream sends it) and the privilege flags of its spec; preset_get shows one in full."""
+    out: list[Any] = []
+    for preset in presets:
+        if not isinstance(preset, dict):
+            out.append(preset)
+            continue
+        spec = preset.get("spec")
+        spec = spec if isinstance(spec, dict) else {}
+        row: dict[str, Any] = {"name": preset.get("name"), "labels": preset.get("labels", [])}
+        if "superleader_manageable" in preset:
+            row["superleader_manageable"] = preset["superleader_manageable"]
+        for flag in _FLAGS:
+            row[flag] = spec.get(flag) is True
+        if spec.get("inactivity") is not None:
+            row["inactivity"] = spec["inactivity"]
+        out.append(row)
+    return out
 
 
 def schema(properties: dict[str, Any], required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -109,7 +136,12 @@ _HISTORY_BEFORE = {
 
 ADMIN_TOOLS: tuple[AdminRow, ...] = (
     # presets
-    AdminRow("presets_list", "GET", f"{_A}/presets", "List the presets."),
+    AdminRow(
+        "presets_list",
+        "GET",
+        f"{_A}/presets",
+        "List the presets: name, labels and privilege flags; use preset_get for the full spec.",
+    ),
     AdminRow(
         "preset_get",
         "GET",
