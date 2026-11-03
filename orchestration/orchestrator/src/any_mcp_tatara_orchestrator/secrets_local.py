@@ -52,7 +52,7 @@ TO_FILE_SCHEMA = {
 OVERWRITE_SCHEMA = {"type": "boolean", "description": "Replace an existing to_file target."}
 
 # Tools whose ``spec`` input may declare env variables; a protected one never carries a value.
-SPEC_TOOLS = frozenset({"preset_create", "preset_replace", "session_create"})
+SPEC_TOOLS = frozenset({"preset_create", "preset_replace", "preset_patch", "session_create"})
 
 
 def refuse_protected_values(spec: object) -> None:

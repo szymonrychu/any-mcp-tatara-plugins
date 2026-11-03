@@ -36,7 +36,7 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
 orchestrator refuses them unless the caller is a superleader session and renders them into the
 allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
-`preset_replace`, `preset_delete`, `preset_copy`), sessions (`session_get`, `session_create`,
+`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`), sessions (`session_get`, `session_create`,
 `session_discard`, `session_restart`, `agent_restart`, `command_get`), webhooks (`webhooks_list`,
 `webhook_get_meta`, `webhook_create`, `webhook_update`, `webhook_clone`, `webhook_rotate`,
 `webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
@@ -102,7 +102,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.11.2
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.12.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081
