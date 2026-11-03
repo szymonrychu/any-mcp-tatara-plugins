@@ -90,6 +90,15 @@ _PATCH_SPEC = {
     "session_messaging, docker, discard_hook_url, wrapper.permission_mode, "
     "wrapper.permissions) may only move toward safe.",
 }
+_PATCH_SPEC_SESSION = {
+    **_PATCH_SPEC,
+    "description": "JSON merge patch (RFC 7396) of the session's stored spec: objects merge, "
+    "null deletes a key, arrays replace. Keys you leave out are kept, protected variables "
+    "included. Never put a protected value here: set it with secret_set. A leader may only "
+    "lower usage_quota and shorten inactivity limits on its own session; human-only fields "
+    "(kube_access, session_messaging, docker, discard_hook_url, wrapper.permission_mode, "
+    "wrapper.permissions) may only move toward safe.",
+}
 _FILTERS = {
     "type": "object",
     "properties": {"allow": {"type": "array"}, "deny": {"type": "array"}},
@@ -207,8 +216,22 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "session_get",
         "GET",
         f"{_A}/sessions/{{slug}}",
-        "Show a session by slug, with its agents.",
+        "Show a session by slug, with its agents. A superleader reads its own or a manageable "
+        "session, any other leader its own.",
         schema({"slug": _SLUG}, ("slug",)),
+    ),
+    AdminRow(
+        "session_patch",
+        "PATCH",
+        f"{_A}/sessions/{{slug}}",
+        "Change part of a live session's spec (JSON merge patch, RFC 7396). A superleader may "
+        "patch its own or any manageable session, any other leader only its own. The change "
+        "is applied when the pods are replaced, once the session is idle; the source preset "
+        "is never written. Arrays replace whole. replicas, max_replicas, static, workdir, "
+        "pvc_size and cache cannot change on a live session. Example: "
+        '{"slug": "my-hive", "spec": {"usage_quota": {"five_hour_pct": 50}}}.',
+        schema({"slug": _SLUG, "spec": _PATCH_SPEC_SESSION}, ("slug", "spec")),
+        "*",
     ),
     AdminRow(
         "session_create",

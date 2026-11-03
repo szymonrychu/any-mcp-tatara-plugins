@@ -36,7 +36,7 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
 orchestrator refuses them unless the caller is a superleader session and renders them into the
 allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
-`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`), sessions (`session_get`, `session_create`,
+`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`), sessions (`session_get`, `session_patch`, `session_create`,
 `session_discard`, `session_restart`, `agent_restart`, `command_get`), webhooks (`webhooks_list`,
 `webhook_get_meta`, `webhook_create`, `webhook_update`, `webhook_clone`, `webhook_rotate`,
 `webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
@@ -53,6 +53,16 @@ chars) at its tail, and a full page of hits can exceed it. A
 contract test pins every row's method and path to `tests/fixtures/orchestrator_openapi.json`.
 
 Preset and session tools refuse a protected env entry that carries a `value` (use `secret_set`).
+
+`session_get` and `session_patch` (`GET` and `PATCH /agent/v1/admin/sessions/{slug}`) are also
+rendered for every session that is not a superleader, which may read and patch only its own
+session: the orchestrator's gate refuses any other slug and any caller that is not the leader.
+`session_patch` takes `slug` and `spec`, an RFC 7396 merge patch of the live session's stored spec
+(arrays replace whole, `null` deletes a key); it is applied when the pods are replaced, once the
+session is idle, and never writes the source preset. A leader may only lower `usage_quota` and
+shorten `inactivity` limits on its own session, human-only fields only move toward safe, and
+`replicas`, `max_replicas`, `static`, `workdir`, `pvc_size` and `cache` cannot change on a live
+session.
 
 Local tool `orchestrator_secret_set(preset, name, from_file | from_env | from_command)`: the value
 is resolved in the plugin process (file capped at 64 KiB, an env var of the pod, or a command run
@@ -102,7 +112,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.13.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.14.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

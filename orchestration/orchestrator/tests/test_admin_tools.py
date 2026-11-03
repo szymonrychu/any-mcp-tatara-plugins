@@ -27,8 +27,9 @@ CONFIG: dict[str, Any] = {
 EXPECTED = {
     "presets_list", "preset_get", "preset_create", "preset_replace", "preset_patch",
     "preset_delete",
-    "preset_copy", "session_get", "session_create", "session_discard", "session_restart",
-    "agent_restart", "command_get", "webhooks_list", "webhook_get_meta", "webhook_create",
+    "preset_copy", "session_get", "session_patch", "session_create", "session_discard",
+    "session_restart", "agent_restart", "command_get", "webhooks_list", "webhook_get_meta",
+    "webhook_create",
     "webhook_update", "webhook_clone", "webhook_rotate", "webhook_delete", "webhook_filters_set",
     "webhook_events", "webhook_event", "webhook_template_preview", "schedules_list",
     "schedule_get", "schedule_create", "schedule_update", "schedule_delete", "schedule_run",
@@ -126,6 +127,16 @@ async def test_rows_call_their_routes() -> None:
                 "/agent/v1/admin/presets/web",
                 "",
                 {"spec": {"usage_quota": {"five_hour_pct": 80}}},
+            ),
+        ),
+        (
+            "session_patch",
+            {"slug": "s", "spec": {"inactivity": {"close_seconds": 3600}, "labels": None}},
+            (
+                "PATCH",
+                "/agent/v1/admin/sessions/s",
+                "",
+                {"spec": {"inactivity": {"close_seconds": 3600}, "labels": None}},
             ),
         ),
         (
