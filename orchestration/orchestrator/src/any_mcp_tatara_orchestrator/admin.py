@@ -55,6 +55,14 @@ _SPEC = {
     "description": "Session spec. A protected env entry never carries a value here: set it "
     "with secret_set.",
 }
+_PATCH_SPEC = {
+    "type": "object",
+    "description": "JSON merge patch (RFC 7396) of the stored spec: objects merge, null deletes "
+    "a key, arrays replace. Keys you leave out are kept, protected variables included. Never "
+    "put a protected value here: set it with secret_set. Human-only fields (kube_access, "
+    "session_messaging, docker, discard_hook_url, wrapper.permission_mode, "
+    "wrapper.permissions) may only move toward safe.",
+}
 _FILTERS = {
     "type": "object",
     "properties": {"allow": {"type": "array"}, "deny": {"type": "array"}},
@@ -126,6 +134,24 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "Replace a preset (name and spec). A protected entry sent without a value keeps its "
         "stored value; one left out is removed.",
         schema({"ref": _REF, "name": {"type": "string"}, "spec": _SPEC}, ("ref", "name")),
+        "*",
+    ),
+    AdminRow(
+        "preset_patch",
+        "PATCH",
+        f"{_A}/presets/{{ref}}",
+        "Change part of a preset (name, labels, spec) by id or name. Prefer this over "
+        "preset_replace: read-modify-write is not needed. Example: "
+        '{"ref": "webhook", "spec": {"usage_quota": {"five_hour_pct": 80}}}.',
+        schema(
+            {
+                "ref": _REF,
+                "name": {"type": "string"},
+                "labels": {"type": "array", "items": {"type": "string"}},
+                "spec": _PATCH_SPEC,
+            },
+            ("ref",),
+        ),
         "*",
     ),
     AdminRow(

@@ -25,7 +25,8 @@ CONFIG: dict[str, Any] = {
     "slug": "my-hive",
 }
 EXPECTED = {
-    "presets_list", "preset_get", "preset_create", "preset_replace", "preset_delete",
+    "presets_list", "preset_get", "preset_create", "preset_replace", "preset_patch",
+    "preset_delete",
     "preset_copy", "session_get", "session_create", "session_discard", "session_restart",
     "agent_restart", "command_get", "webhooks_list", "webhook_get_meta", "webhook_create",
     "webhook_update", "webhook_clone", "webhook_rotate", "webhook_delete", "webhook_filters_set",
@@ -116,6 +117,16 @@ async def test_rows_call_their_routes() -> None:
             "preset_create",
             {"name": "web", "spec": {"image": "x"}},
             ("POST", "/agent/v1/admin/presets", "", {"name": "web", "spec": {"image": "x"}}),
+        ),
+        (
+            "preset_patch",
+            {"ref": "web", "spec": {"usage_quota": {"five_hour_pct": 80}}},
+            (
+                "PATCH",
+                "/agent/v1/admin/presets/web",
+                "",
+                {"spec": {"usage_quota": {"five_hour_pct": 80}}},
+            ),
         ),
         (
             "session_restart",
