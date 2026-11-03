@@ -19,7 +19,7 @@ from any_mcp.http import execute_binding
 from any_mcp.plugin import Plugin
 from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSpec
 
-from .admin import ADMIN_TOOLS, HISTORY_SEARCH_LIMIT
+from .admin import ADMIN_TOOLS, HISTORY_SEARCH_LIMIT, summarize_presets
 from .secrets_local import (
     CREDENTIAL_TOOLS,
     OVERWRITE_SCHEMA,
@@ -41,6 +41,7 @@ _BASE = "/agent/v1"
 # The relay sends the upstream's next page cursor in this header (also on an empty page).
 _NEXT_CURSOR_HEADER = "x-next-before-id"
 _ERROR_LIMIT = 1000
+_PRESETS_READ_CAP = 16 * 1024 * 1024
 # Mirrors HANDOVER_MARGIN_PCT in agents-orchestrator dispatcher/hive.py (handover_threshold).
 _HANDOVER_MARGIN_PCT = 15
 
@@ -111,6 +112,16 @@ class OrchestratorPlugin(Plugin):
         if call.spec.name == "history_search":
             call = call.with_arguments({"limit": HISTORY_SEARCH_LIMIT, **call.arguments})
             return self._with_cursor(await super().call(call))
+        if call.spec.name == "presets_list":
+            # The default read cap is the output budget in bytes; the full list is what exceeds
+            # it, so read it whole (bounded) and shrink it here.
+            raw = await execute_binding(
+                self.ctx.http,
+                call,
+                headers=await self.credentials(call),
+                max_bytes=_PRESETS_READ_CAP,
+            )
+            return self._compact_presets(raw)
         if call.spec.name not in CREDENTIAL_TOOLS:
             return await super().call(call)
         # An issued credential goes to ``to_file`` or nowhere: it never reaches the result.
@@ -147,6 +158,17 @@ class OrchestratorPlugin(Plugin):
                 }
             body["to_file"] = written
         return RawResponse.from_value(body)
+
+    @staticmethod
+    def _compact_presets(raw: RawResponse) -> RawResponse:
+        """Shrink the preset list to summaries: the full specs outgrow the tool output budget."""
+        try:
+            presets = raw.json()
+        except ValueError:
+            return raw
+        if not isinstance(presets, list):
+            return raw
+        return RawResponse.from_value(summarize_presets(presets))
 
     @staticmethod
     def _with_cursor(raw: RawResponse) -> RawResponse:

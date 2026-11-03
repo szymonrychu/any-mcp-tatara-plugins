@@ -371,3 +371,79 @@ async def test_history_get_and_records_keep_their_answer_shape() -> None:
         recs = await h.call("history_records", {"session_id": sid})
     assert got.structured == {"slug": "s"}
     assert recs.structured == [{"id": 1, "kind": "event"}]
+
+
+def _big_preset(i: int) -> dict[str, Any]:
+    return {
+        "id": f"00000000-0000-0000-0000-{i:012d}",
+        "name": f"preset-{i}",
+        "is_default": False,
+        "superleader_manageable": i % 2 == 0,
+        "labels": ["team", f"n{i}"],
+        "spec": {
+            "image": "registry.example/agent:1.2.3",
+            "init_scripts": ["echo " + "x" * 300 for _ in range(3)],
+            "env": {f"VAR_{j}": {"value": "v" * 40} for j in range(8)},
+            "start_prompt": "p" * 400,
+            **({"kube_access": True} if i % 3 == 0 else {}),
+            **({"docker": True} if i % 5 == 0 else {}),
+            **({"session_messaging": True} if i % 7 == 0 else {}),
+            **({"inactivity": {"reminder_seconds": 60, "close_seconds": 600}} if i == 4 else {}),
+        },
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+
+
+async def test_presets_list_is_a_compact_summary_within_the_output_budget() -> None:
+    presets = [_big_preset(i) for i in range(100)]
+    assert len(json.dumps(presets, separators=(",", ":"))) > DEFAULT_BUDGET_CHARS
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert (request.method, request.url.path) == ("GET", "/agent/v1/admin/presets")
+        return httpx.Response(200, json=presets)
+
+    async with harness(handler) as h:
+        res = await h.call("presets_list", {})
+    assert not res.is_error
+    assert "[truncated:" not in res.text
+    assert len(res.text) < DEFAULT_BUDGET_CHARS // 2
+    rows = res.structured
+    assert isinstance(rows, list) and len(rows) == 100
+    assert [r["name"] for r in rows] == [f"preset-{i}" for i in range(100)]
+    for i, row in enumerate(rows):
+        assert row["labels"] == ["team", f"n{i}"]
+        assert row["superleader_manageable"] is (i % 2 == 0)
+        assert row["kube_access"] is (i % 3 == 0)
+        assert row["docker"] is (i % 5 == 0)
+        assert row["session_messaging"] is (i % 7 == 0)
+        assert ("inactivity" in row) is (i == 4)
+        assert set(row) - {"inactivity"} == {
+            "name", "labels", "superleader_manageable", "kube_access", "docker",
+            "session_messaging",
+        }  # fmt: skip
+    assert rows[4]["inactivity"] == {"reminder_seconds": 60, "close_seconds": 600}
+
+
+async def test_presets_list_omits_superleader_manageable_when_absent() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"name": "a", "labels": [], "spec": {}}])
+
+    async with harness(handler) as h:
+        res = await h.call("presets_list", {})
+    assert res.structured == [
+        {
+            "name": "a",
+            "labels": [],
+            "kube_access": False,
+            "session_messaging": False,
+            "docker": False,
+        }
+    ]
+
+
+async def test_presets_list_description_points_to_preset_get() -> None:
+    desc = rows_by_name()["presets_list"].description
+    assert desc == (
+        "List the presets: name, labels and privilege flags; use preset_get for the full spec."
+    )
