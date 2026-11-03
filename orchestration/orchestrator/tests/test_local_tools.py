@@ -226,7 +226,7 @@ async def test_a_failed_file_write_leaks_nothing(tmp_path: Path, monkeypatch: An
 
 
 @pytest.mark.parametrize(
-    "tool", ["preset_create", "preset_replace", "preset_patch", "session_create"]
+    "tool", ["preset_create", "preset_replace", "preset_patch", "session_create", "session_patch"]
 )
 async def test_protected_env_value_is_refused(tool: str) -> None:
     seen: list[httpx.Request] = []
@@ -235,6 +235,7 @@ async def test_protected_env_value_is_refused(tool: str) -> None:
         "preset_replace": {"ref": "n", "name": "n"},
         "preset_patch": {"ref": "n"},
         "session_create": {},
+        "session_patch": {"slug": "n"},
     }[tool]
     spec = {"env": {"TOK": {"protected": True, "value": CANARY}}}
     async with harness(fake(seen)) as h:

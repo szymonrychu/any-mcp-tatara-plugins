@@ -135,6 +135,9 @@
    },
    "get": {
     "operationId": "get_session_agent_v1_admin_sessions__slug__get"
+   },
+   "patch": {
+    "operationId": "patch_session_agent_v1_admin_sessions__slug__patch"
    }
   },
   "/agent/v1/admin/sessions/{slug}/agents/{pod}/restart": {
