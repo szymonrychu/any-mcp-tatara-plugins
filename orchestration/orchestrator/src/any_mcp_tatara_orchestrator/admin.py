@@ -287,6 +287,20 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "Show the status of a restart command you issued.",
         schema({"command_id": _str("Command id.")}, ("command_id",)),
     ),
+    # usage
+    AdminRow(
+        "usage_get",
+        "GET",
+        f"{_A}/usage",
+        "Read-only, superleader-only (any other session is refused with not_superleader). The "
+        "account's current Claude usage, from the same source the orchestrator's usage_quota "
+        "gate uses. The answer is {configured, available, source, updated_at, five_hour, "
+        "seven_day}; five_hour and seven_day are {utilization_pct, resets_at, stale, "
+        "observed_at, source} or null when the window is unknown. available false means the "
+        "usage service is not configured or not reachable (the gate allows starts then). "
+        "stale true means the reading is old; usage only grows until resets_at, so it is a "
+        "lower bound.",
+    ),
     # webhooks
     AdminRow("webhooks_list", "GET", f"{_A}/webhooks/endpoints", "List the webhook endpoints."),
     AdminRow(

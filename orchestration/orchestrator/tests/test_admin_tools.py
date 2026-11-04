@@ -35,7 +35,7 @@ EXPECTED = {
     "schedule_get", "schedule_create", "schedule_update", "schedule_delete", "schedule_run",
     "schedule_runs", "schedule_runs_all", "schedule_run_get", "schedule_preview",
     "chat_admin_rooms", "chat_room_settings", "chat_rules", "chat_rule_add", "chat_rule_delete",
-    "history_search", "history_get", "history_records",
+    "history_search", "history_get", "history_records", "usage_get",
 }  # fmt: skip
 
 
@@ -487,3 +487,36 @@ async def test_session_discard_sends_force_only_when_true() -> None:
             res = await h.call("session_discard", args)
             assert not res.is_error, res.text
             assert seen == [("DELETE", path, query)], args
+
+
+async def test_usage_get_is_a_read_only_superleader_tool() -> None:
+    row = rows_by_name()["usage_get"]
+    assert (row.method, row.path) == ("GET", "/admin/usage")
+    assert row.schema["properties"] == {}
+    text = row.description.lower()
+    assert "read-only" in text and "superleader" in text
+    assert "five_hour" in text and "seven_day" in text
+
+
+async def test_usage_get_calls_the_admin_usage_route() -> None:
+    seen: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        return httpx.Response(200, json={"available": True, "five_hour": {"utilization_pct": 3.0}})
+
+    async with harness(handler) as h:
+        res = await h.call("usage_get", {})
+    assert not res.is_error, res.text
+    assert seen == [("GET", "/agent/v1/admin/usage")]
+
+
+async def test_usage_get_refusal_surfaces_the_code() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = {"error": {"code": "not_superleader", "message": "admin routes need a superleader"}}
+        return httpx.Response(403, json=body)
+
+    async with harness(handler) as h:
+        res = await h.call("usage_get", {})
+    assert res.is_error
+    assert "not_superleader" in res.text
