@@ -458,3 +458,32 @@ async def test_presets_list_description_points_to_preset_get() -> None:
     assert desc == (
         "List the presets: name, labels and privilege flags; use preset_get for the full spec."
     )
+
+
+def test_session_discard_schema_lists_force() -> None:
+    row = rows_by_name()["session_discard"]
+    assert row.schema["properties"]["force"]["type"] == "boolean"
+    assert row.schema["required"] == ["slug"]
+    assert "stuck in phase deleting" in row.description
+    assert "history export may be lost" in row.description
+    assert "workspace PVC is kept" in row.description
+
+
+async def test_session_discard_sends_force_only_when_true() -> None:
+    seen: list[tuple[str, str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.url.query.decode()))
+        return httpx.Response(200, json={})
+
+    path = "/agent/v1/admin/sessions/s1"
+    async with harness(handler) as h:
+        for args, query in (
+            ({"slug": "s1"}, ""),
+            ({"slug": "s1", "force": False}, ""),
+            ({"slug": "s1", "force": True}, "force=true"),
+        ):
+            seen.clear()
+            res = await h.call("session_discard", args)
+            assert not res.is_error, res.text
+            assert seen == [("DELETE", path, query)], args

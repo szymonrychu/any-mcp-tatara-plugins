@@ -246,8 +246,23 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "session_discard",
         "DELETE",
         f"{_A}/sessions/{{slug}}",
-        "Discard a session by slug. Your own session is refused (own_session).",
-        schema({"slug": _SLUG}, ("slug",)),
+        "Discard a session by slug. Your own session is refused (own_session). Set force true "
+        "only when the session has been stuck in phase deleting because a pre-discard hook "
+        "keeps failing: the owed hooks are abandoned (reason forced) and the discard finishes "
+        "at once, so the history export may be lost; the workspace PVC is kept. Without force "
+        "the discard is unchanged.",
+        schema(
+            {
+                "slug": _SLUG,
+                "force": {
+                    "type": "boolean",
+                    "description": "Abandon owed pre-discard hooks and finish the discard "
+                    "at once. Default false; sent only when true.",
+                },
+            },
+            ("slug",),
+        ),
+        query=("force",),
     ),
     AdminRow(
         "session_restart",
