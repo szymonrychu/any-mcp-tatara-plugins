@@ -510,7 +510,8 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "chat_admin_rooms",
         "GET",
         f"{_A}/chats/rooms",
-        "List the chat rooms the connector knows, with their settings.",
+        "List the chat rooms the connector knows, with their settings. The answer also carries a "
+        "pending block: rooms and message requests waiting to be allowed.",
         schema({"kind": {"type": "string"}, "access": {"type": "string"}}),
         None,
         ("kind", "access"),
@@ -530,6 +531,79 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
             },
             ("room_id",),
         ),
+        "*",
+    ),
+    AdminRow(
+        "chat_admin_room",
+        "GET",
+        f"{_A}/chats/rooms/{{room_id}}",
+        "Show one chat room: its settings, members and the access of each member.",
+        schema({"room_id": _ROOM_ID}, ("room_id",)),
+    ),
+    AdminRow(
+        "chat_users",
+        "GET",
+        f"{_A}/chats/users",
+        "Look up people the connector knows by name or Facebook id (q); use the Facebook id "
+        "as the target of chat_open.",
+        schema({"q": _str("Name part or Facebook id."), "limit": _LIMIT}),
+        None,
+        ("q", "limit"),
+    ),
+    AdminRow(
+        "chat_room_allow",
+        "POST",
+        f"{_A}/chats/rooms/{{room_id}}/allow",
+        "Allow a chat room and configure it (preset_id, trigger, agents_may_initiate). Also "
+        "accepts a Messenger message request; an invited room is joined on the next sync.",
+        schema(
+            {
+                "room_id": _ROOM_ID,
+                "preset_id": _NULL_STR,
+                "trigger": {"type": ["string", "null"], "enum": ["all", "mention", None]},
+                "agents_may_initiate": {"type": ["boolean", "null"]},
+            },
+            ("room_id",),
+        ),
+        "*",
+    ),
+    AdminRow(
+        "chat_open",
+        "POST",
+        f"{_A}/chats/room-requests",
+        "Ask to open a Messenger chat with a person (action open) or invite them to a room "
+        "(action invite, with room_id). It asks the user on the taskboard under task_key; "
+        "when you get 'Task T-n was updated', call chat_open_confirm; then poll "
+        "chat_open_status until done; chat_room_allow the new room; session_create + "
+        "session_send to start a session that posts there with chat_send. target is a "
+        "Facebook id, a profile.php?id= link or a name. When several people match, the "
+        "answer has candidates: call again with the chosen Facebook id. A vanity link "
+        "(facebook.com/some.name) cannot be resolved: pass the person's name instead.",
+        schema(
+            {
+                "target": _str("Facebook id, profile link or name of the person."),
+                "task_key": _str("Taskboard task key (T-n) the question is asked under."),
+                "action": {"type": "string", "enum": ["open", "invite"]},
+                "room_id": _str("Room to invite the person to (action invite)."),
+            },
+            ("target", "task_key"),
+        ),
+        "*",
+    ),
+    AdminRow(
+        "chat_open_status",
+        "GET",
+        f"{_A}/chats/room-requests/{{request_id}}",
+        "Show the status of a chat_open request (poll it until done).",
+        schema({"request_id": _str("Room request id.")}, ("request_id",)),
+    ),
+    AdminRow(
+        "chat_open_confirm",
+        "POST",
+        f"{_A}/chats/room-requests/{{request_id}}/confirm",
+        "Confirm a chat_open request after the taskboard decision was answered ('Task T-n was "
+        "updated'). Only the user's answer to the decision the orchestrator attached counts.",
+        schema({"request_id": _str("Room request id.")}, ("request_id",)),
         "*",
     ),
     AdminRow("chat_rules", "GET", f"{_A}/chats/rules", "List the chat allow and deny rules."),

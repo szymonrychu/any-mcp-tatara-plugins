@@ -5,9 +5,34 @@
     "operationId": "activity_agent_v1_activity_get"
    }
   },
+  "/agent/v1/admin/chats/room-requests": {
+   "post": {
+    "operationId": "admin_connector_post_room_requests"
+   }
+  },
+  "/agent/v1/admin/chats/room-requests/{request_id}": {
+   "get": {
+    "operationId": "admin_connector_get_room_requests_request_id"
+   }
+  },
+  "/agent/v1/admin/chats/room-requests/{request_id}/confirm": {
+   "post": {
+    "operationId": "admin_connector_post_room_requests_request_id_confirm"
+   }
+  },
   "/agent/v1/admin/chats/rooms": {
    "get": {
     "operationId": "admin_connector_get_rooms"
+   }
+  },
+  "/agent/v1/admin/chats/rooms/{room_id}": {
+   "get": {
+    "operationId": "admin_connector_get_rooms_room_id"
+   }
+  },
+  "/agent/v1/admin/chats/rooms/{room_id}/allow": {
+   "post": {
+    "operationId": "admin_connector_post_rooms_room_id_allow"
    }
   },
   "/agent/v1/admin/chats/rooms/{room_id}/settings": {
@@ -26,6 +51,11 @@
   "/agent/v1/admin/chats/rules/{rule_id}": {
    "delete": {
     "operationId": "admin_connector_delete_rules_rule_id"
+   }
+  },
+  "/agent/v1/admin/chats/users": {
+   "get": {
+    "operationId": "admin_connector_get_users"
    }
   },
   "/agent/v1/admin/commands/{command_id}": {
