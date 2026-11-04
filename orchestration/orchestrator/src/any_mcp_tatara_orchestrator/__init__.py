@@ -109,6 +109,9 @@ class OrchestratorPlugin(Plugin):
     async def call(self, call: ToolCall) -> RawResponse:
         if call.spec.name in SPEC_TOOLS:
             refuse_protected_values(call.arguments.get("spec"))
+        if call.spec.name == "session_discard" and not call.arguments.get("force"):
+            # Send force only when set: a plain discard keeps the unchanged route.
+            call = call.with_arguments({k: v for k, v in call.arguments.items() if k != "force"})
         if call.spec.name == "history_search":
             call = call.with_arguments({"limit": HISTORY_SEARCH_LIMIT, **call.arguments})
             return self._with_cursor(await super().call(call))
