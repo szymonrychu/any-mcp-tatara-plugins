@@ -150,6 +150,11 @@
     "operationId": "restart_session_agent_v1_admin_sessions__slug__restart_post"
    }
   },
+  "/agent/v1/admin/usage": {
+   "get": {
+    "operationId": "get_usage_agent_v1_admin_usage_get"
+   }
+  },
   "/agent/v1/admin/webhooks/endpoints": {
    "get": {
     "operationId": "admin_webhook_get_endpoints"
