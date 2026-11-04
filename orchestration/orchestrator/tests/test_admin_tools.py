@@ -36,6 +36,8 @@ EXPECTED = {
     "schedule_runs", "schedule_runs_all", "schedule_run_get", "schedule_preview",
     "chat_admin_rooms", "chat_room_settings", "chat_rules", "chat_rule_add", "chat_rule_delete",
     "history_search", "history_get", "history_records", "usage_get",
+    "chat_admin_room", "chat_users", "chat_room_allow", "chat_open", "chat_open_status",
+    "chat_open_confirm",
 }  # fmt: skip
 
 
@@ -520,3 +522,65 @@ async def test_usage_get_refusal_surfaces_the_code() -> None:
         res = await h.call("usage_get", {})
     assert res.is_error
     assert "not_superleader" in res.text
+
+
+def test_chat_open_requires_target_and_task() -> None:
+    row = rows_by_name()["chat_open"]
+    assert (row.method, row.path, row.body) == ("POST", "/admin/chats/room-requests", "*")
+    assert set(row.schema["required"]) == {"target", "task_key"}
+    assert row.schema["properties"]["action"]["enum"] == ["open", "invite"]
+    assert "room_id" in row.schema["properties"]
+
+
+def test_chat_open_description_mentions_confirm_flow() -> None:
+    text = rows_by_name()["chat_open"].description
+    for word in ("chat_open_confirm", "chat_open_status", "chat_room_allow", "session_create",
+                 "session_send", "chat_send", "candidates", "vanity"):  # fmt: skip
+        assert word in text, word
+
+
+def test_chat_admin_rooms_description_mentions_pending() -> None:
+    assert "pending" in rows_by_name()["chat_admin_rooms"].description
+
+
+async def test_chat_admin_rows_call_their_routes() -> None:
+    seen: list[tuple[str, str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, request.url.query.decode(), body))
+        return httpx.Response(200, json={"ok": True})
+
+    base = "/agent/v1/admin/chats"
+    calls = [
+        ("chat_admin_room", {"room_id": "!a:x"}, ("GET", f"{base}/rooms/!a:x", "", None)),
+        ("chat_users", {"q": "ann", "limit": 5}, ("GET", f"{base}/users", "q=ann&limit=5", None)),
+        (
+            "chat_room_allow",
+            {"room_id": "!a:x", "preset_id": "p", "trigger": "mention"},
+            ("POST", f"{base}/rooms/!a:x/allow", "", {"preset_id": "p", "trigger": "mention"}),
+        ),
+        (
+            "chat_open",
+            {"target": "ann", "task_key": "T-1", "action": "open"},
+            (
+                "POST",
+                f"{base}/room-requests",
+                "",
+                {"target": "ann", "task_key": "T-1", "action": "open"},
+            ),
+        ),
+        ("chat_open_status", {"request_id": "7"}, ("GET", f"{base}/room-requests/7", "", None)),
+        (
+            "chat_open_confirm",
+            {"request_id": "7"},
+            ("POST", f"{base}/room-requests/7/confirm", "", {}),
+        ),
+    ]
+    async with harness(handler) as h:
+        for name, args, _ in calls:
+            res = await h.call(name, args)
+            assert not res.is_error, (name, res.text)
+    for (name, _, want), got in zip(calls, seen, strict=True):
+        assert got[:3] == want[:3], name
+        assert (got[3] or {}) == (want[3] or {}), name

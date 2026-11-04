@@ -1,7 +1,7 @@
 # any-mcp-tatara-plugins memory
 
 Lessons that outlive a session. Newest first.
-
+- 2026-11-04 (matrix-integration, T-25): v0.17.0 adds the chat admin rows chat_admin_room, chat_users, chat_room_allow, chat_open, chat_open_status, chat_open_confirm; fixture re-vendored from orchestrator main 542a13f (source recorded as v4.2.0). The planned 0.16.0 was already taken by usage_get, so the bump is 0.17.0. PATCH session_patch stays in the fixture from the unmerged session-spec-patch branch. tests/test_source_install fails locally on a git checkout --detach error unrelated to this change.
 - 2026-11-04 (T-35): v0.16.0 released the `usage_get` superleader tool (GET `/agent/v1/admin/usage`, orchestrator PR #71); version bumped in pyproject.toml, uv.lock and the README source example before tagging. The OpenAPI fixture's usage path was checked against orchestrator main 361fa3d; the PATCH session operation stays from the unmerged session-spec-patch branch (see `.source`), so a whole re-vendor waits for that merge.
 - 2026-11-04 (T-26): v0.15.0 released the `session_discard` `force` parameter; version bumped in pyproject.toml, uv.lock and the README source example before tagging.
 - 2026-11-04 (T-26): `session_discard` takes an optional boolean `force` (query `force=true`, orchestrator >= 4.1.2). `OrchestratorPlugin.call` drops a false `force` so only a true one reaches the route (the framework would otherwise send `force=false`). The tool description says when to use it: session stuck in deleting on a failing pre-discard hook; the history export may be lost, the workspace PVC is kept.
