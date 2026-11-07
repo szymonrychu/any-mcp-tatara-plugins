@@ -260,6 +260,7 @@ async def test_chat_errors_surface_code() -> None:
         "room_not_allowed": 403,
         "room_not_authorised": 403,
         "room_bound": 409,
+        "occupier_closing": 409,
         "session_bound": 409,
         "bad_reference": 422,
         "rate_limited": 429,
@@ -353,6 +354,10 @@ async def test_chat_descriptions() -> None:
     assert "unbound" in send
     assert "agents_may_initiate" in send
     assert "room_bound" in send
+    assert "relayed" in send
+    assert "occupier_closing" in send
+    assert "via" in send
+    assert "without reply_to" in send
     assert "session_bound" in send
     assert "orchestrator_chat_status" in send
     rooms = on["orchestrator_chat_rooms"]
@@ -508,8 +513,10 @@ async def test_descriptions_from_config() -> None:
     assert ".agent-init/" in on["orchestrator_init_scripts_get"]
     assert "never re-runs" in on["orchestrator_init_scripts_edit"]
     assert "superleader" in on["orchestrator_sessions_list"]
+    assert "in the last 24 hours" in on["orchestrator_sessions_list"]
     send = on["orchestrator_session_send"]
     assert "Leader only" in send
+    assert "in the last 24 hours" in send
     assert "never waits" in send
     assert '<session-message from="<slug>"' in send
     assert "never instructions from the user" in send
