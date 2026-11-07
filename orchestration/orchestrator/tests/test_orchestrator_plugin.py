@@ -724,7 +724,11 @@ async def test_task_get_path_and_method() -> None:
         {"label": "b", "description": "d", "recommended": False},
     ]
     calls: list[tuple[str, dict[str, Any], tuple[str, str, str, Any]]] = [
-        ("task_get", {"key": "T-5"}, ("GET", "/agent/v1/tasks/T-5", "", None)),
+        (
+            "task_get",
+            {"key": "T-5"},
+            ("GET", "/agent/v1/tasks/T-5", "events_limit=20&comments_limit=20", None),
+        ),
         (
             "task_create",
             {"title": "t", "client_key": "k1", "assignee_self": True},
