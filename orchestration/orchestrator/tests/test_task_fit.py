@@ -6,7 +6,13 @@ import copy
 import json
 from typing import Any
 
+import httpx
+import jsonschema
+import pytest
+
 from any_mcp.response import DEFAULT_BUDGET_CHARS
+from any_mcp.testing import PluginHarness
+from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.fit import MIN_KEEP, fit_task, measure, summarize_tasks
 
 URL = "https://lab.example.test/tasks/T-19"
@@ -244,3 +250,121 @@ def test_summaries_are_bounded() -> None:
 
 def test_summaries_pass_other_shapes_through() -> None:
     assert summarize_tasks({"key": "T-5", "url": URL}) == {"key": "T-5", "url": URL}
+
+
+CONFIG: dict[str, Any] = {
+    "base_url": "http://orch.test:8081",
+    "token": "s3cr3t-token-value",
+    "session": "s-1",
+    "agent": "agent-0",
+    "slug": "my-hive",
+}
+READ_CAP = DEFAULT_BUDGET_CHARS * 4 + 1  # any-mcp's default HTTP read cap in bytes
+TASK_CALLS = [
+    ("task_get", {"key": "T-19"}),
+    ("task_create", {"title": "t", "client_key": "k"}),
+    ("task_update", {"key": "T-19", "version": 57, "status": "done"}),
+    ("task_comment", {"key": "T-19", "body": "hi"}),
+    ("todo_set", {"key": "T-19", "items": [{"text": "x"}]}),
+    ("todo_update", {"key": "T-19", "item_id": "2", "status": "done"}),
+]
+
+
+def harness(answer: Any, seen: list[str] | None = None) -> PluginHarness:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request.url.query.decode())
+        return httpx.Response(200, json=answer)
+
+    return PluginHarness(
+        OrchestratorPlugin,
+        config=CONFIG,
+        name="orchestrator",
+        transport=httpx.MockTransport(handler),
+    )
+
+
+async def call_checked(h: PluginHarness, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Call through the real pipeline and assert the answer fits and validates."""
+    schemas = {t["name"]: t["outputSchema"] for t in await h.list_tools() if "outputSchema" in t}
+    res = await h.call(f"orchestrator_{tool}", args)
+    assert not res.is_error, res.text[:300]
+    assert len(res.text) <= DEFAULT_BUDGET_CHARS
+    assert json.loads(res.text) == res.structured
+    jsonschema.validate(res.structured, schemas[f"orchestrator_{tool}"])
+    return res.structured
+
+
+@pytest.mark.parametrize("make", [big_task, t19_like], ids=["265k", "t19"])
+@pytest.mark.parametrize(("tool", "args"), TASK_CALLS, ids=[c[0] for c in TASK_CALLS])
+async def test_every_task_tool_fits_a_task_over_40k(make: Any, tool: str, args: dict) -> None:
+    upstream = make()
+    assert measure(upstream) > T19_CHARS
+    async with harness(upstream) as h:
+        out = await call_checked(h, tool, args)
+    assert all(out[f] == upstream[f] for f in PROTECTED)
+    kept = [e["id"] for e in out["events"]]
+    ids = [e["id"] for e in upstream["events"]]
+    assert kept == ids[len(ids) - len(kept) :]
+    assert out["omitted"]["events"] == len(ids) - len(kept)
+    assert out["omitted"]["comments"] == len(upstream["comments"]) - len(out["comments"])
+
+
+async def test_body_over_the_default_read_cap_is_read_whole() -> None:
+    upstream = big_task()
+    assert len(json.dumps(upstream).encode()) > READ_CAP
+    async with harness(upstream) as h:
+        out = await call_checked(h, "task_get", {"key": "T-19"})
+    assert out["omitted"]["events"] == 400
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        (
+            "decision_ask",
+            {
+                "key": "T-19",
+                "question": "q?",
+                "options": [
+                    {"label": "a", "recommended": True},
+                    {"label": "b", "recommended": False},
+                ],
+            },
+        ),
+        ("decision_withdraw", {"key": "T-19", "decision_id": "7"}),
+    ],
+)
+async def test_decision_tools_fit_a_huge_context(tool: str, args: dict) -> None:
+    upstream = dict(decision(7, status="open", context=100_000), task_key="T-19", url=URL)
+    async with harness(upstream) as h:
+        out = await call_checked(h, tool, args)
+    assert out["omitted"]["cut"] == 1
+    assert out["url"] == URL and out["task_key"] == "T-19"
+
+
+async def test_small_task_answer_is_unchanged() -> None:
+    upstream = task(events=3)
+    async with harness(upstream) as h:
+        out = await call_checked(h, "task_get", {"key": "T-19"})
+    assert out == upstream
+
+
+async def test_task_list_is_compact_limited_and_pages() -> None:
+    seen: list[str] = []
+    page = {"items": [dict(big_task(), key=f"T-{i}") for i in range(20)], "next_cursor": "c2"}
+    async with harness(page, seen) as h:
+        out = await call_checked(h, "task_list", {})
+        await call_checked(h, "task_list", {"limit": 20, "cursor": "c1", "mine": True})
+    assert seen == ["limit=10", "mine=true&limit=20&cursor=c1"]
+    assert out["next_cursor"] == "c2"
+    assert [r["key"] for r in out["items"]] == [f"T-{i}" for i in range(20)]
+    assert out["items"][0]["events"] == 400
+
+
+async def test_task_list_limit_schema() -> None:
+    async with harness({}) as h:
+        tools = {t["name"]: t for t in await h.list_tools() if "outputSchema" in t}
+    props = tools["orchestrator_task_list"]["inputSchema"]["properties"]
+    assert (props["limit"]["minimum"], props["limit"]["maximum"]) == (1, 20)
+    assert props["cursor"]["type"] == "string"

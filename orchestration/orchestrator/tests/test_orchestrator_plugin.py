@@ -731,7 +731,7 @@ async def test_task_get_path_and_method() -> None:
         (
             "task_list",
             {"status": "active", "mine": True, "label": ["a", "b"]},
-            ("GET", "/agent/v1/tasks", "status=active&mine=true&label=a&label=b", None),
+            ("GET", "/agent/v1/tasks", "status=active&mine=true&label=a&label=b&limit=10", None),
         ),
         (
             "task_comment",

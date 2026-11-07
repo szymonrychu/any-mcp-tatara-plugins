@@ -11,7 +11,40 @@ from typing import Any
 
 from any_mcp.types import HttpBinding, ToolSpec
 
-__all__ = ["task_tools"]
+__all__ = ["FIT_TOOLS", "TASK_LIST_LIMIT", "TASK_LIST_MAX", "task_tools"]
+
+# Tools answering one task (or one decision) that fit.fit_task trims to the output budget.
+FIT_TOOLS = frozenset(
+    {
+        "task_create",
+        "task_update",
+        "task_get",
+        "task_comment",
+        "decision_ask",
+        "decision_withdraw",
+        "todo_set",
+        "todo_update",
+    }
+)
+TASK_LIST_LIMIT = 10
+# 20 bounded summaries stay under the 40000 char budget (fit.summarize_tasks).
+TASK_LIST_MAX = 20
+_TRIMMED = (
+    "A task too large for the tool output budget comes back trimmed: the oldest events, then "
+    "the oldest comments are left out and long texts are cut (marked ...[cut N chars]); "
+    "omitted counts what was left out. The whole task is at url in the web UI."
+)
+_OMITTED = {
+    "type": "object",
+    "description": "Present only when the answer was trimmed to fit the tool output budget.",
+    "properties": {
+        "events": {"type": "integer", "description": "Oldest events left out."},
+        "comments": {"type": "integer", "description": "Oldest comments left out."},
+        "decisions": {"type": "integer", "description": "Oldest closed decisions left out."},
+        "cut": {"type": "integer", "description": "Long texts cut."},
+        "skeleton": {"type": "boolean", "description": "Only the core fields are shown."},
+    },
+}
 
 _BASE = "/agent/v1"
 _TASK_STATUS = ["idea", "open", "in_progress", "done", "dropped"]
@@ -36,12 +69,17 @@ _TASK_OUT = {
         "key": {"type": "string"},
         "version": {"type": "integer"},
         "url": {"type": "string", "description": "Absolute link to the task."},
+        "omitted": _OMITTED,
     },
     "required": ["url"],
 }
 _LIST_OUT = {
     "type": "object",
-    "properties": {"url": {"type": "string", "description": "Link to the task board."}},
+    "properties": {
+        "url": {"type": "string", "description": "Link to the task board."},
+        "items": {"type": "array", "items": {"type": "object"}},
+        "next_cursor": {"type": ["string", "null"]},
+    },
 }
 _LABELS_OUT = {
     "type": "object",
@@ -178,7 +216,10 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "List tasks, blocked ones first. status defaults to active (idea, open, "
             "in_progress). mine: your tasks; waiting: tasks with an open decision; session: "
             "tasks assigned to a session id; label: tasks carrying any of the labels; labels "
-            "mine: tasks matching any label of your own session. " + _LABEL_RULE,
+            "mine: tasks matching any label of your own session. " + _LABEL_RULE + " "
+            "Each task is a summary with counts of its todo items, decisions, comments and "
+            "events; read one in full with task_get. Pages of limit tasks (default 10, at most "
+            "20); pass next_cursor as cursor for the next page.",
             _schema(
                 {
                     "status": {"type": "string", "enum": ["active", "done", "dropped", "all"]},
@@ -191,18 +232,24 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                         "description": f"Match any of these labels. {_LABEL_RULE}",
                     },
                     "labels": {"type": "string", "enum": ["mine"]},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": TASK_LIST_MAX},
+                    "cursor": {
+                        "type": "string",
+                        "description": "next_cursor of the previous page.",
+                    },
                 }
             ),
             _LIST_OUT,
             _hints(read_only=True, idempotent=True),
-            query=("status", "mine", "waiting", "session", "label", "labels"),
+            query=("status", "mine", "waiting", "session", "label", "labels", "limit", "cursor"),
         ),
         spec(
             "task_get",
             "GET",
             "/tasks/{key}",
             "Read one task with its todo list, decisions (including answers), comments and "
-            "events. Use it to read a user's answer after the chat message that links the task.",
+            "events. Use it to read a user's answer after the chat message that links the task. "
+            + _TRIMMED,
             _schema({"key": _KEY}, ("key",)),
             _TASK_OUT,
             _hints(read_only=True, idempotent=True),
