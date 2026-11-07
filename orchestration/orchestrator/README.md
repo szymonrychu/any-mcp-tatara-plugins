@@ -17,7 +17,7 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 |------|-------|
 | `orchestrator_me` | `GET /agent/v1/me` |
 | `orchestrator_activity(agent?, limit?)` | `GET /agent/v1/activity` (query `agent`, a pod name, and `limit` 1..200; what the session's agents did recently, newest last) |
-| `orchestrator_leadership_handover(reason, epoch, to?)` | `POST /agent/v1/leadership/handover` |
+| `orchestrator_leadership_handover(reason, epoch, to?)` | `POST /agent/v1/leadership/handover` (`reason` 1..2000 characters, the state summary) |
 | `orchestrator_lock_claim(paths)` | `POST /agent/v1/locks/claim` |
 | `orchestrator_lock_release(paths)` | `POST /agent/v1/locks/release` |
 | `orchestrator_lock_list` | `GET /agent/v1/locks` |
@@ -100,15 +100,20 @@ refusal codes are `room_not_allowed`, `room_not_authorised`, `bad_reference`, `r
 `not_leader` and `chat_unavailable`. With `hive` true the
 hive tool descriptions start with "You are agent <agent>, one of up to <max_replicas> agents in hive
 <slug>; the workdir is shared."; with `auto_compact_pct` set the handover description advises
-handing over once context passes `auto_compact_pct - 15` percent.
+handing over at a natural boundary once context passes `auto_compact_pct - 15` percent.
 
 Peers' work is never streamed to an agent: it pulls it on demand with `orchestrator_activity`
 (optional `agent` pod name, `limit` 1..200; answers `{"lines": [...]}`, newest last), and the
 `orchestrator_me` description says so. The `orchestrator_leadership_handover` description carries
-the brief-then-handover protocol: when a `handover_due` note names the candidates, the leader briefs
-the chosen successor with `mcp__ccw__send_message(notify_when_idle=true)`, waits for its "ready",
-then calls the tool with `to`, the current epoch and a reason. The requester learns the outcome as
-a keyed `leadership_request` note: applied, or rejected with the reason.
+the voluntary handover protocol: the leader decides when (typically after a `handover_due` note),
+passes `reason` as a state summary of at most 2000 characters, optionally `to` (without it the
+orchestrator picks the best successor: idle, lowest context, no running background agents), and
+reads the epoch from `orchestrator_me`. It applies once the leader's turn has ended and its
+background agents have reported (the answer says `pending`). The leader does not brief the
+successor: the orchestrator sends it the leader's transcript, headed by `reason`. The requester
+learns the outcome as a keyed `leadership_request` note: applied, or rejected with the reason.
+The `orchestrator_me` description tells a member that receives a background-agent notification
+meant for the leader to forward one line to the leader.
 
 ## Configuration
 
@@ -118,7 +123,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.20.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.21.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081
