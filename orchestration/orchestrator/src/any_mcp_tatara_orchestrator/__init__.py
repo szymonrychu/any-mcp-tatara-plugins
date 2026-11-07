@@ -34,7 +34,7 @@ from .secrets_local import (
     validate_to_file,
     write_credential,
 )
-from .tasks import FIT_TOOLS, TASK_LIST_LIMIT, task_tools
+from .tasks import FIT_TOOLS, TASK_LIST_LIMIT, TASK_WINDOW_DEFAULT, task_tools
 
 __all__ = ["OrchestratorPlugin"]
 
@@ -123,6 +123,14 @@ class OrchestratorPlugin(Plugin):
         if call.spec.name == "task_list":
             call = call.with_arguments({"limit": TASK_LIST_LIMIT, **call.arguments})
             return self._fit_tasks(call.spec.name, await self._read_whole(call))
+        if call.spec.name == "task_get":
+            call = call.with_arguments(
+                {
+                    "events_limit": TASK_WINDOW_DEFAULT,
+                    "comments_limit": TASK_WINDOW_DEFAULT,
+                    **call.arguments,
+                }
+            )
         if call.spec.name in FIT_TOOLS:
             return self._fit_tasks(call.spec.name, await self._read_whole(call))
         if call.spec.name not in CREDENTIAL_TOOLS:

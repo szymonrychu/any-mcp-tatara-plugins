@@ -368,3 +368,34 @@ async def test_task_list_limit_schema() -> None:
     props = tools["orchestrator_task_list"]["inputSchema"]["properties"]
     assert (props["limit"]["minimum"], props["limit"]["maximum"]) == (1, 20)
     assert props["cursor"]["type"] == "string"
+
+
+async def test_task_get_sends_window_defaults_and_values() -> None:
+    seen: list[str] = []
+    async with harness(task(events=3), seen) as h:
+        await call_checked(h, "task_get", {"key": "T-19"})
+        await call_checked(
+            h,
+            "task_get",
+            {
+                "key": "T-19",
+                "events_limit": 0,
+                "comments_limit": 5,
+                "events_before": 90,
+                "comments_before": 7,
+            },
+        )
+    assert seen == [
+        "events_limit=20&comments_limit=20",
+        "events_limit=0&events_before=90&comments_limit=5&comments_before=7",
+    ]
+
+
+async def test_task_get_window_schema() -> None:
+    async with harness({}) as h:
+        tools = {t["name"]: t for t in await h.list_tools()}
+    props = tools["orchestrator_task_get"]["inputSchema"]["properties"]
+    for name in ("events_limit", "comments_limit"):
+        assert (props[name]["minimum"], props[name]["maximum"]) == (0, 200)
+    for name in ("events_before", "comments_before"):
+        assert props[name]["minimum"] == 1

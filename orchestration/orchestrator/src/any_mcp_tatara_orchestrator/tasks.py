@@ -11,7 +11,14 @@ from typing import Any
 
 from any_mcp.types import HttpBinding, ToolSpec
 
-__all__ = ["FIT_TOOLS", "TASK_LIST_LIMIT", "TASK_LIST_MAX", "task_tools"]
+__all__ = [
+    "FIT_TOOLS",
+    "TASK_LIST_LIMIT",
+    "TASK_LIST_MAX",
+    "TASK_WINDOW_DEFAULT",
+    "TASK_WINDOW_MAX",
+    "task_tools",
+]
 
 # Tools answering one task (or one decision) that fit.fit_task trims to the output budget.
 FIT_TOOLS = frozenset(
@@ -29,6 +36,8 @@ FIT_TOOLS = frozenset(
 TASK_LIST_LIMIT = 10
 # 20 bounded summaries stay under the 40000 char budget (fit.summarize_tasks).
 TASK_LIST_MAX = 20
+TASK_WINDOW_DEFAULT = 20
+TASK_WINDOW_MAX = 200
 _TRIMMED = (
     "A task too large for the tool output budget comes back trimmed: the oldest events, then "
     "the oldest comments are left out and long texts are cut (marked ...[cut N chars]); "
@@ -99,6 +108,17 @@ def _schema(properties: dict[str, Any], required: tuple[str, ...] = ()) -> dict[
     if required:
         out["required"] = list(required)
     return out
+
+
+def _window(text: str) -> dict[str, Any]:
+    return {"type": "integer", "minimum": 0, "maximum": TASK_WINDOW_MAX, "description": text}
+
+
+_BEFORE = {
+    "type": "integer",
+    "minimum": 1,
+    "description": "Only items with a smaller id: pass the smallest id you hold to page back.",
+}
 
 
 def _labels(text: str) -> dict[str, Any]:
@@ -249,10 +269,22 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "/tasks/{key}",
             "Read one task with its todo list, decisions (including answers), comments and "
             "events. Use it to read a user's answer after the chat message that links the task. "
-            + _TRIMMED,
-            _schema({"key": _KEY}, ("key",)),
+            "Returns the newest 20 events and comments by default; events_total and "
+            "comments_total say how many exist; page back with events_before / comments_before; "
+            "events_limit=0 and comments_limit=0 give the decisions and todo only. " + _TRIMMED,
+            _schema(
+                {
+                    "key": _KEY,
+                    "events_limit": _window("Newest N events; default 20; 0 = none."),
+                    "comments_limit": _window("Newest N comments; default 20; 0 = none."),
+                    "events_before": _BEFORE,
+                    "comments_before": _BEFORE,
+                },
+                ("key",),
+            ),
             _TASK_OUT,
             _hints(read_only=True, idempotent=True),
+            query=("events_limit", "events_before", "comments_limit", "comments_before"),
         ),
         spec(
             "task_comment",
