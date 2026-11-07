@@ -33,6 +33,11 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_chat_status(id)` | `GET /agent/v1/chat/messages/{id}` (delivery status of a send `s<n>`) |
 | `orchestrator_self_close(reason)` | `POST /agent/v1/close` (close the session once idle, leader only) |
 
+Task tools (`tasks.py`): a task or decision answer over the tool output budget (40000 chars) is
+trimmed (oldest events, then oldest comments, long texts cut) and reports what it left out in
+`omitted`; `task_list` answers a summary per task with child counts, `limit` (default 10, at most
+20) and `cursor`.
+
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
 orchestrator refuses them unless the caller is a superleader session and renders them into the
 allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
@@ -113,7 +118,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.18.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.20.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

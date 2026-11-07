@@ -20,6 +20,7 @@ from any_mcp.plugin import Plugin
 from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSpec
 
 from .admin import ADMIN_TOOLS, HISTORY_SEARCH_LIMIT, summarize_presets
+from .fit import fit_task, summarize_tasks
 from .secrets_local import (
     CREDENTIAL_TOOLS,
     OVERWRITE_SCHEMA,
@@ -33,7 +34,7 @@ from .secrets_local import (
     validate_to_file,
     write_credential,
 )
-from .tasks import task_tools
+from .tasks import FIT_TOOLS, TASK_LIST_LIMIT, task_tools
 
 __all__ = ["OrchestratorPlugin"]
 
@@ -41,7 +42,9 @@ _BASE = "/agent/v1"
 # The relay sends the upstream's next page cursor in this header (also on an empty page).
 _NEXT_CURSOR_HEADER = "x-next-before-id"
 _ERROR_LIMIT = 1000
-_PRESETS_READ_CAP = 16 * 1024 * 1024
+# Answers the plugin shrinks itself are read whole, bounded: the default read cap is the output
+# budget in bytes and would cut a larger body into invalid JSON.
+_LARGE_READ_CAP = 16 * 1024 * 1024
 # Mirrors HANDOVER_MARGIN_PCT in agents-orchestrator dispatcher/hive.py (handover_threshold).
 _HANDOVER_MARGIN_PCT = 15
 
@@ -116,15 +119,12 @@ class OrchestratorPlugin(Plugin):
             call = call.with_arguments({"limit": HISTORY_SEARCH_LIMIT, **call.arguments})
             return self._with_cursor(await super().call(call))
         if call.spec.name == "presets_list":
-            # The default read cap is the output budget in bytes; the full list is what exceeds
-            # it, so read it whole (bounded) and shrink it here.
-            raw = await execute_binding(
-                self.ctx.http,
-                call,
-                headers=await self.credentials(call),
-                max_bytes=_PRESETS_READ_CAP,
-            )
-            return self._compact_presets(raw)
+            return self._compact_presets(await self._read_whole(call))
+        if call.spec.name == "task_list":
+            call = call.with_arguments({"limit": TASK_LIST_LIMIT, **call.arguments})
+            return self._fit_tasks(call.spec.name, await self._read_whole(call))
+        if call.spec.name in FIT_TOOLS:
+            return self._fit_tasks(call.spec.name, await self._read_whole(call))
         if call.spec.name not in CREDENTIAL_TOOLS:
             return await super().call(call)
         # An issued credential goes to ``to_file`` or nowhere: it never reaches the result.
@@ -161,6 +161,27 @@ class OrchestratorPlugin(Plugin):
                 }
             body["to_file"] = written
         return RawResponse.from_value(body)
+
+    async def _read_whole(self, call: ToolCall) -> RawResponse:
+        """Read an answer the plugin shrinks itself: the default read cap is the output budget
+        in bytes and would cut it into invalid JSON."""
+        return await execute_binding(
+            self.ctx.http, call, headers=await self.credentials(call), max_bytes=_LARGE_READ_CAP
+        )
+
+    def _fit_tasks(self, name: str, raw: RawResponse) -> RawResponse:
+        """Fit a task answer (or compact a task_list page) into the output budget: the task
+        tools declare output schemas, so any-mcp refuses an over-budget answer instead of
+        cutting it."""
+        try:
+            value = raw.json()
+        except ValueError:
+            return raw
+        if name == "task_list":
+            shaped = summarize_tasks(value)
+        else:
+            shaped = fit_task(value, self.ctx.response_budget_chars)
+        return raw if shaped is value else RawResponse.from_value(shaped)
 
     @staticmethod
     def _compact_presets(raw: RawResponse) -> RawResponse:
