@@ -399,3 +399,15 @@ async def test_task_get_window_schema() -> None:
         assert (props[name]["minimum"], props[name]["maximum"]) == (0, 200)
     for name in ("events_before", "comments_before"):
         assert props[name]["minimum"] == 1
+
+
+async def test_task_get_totals_validate_and_are_declared() -> None:
+    answer = task(events=3) | {"events_total": 3, "comments_total": 0}
+    async with harness(answer) as h:
+        out = await call_checked(h, "task_get", {"key": "T-19"})
+        tools = {t["name"]: t for t in await h.list_tools() if "outputSchema" in t}
+    assert out["events_total"] == 3
+    assert out["comments_total"] == 0
+    props = tools["orchestrator_task_get"]["outputSchema"]["properties"]
+    assert props["events_total"]["type"] == "integer"
+    assert props["comments_total"]["type"] == "integer"

@@ -78,6 +78,8 @@ _TASK_OUT = {
         "key": {"type": "string"},
         "version": {"type": "integer"},
         "url": {"type": "string", "description": "Absolute link to the task."},
+        "events_total": {"type": "integer", "description": "How many events the task has."},
+        "comments_total": {"type": "integer", "description": "How many comments the task has."},
         "omitted": _OMITTED,
     },
     "required": ["url"],
