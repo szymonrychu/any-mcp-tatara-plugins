@@ -431,17 +431,29 @@ async def test_activity_tool_schema_and_description() -> None:
 async def test_handover_description_protocol() -> None:
     text = (await descriptions())["orchestrator_leadership_handover"]
     assert "handover_due" in text
-    assert "mcp__ccw__send_message" in text
-    assert "notify_when_idle" in text
-    assert '"ready"' in text
-    assert "to, the current epoch and a reason" in text
+    assert "2000" in text
+    assert "pending" in text
+    assert "transcript" in text
+    assert "mcp__ccw__send_message" not in text
+    assert '"ready"' not in text
     assert "leadership-request note" in text
-    assert "applied, or rejected with the reason" in text
+    assert "orchestrator_me" in text
     assert "outcome arrives as a hive-state note" not in text
+
+
+async def test_handover_reason_schema() -> None:
+    async with harness(ok) as h:
+        tool = next(
+            t for t in await h.list_tools() if t["name"] == "orchestrator_leadership_handover"
+        )
+    reason = tool["inputSchema"]["properties"]["reason"]
+    assert reason["minLength"] == 1
+    assert reason["maxLength"] == 2000
 
 
 async def test_me_description_points_to_activity() -> None:
     text = (await descriptions())["orchestrator_me"]
+    assert "forwards one line to the leader" in text
     assert "orchestrator_activity" in text
     assert "nothing is streamed" in text
     off = (await descriptions(hive=False))["orchestrator_me"]
@@ -538,16 +550,16 @@ async def test_descriptions_from_config() -> None:
 async def test_handover_threshold_hint() -> None:
     name = "orchestrator_leadership_handover"
     with_pct = (await descriptions(auto_compact_pct=80))[name]
-    assert "hand over instead of compacting once your context passes 65%" in with_pct
-    assert "compacting" not in (await descriptions())[name]
+    assert "hand over at a natural boundary once your context passes 65%" in with_pct
+    assert "natural boundary once your context" not in (await descriptions())[name]
 
 
 async def test_handover_advice_uses_the_floored_threshold() -> None:
     name = "orchestrator_leadership_handover"
     low = (await descriptions(auto_compact_pct=10))[name]
-    assert "hand over instead of compacting once your context passes 1%" in low
+    assert "hand over at a natural boundary once your context passes 1%" in low
     high = (await descriptions(auto_compact_pct=80))[name]
-    assert "hand over instead of compacting once your context passes 65%" in high
+    assert "hand over at a natural boundary once your context passes 65%" in high
 
 
 async def test_error_mapping_redacts_token(caplog: pytest.LogCaptureFixture) -> None:
