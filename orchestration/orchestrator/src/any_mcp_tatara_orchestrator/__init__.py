@@ -313,7 +313,9 @@ class OrchestratorPlugin(Plugin):
                 "List the sessions whose leaders you can message: every other session when your "
                 "session is a superleader, otherwise only the superleader sessions. Each entry has "
                 "the slug, the preset, whether it is a superleader and whether a leader is there "
-                "to receive. A session that messaged you in the last 24 hours can be answered with "
+                "to receive, plus start_state and start_reason (a session whose start_state is "
+                "bootstrap_failed failed to start: read it with orchestrator_session_get). "
+                "A session that messaged you in the last 24 hours can be answered with "
                 "orchestrator_session_send even though it is not listed."
             ),
             "session_send": (
