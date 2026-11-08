@@ -198,6 +198,11 @@
     "operationId": "restart_agent_agent_v1_admin_sessions__slug__agents__pod__restart_post"
    }
   },
+  "/agent/v1/admin/sessions/{slug}/leadership/withdraw": {
+   "post": {
+    "operationId": "withdraw_handover_agent_v1_admin_sessions__slug__leadership_withdraw_post"
+   }
+  },
   "/agent/v1/admin/sessions/{slug}/restart": {
    "post": {
     "operationId": "restart_session_agent_v1_admin_sessions__slug__restart_post"

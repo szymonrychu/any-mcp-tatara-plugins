@@ -42,7 +42,11 @@ Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1
 orchestrator refuses them unless the caller is a superleader session and renders them into the
 allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
 `preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`), sessions (`session_get`, `session_patch`, `session_create`,
-`session_discard`, `session_restart`, `agent_restart`, `command_get`), webhooks (`webhooks_list`,
+`session_discard`, `session_restart`, `agent_restart`, `command_get`), `leadership_withdraw`
+(`POST /agent/v1/admin/sessions/{slug}/leadership/withdraw`, body `{request_id?}`: withdraw one or
+every pending handover request, never the orchestrator's `rollout` request, which is 409
+`rollout_request` by id; the orchestrator also lists it for every hive, whose leader may
+call it on its own slug), webhooks (`webhooks_list`,
 `webhook_get_meta`, `webhook_create`, `webhook_update`, `webhook_clone`, `webhook_rotate`,
 `webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
 `webhook_template_preview`), schedules (`schedules_list`, `schedule_get`, `schedule_create`,
@@ -123,6 +127,8 @@ reads the epoch from `orchestrator_me`. It applies once the leader's turn has en
 background agents have reported (the answer says `pending`). The leader does not brief the
 successor: the orchestrator sends it the leader's transcript, headed by `reason`. The requester
 learns the outcome as a keyed `leadership_request` note: applied, or rejected with the reason.
+Every request has a deadline (the orchestrator's `ORCH_HANDOVER_MAX_WAIT_SECONDS`): past it background agents no longer hold it, and one the leader's turn still holds is
+rejected `expired`; a pending one is cancelled with `orchestrator_leadership_withdraw`.
 The `orchestrator_me` description tells a member that receives a background-agent notification
 meant for the leader to forward one line to the leader.
 
@@ -134,7 +140,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.24.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.25.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

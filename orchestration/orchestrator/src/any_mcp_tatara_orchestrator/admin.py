@@ -285,6 +285,24 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         schema({"slug": _SLUG, "pod": _POD}, ("slug", "pod")),
     ),
     AdminRow(
+        "leadership_withdraw",
+        "POST",
+        f"{_A}/sessions/{{slug}}/leadership/withdraw",
+        "Withdraw a pending leadership handover request so it is never applied: request_id "
+        "(from orchestrator_leadership_handover) withdraws that one, without it every pending "
+        "handover of the session is withdrawn. The orchestrator's own rollout handover request "
+        "is never withdrawn: it stays queued, and by request_id it is 409 rollout_request. "
+        "A session's leader may withdraw on its own slug; "
+        "a superleader on its own or any manageable session. Answers {withdrawn: [ids]}; the "
+        "requester gets the usual leadership-request note (rejected: withdrawn). 409 not_pending "
+        "when the request is already decided.",
+        schema(
+            {"slug": _SLUG, "request_id": {"type": ["integer", "null"], "minimum": 1}},
+            ("slug",),
+        ),
+        "*",
+    ),
+    AdminRow(
         "command_get",
         "GET",
         f"{_A}/commands/{{command_id}}",
