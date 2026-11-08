@@ -217,7 +217,9 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "GET",
         f"{_A}/sessions/{{slug}}",
         "Show a session by slug, with its agents. A superleader reads its own or a manageable "
-        "session, any other leader its own.",
+        "session, any other leader its own. start_state (booting, ready, bootstrap_failed) and "
+        "bootstrap_failures (pod, step, message, redacted log_tail) say why an agent failed to "
+        "start: read them and act without the user.",
         schema({"slug": _SLUG}, ("slug",)),
     ),
     AdminRow(
@@ -270,7 +272,9 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         f"{_A}/sessions/{{slug}}/restart",
         "Restart every agent of a session. Answers command ids; read them with command_get. "
         "Restarting your own session is a self-restart: it has a cooldown (429 "
-        "restart_cooldown, with retry_after) and you get a note when you are back.",
+        "restart_cooldown, with retry_after) and you get a note when you are back. Restarting "
+        "an agent that never bootstrapped reruns the same install and reports a warning; a "
+        "command may end failed with interrupted_by_restart.",
         schema({"slug": _SLUG}, ("slug",)),
     ),
     AdminRow(
