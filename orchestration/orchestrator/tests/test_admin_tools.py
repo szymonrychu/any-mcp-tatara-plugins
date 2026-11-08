@@ -38,6 +38,7 @@ EXPECTED = {
     "history_search", "history_get", "history_records", "usage_get",
     "chat_admin_room", "chat_users", "chat_room_allow", "chat_open", "chat_open_status",
     "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
+    "leadership_withdraw",
 }  # fmt: skip
 # Local handler tools and the upstream route each one POSTs to.
 LOCAL_ROUTES = {
@@ -167,6 +168,16 @@ async def test_rows_call_their_routes() -> None:
             "agent_restart",
             {"slug": "s", "pod": "p-0"},
             ("POST", "/agent/v1/admin/sessions/s/agents/p-0/restart", "", None),
+        ),
+        (
+            "leadership_withdraw",
+            {"slug": "s", "request_id": 7},
+            ("POST", "/agent/v1/admin/sessions/s/leadership/withdraw", "", {"request_id": 7}),
+        ),
+        (
+            "leadership_withdraw",
+            {"slug": "s"},
+            ("POST", "/agent/v1/admin/sessions/s/leadership/withdraw", "", {}),
         ),
         (
             "webhook_events",

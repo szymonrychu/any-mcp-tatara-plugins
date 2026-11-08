@@ -440,6 +440,9 @@ async def test_handover_description_protocol() -> None:
     assert "leadership-request note" in text
     assert "orchestrator_me" in text
     assert "outcome arrives as a hive-state note" not in text
+    # every handover has a deadline, and a pending one can be withdrawn
+    assert "deadline" in text and "expired" in text
+    assert "orchestrator_leadership_withdraw" in text
 
 
 async def test_handover_reason_schema() -> None:
