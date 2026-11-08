@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import re
 import shlex
@@ -59,7 +60,7 @@ SPEC_TOOLS = frozenset(
 )
 
 
-def refuse_protected_values(spec: object) -> None:
+def refuse_protected_values(spec: object, remedy: str = "use secret_set") -> None:
     """Raise if a protected env entry of ``spec`` carries a value (it would enter the
     transcript); the error names the variable only."""
     env = spec.get("env") if isinstance(spec, dict) else None
@@ -69,7 +70,7 @@ def refuse_protected_values(spec: object) -> None:
         if isinstance(entry, dict) and entry.get("protected") and entry.get("value") is not None:
             raise SecretResolveError(
                 f"protected_value_refused env={name}: never put a protected value in a tool "
-                "call; declare it protected without a value and use secret_set"
+                f"call; declare it protected without a value and {remedy}"
             )
 
 
@@ -399,9 +400,33 @@ async def _resolve_secrets(refs: object) -> dict[str, str]:
     return values
 
 
+def _redact_json(node: Any, values: list[str]) -> Any:
+    """``redact`` on every decoded string (keys too) of a parsed JSON document, so values with
+    quotes, backslashes or newlines are caught in their raw form, not their escaped one."""
+    if isinstance(node, str):
+        return redact(node, values)
+    if isinstance(node, list):
+        return [_redact_json(v, values) for v in node]
+    if isinstance(node, dict):
+        return {redact(str(k), values): _redact_json(v, values) for k, v in node.items()}
+    return node
+
+
+def _scrub_text(text: str, values: list[str]) -> str:
+    """Redact a JSON body structurally; any other text by the raw and the JSON-escaped forms."""
+    try:
+        return json.dumps(_redact_json(json.loads(text), values))
+    except ValueError:
+        pass
+    forms = [*values]
+    for v in values:
+        forms += [json.dumps(v)[1:-1], json.dumps(v, ensure_ascii=False)[1:-1]]
+    return redact(text, forms)
+
+
 def _scrubbed(response: httpx.Response, values: list[str]) -> RawResponse:
     """The upstream answer with every resolved value replaced, for the error path."""
-    text = redact(response.content.decode("utf-8", "replace"), values)
+    text = _scrub_text(response.content.decode("utf-8", "replace"), values)
     return RawResponse(
         response.status_code,
         {"content-type": response.headers.get("content-type", "application/json")},
@@ -418,7 +443,7 @@ def local_proposal_tools(
     root = f"{base_url.rstrip('/')}/agent/v1/admin/proposals"
 
     async def post(url: str, body: dict[str, Any], refs: object) -> Any:
-        refuse_protected_values(body["patch"])
+        refuse_protected_values(body["patch"], "pass it in secrets")
         values = await _resolve_secrets(refs)
         if values:
             body["secrets"] = values
@@ -433,7 +458,7 @@ def local_proposal_tools(
         if response.status_code >= 400:
             raise UpstreamError(_scrubbed(response, [*values.values(), token]))
         try:
-            return response.json()
+            return _redact_json(response.json(), [*values.values(), token])
         except ValueError:
             raise SecretResolveError("bad_response") from None
 

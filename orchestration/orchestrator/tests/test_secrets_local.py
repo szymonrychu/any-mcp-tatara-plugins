@@ -429,6 +429,51 @@ async def test_proposal_upstream_error_keeps_its_code_and_hides_the_value(
     assert CANARY not in caplog.text
 
 
+ESCAPED = 'line1-AAAA\nline2-"q"-BBBB\\back\ttab-\u00e9'
+
+
+async def test_proposal_upstream_error_hides_json_escaped_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPOSAL_SRC_ESC", ESCAPED)
+
+    def coded(request: httpx.Request) -> httpx.Response:
+        sent = json.loads(request.content)["secrets"]["TOKEN"]
+        return httpx.Response(
+            422, json={"error": {"code": "invalid", "message": "got " + sent, "detail": [sent]}}
+        )
+
+    def uncoded(request: httpx.Request) -> httpx.Response:
+        sent = json.loads(request.content)["secrets"]["TOKEN"]
+        return httpx.Response(400, json={"detail": sent, sent: 1})
+
+    def plain(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom " + request.content.decode())
+
+    def ok(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={"id": 1, "echo": json.loads(request.content)["secrets"]})
+
+    args = {
+        "kind": "preset",
+        "target": "web",
+        "patch": {},
+        "reason": "r",
+        "secrets": {"TOKEN": {"from_env": "PROPOSAL_SRC_ESC"}},
+    }
+    pieces = ["line1-AAAA", "line2-", "BBBB", "tab-", json.dumps(ESCAPED)[1:-1]]
+    for handler in (coded, uncoded, plain, ok):
+        async with proposal_harness(handler) as h:
+            res = await h.call("proposal_create", args)
+        text = blob(res)
+        assert not any(p in text for p in pieces), handler.__name__
+    assert "invalid" in (await _call_text(coded, args))
+
+
+async def _call_text(handler: Any, args: dict[str, Any]) -> str:
+    async with proposal_harness(handler) as h:
+        return (await h.call("proposal_create", args)).text
+
+
 @pytest.mark.parametrize("tool", ["proposal_create", "proposal_revise"])
 async def test_proposal_protected_value_in_patch_is_refused_before_any_request(
     tool: str,
@@ -477,5 +522,5 @@ async def test_proposal_unreadable_file_gives_the_class_name_only(tmp_path: Path
             assert res.is_error and res.text.startswith("proposal_create failed: file_")
             assert CANARY not in blob(res) and "locked" not in blob(res)
         bad = await h.call("proposal_create", {**base, "secrets": {"bad name": {"from_env": "X"}}})
-        assert bad.is_error
+        assert bad.is_error and "invalid_name" in bad.text
     assert seen == []
