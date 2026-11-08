@@ -264,7 +264,7 @@ class OrchestratorPlugin(Plugin):
             "call it while they still run; the answer says pending. Do not brief the successor "
             "over ccw: the orchestrator sends it your transcript. Read the epoch from "
             "orchestrator_me or the latest hive-state note. The outcome arrives as a "
-            "leadership-request note. Every request has a deadline (30 minutes by default): past "
+            "leadership-request note. Every request has a deadline set by the orchestrator: past "
             "it your background agents no longer hold it, and if your turn is still running it "
             "is rejected expired; ask again then. To cancel a pending request, call "
             "orchestrator_leadership_withdraw with your session slug and the request_id."

@@ -442,6 +442,8 @@ async def test_handover_description_protocol() -> None:
     assert "outcome arrives as a hive-state note" not in text
     # every handover has a deadline, and a pending one can be withdrawn
     assert "deadline" in text and "expired" in text
+    # the deadline is the orchestrator's setting: no literal that drifts from it
+    assert "minutes" not in text
     assert "orchestrator_leadership_withdraw" in text
 
 

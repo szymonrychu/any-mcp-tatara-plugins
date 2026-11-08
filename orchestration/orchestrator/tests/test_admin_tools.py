@@ -289,6 +289,11 @@ def test_history_get_requires_id() -> None:
         )
 
 
+def test_leadership_withdraw_description_excludes_rollout_requests() -> None:
+    desc = rows_by_name()["leadership_withdraw"].description
+    assert "rollout" in desc and "409 rollout_request" in desc
+
+
 def test_history_descriptions_scope_results_to_manageable_presets() -> None:
     for name in ("history_search", "history_get", "history_records"):
         assert "may manage" in rows_by_name()[name].description, name
