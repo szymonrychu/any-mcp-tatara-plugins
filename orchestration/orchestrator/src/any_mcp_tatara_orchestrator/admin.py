@@ -301,6 +301,35 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "stale true means the reading is old; usage only grows until resets_at, so it is a "
         "lower bound.",
     ),
+    # change proposals (filed with the local proposal_create, revised with proposal_revise)
+    AdminRow(
+        "proposals_list",
+        "GET",
+        f"{_A}/proposals",
+        "List your own change proposals, newest first, current revision only. status: active "
+        "(default: open, rework, stale), open, closed or all. Each shows its status, revision, "
+        "stale flag and per-item verdicts; read one with proposal_get.",
+        schema({"status": _str("active, open, closed or all."), "limit": _LIMIT}),
+        None,
+        ("status", "limit"),
+    ),
+    AdminRow(
+        "proposal_get",
+        "GET",
+        f"{_A}/proposals/{{proposal_id}}",
+        "Read one of your change proposals with every revision: per item the before and after "
+        "values, the human's verdict (pending, approved, rework, denied) and note. A secret item "
+        "shows only set or changed, never a value. After a rework verdict or a stale notice, "
+        "send a new revision with proposal_revise.",
+        schema({"proposal_id": {"type": "integer"}}, ("proposal_id",)),
+    ),
+    AdminRow(
+        "proposal_withdraw",
+        "POST",
+        f"{_A}/proposals/{{proposal_id}}/withdraw",
+        "Withdraw one of your open change proposals; its staged secrets are dropped.",
+        schema({"proposal_id": {"type": "integer"}}, ("proposal_id",)),
+    ),
     # webhooks
     AdminRow("webhooks_list", "GET", f"{_A}/webhooks/endpoints", "List the webhook endpoints."),
     AdminRow(

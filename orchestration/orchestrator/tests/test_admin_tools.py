@@ -37,8 +37,13 @@ EXPECTED = {
     "chat_admin_rooms", "chat_room_settings", "chat_rules", "chat_rule_add", "chat_rule_delete",
     "history_search", "history_get", "history_records", "usage_get",
     "chat_admin_room", "chat_users", "chat_room_allow", "chat_open", "chat_open_status",
-    "chat_open_confirm",
+    "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
 }  # fmt: skip
+# Local handler tools and the upstream route each one POSTs to.
+LOCAL_ROUTES = {
+    "proposal_create": ("POST", "/agent/v1/admin/proposals"),
+    "proposal_revise": ("POST", "/agent/v1/admin/proposals/{}/revise"),
+}
 
 
 def norm(path: str) -> str:
@@ -85,6 +90,18 @@ async def test_every_http_row_exists_in_the_orchestrator_openapi() -> None:
     for s in rows:
         assert s.http is not None
         assert (s.http.method, norm(s.http.path)) in known, (s.name, s.http.method, s.http.path)
+
+
+def test_local_proposal_tools_target_routes_in_the_orchestrator_openapi() -> None:
+    known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
+    for name, route in LOCAL_ROUTES.items():
+        assert route in known, name
+
+
+async def test_local_proposal_tools_are_handlers() -> None:
+    by_name = {s.name: s for s in await specs()}
+    for name in LOCAL_ROUTES:
+        assert by_name[name].handler is not None and by_name[name].http is None, name
 
 
 def test_every_admin_row_has_a_description_and_a_closed_schema() -> None:
@@ -175,6 +192,17 @@ async def test_rows_call_their_routes() -> None:
             "chat_rule_delete",
             {"rule_id": "3"},
             ("DELETE", "/agent/v1/admin/chats/rules/3", "", None),
+        ),
+        (
+            "proposals_list",
+            {"status": "all", "limit": 5},
+            ("GET", "/agent/v1/admin/proposals", "status=all&limit=5", None),
+        ),
+        ("proposal_get", {"proposal_id": 7}, ("GET", "/agent/v1/admin/proposals/7", "", None)),
+        (
+            "proposal_withdraw",
+            {"proposal_id": 7},
+            ("POST", "/agent/v1/admin/proposals/7/withdraw", "", None),
         ),
     ]
     async with harness(handler) as h:
