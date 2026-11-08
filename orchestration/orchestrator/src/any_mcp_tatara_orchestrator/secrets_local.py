@@ -19,13 +19,15 @@ from urllib.parse import quote
 import httpx
 
 from any_mcp.context import PluginContext
-from any_mcp.types import ToolCall, ToolResult, ToolSpec
+from any_mcp.errors import UpstreamError, redact
+from any_mcp.types import RawResponse, ToolCall, ToolResult, ToolSpec
 
 __all__ = [
     "CREDENTIAL_TOOLS",
     "OVERWRITE_SCHEMA",
     "SPEC_TOOLS",
     "SecretResolveError",
+    "local_proposal_tools",
     "local_secret_tool",
     "refuse_protected_values",
     "resolve_secret",
@@ -327,3 +329,161 @@ def local_secret_tool(base_url: str, token: str, session: str, ctx: PluginContex
         input_schema=_schema(),
         handler=handler,
     )
+
+
+# ---- change proposals: the patch goes to the human, secrets go by reference
+
+_SECRET_REF = {
+    "type": "object",
+    "description": "Exactly one of from_file (a path in this pod), from_env (an environment "
+    "variable name of this pod) or from_command (a command line, run without a shell, 10 s "
+    "limit). Read in this process; the value goes only into the request body.",
+    "properties": {
+        "from_file": {"type": "string"},
+        "from_env": {"type": "string"},
+        "from_command": {"type": "string"},
+    },
+    "additionalProperties": False,
+    "minProperties": 1,
+    "maxProperties": 1,
+}
+_SECRETS = {
+    "type": "object",
+    "description": "New values of protected env variables by reference, keyed by variable "
+    "name: {NAME: {from_file | from_env | from_command}}. Never a value.",
+    "additionalProperties": _SECRET_REF,
+    "maxProperties": 20,
+}
+_PATCH = {
+    "type": "object",
+    "description": "JSON merge patch (RFC 7396) of the target's spec: objects merge, null "
+    "deletes a key, arrays replace. Never put a protected value here: pass it in secrets.",
+}
+_REASON = {"type": "string", "minLength": 1, "maxLength": 4000}
+_PROPOSAL_ID = {"type": "integer"}
+_PROPOSAL_TEXT = (
+    "Security changes and human-only fields of presets, schedules and session specs go "
+    "here, not through preset_patch or session_patch (which refuse them). Secrets go by "
+    "reference only (secrets), never as values. The human reviews every item in the web UI "
+    "and approves, denies or asks for a rework; proposal_get shows the verdicts and notes. "
+)
+_CREATE_DESCRIPTION = (
+    "File a change proposal for a human to review. "
+    + _PROPOSAL_TEXT
+    + "kind is preset, schedule or session; target is the preset id or name, schedule id or "
+    "session slug. client_key makes a retry return the first proposal instead of a second one. "
+    "The answer is the proposal as the orchestrator shows it (no secret value)."
+)
+_REVISE_DESCRIPTION = (
+    "Send a new revision of one of your proposals after a rework verdict or a stale notice: "
+    "a full proposal against the target as it is now, not a delta (patch and secrets replace "
+    "the previous revision's). "
+    + _PROPOSAL_TEXT
+    + "The answer is the proposal as the orchestrator shows it (no secret value)."
+)
+
+
+async def _resolve_secrets(refs: object) -> dict[str, str]:
+    """Resolve ``{NAME: {from_*: ...}}`` to values; errors carry class names only."""
+    if refs is None:
+        return {}
+    if not isinstance(refs, dict):
+        raise SecretResolveError("invalid_source")
+    values: dict[str, str] = {}
+    for name, ref in refs.items():
+        if not isinstance(name, str) or not _NAME.match(name):
+            raise SecretResolveError("invalid_name")
+        if not isinstance(ref, dict) or set(ref) - set(_SOURCES):
+            raise SecretResolveError("invalid_source")
+        values[name] = await resolve_secret(**ref)
+    return values
+
+
+def _scrubbed(response: httpx.Response, values: list[str]) -> RawResponse:
+    """The upstream answer with every resolved value replaced, for the error path."""
+    text = redact(response.content.decode("utf-8", "replace"), values)
+    return RawResponse(
+        response.status_code,
+        {"content-type": response.headers.get("content-type", "application/json")},
+        text.encode("utf-8"),
+        response.headers.get("content-type", "application/json"),
+    )
+
+
+def local_proposal_tools(
+    base_url: str, token: str, session: str, ctx: PluginContext
+) -> list[ToolSpec]:
+    """``proposal_create`` and ``proposal_revise``: handler tools, so secret references are
+    resolved here and the values go only into the POST body, never into a result or error."""
+    root = f"{base_url.rstrip('/')}/agent/v1/admin/proposals"
+
+    async def post(url: str, body: dict[str, Any], refs: object) -> Any:
+        refuse_protected_values(body["patch"])
+        values = await _resolve_secrets(refs)
+        if values:
+            body["secrets"] = values
+        try:
+            response = await ctx.http.post(
+                url,
+                json=body,
+                headers={"Authorization": f"Bearer {token}", "X-Orch-Session": session},
+            )
+        except httpx.HTTPError:
+            raise SecretResolveError("request_failed") from None
+        if response.status_code >= 400:
+            raise UpstreamError(_scrubbed(response, [*values.values(), token]))
+        try:
+            return response.json()
+        except ValueError:
+            raise SecretResolveError("bad_response") from None
+
+    async def create(call: ToolCall) -> Any:
+        args = call.arguments
+        body = {
+            k: args[k] for k in ("kind", "target", "patch", "reason", "client_key") if k in args
+        }
+        return await post(root, body, args.get("secrets"))
+
+    async def revise(call: ToolCall) -> Any:
+        args = call.arguments
+        body = {k: args[k] for k in ("patch", "reason") if k in args}
+        return await post(f"{root}/{int(args['id'])}/revise", body, args.get("secrets"))
+
+    create_schema = {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["preset", "schedule", "session"]},
+            "target": {"type": "string", "description": "Preset id or name, schedule id or slug."},
+            "patch": _PATCH,
+            "reason": _REASON,
+            "client_key": {"type": "string", "maxLength": 200},
+            "secrets": _SECRETS,
+        },
+        "required": ["kind", "target", "patch", "reason"],
+        "additionalProperties": False,
+    }
+    revise_schema = {
+        "type": "object",
+        "properties": {
+            "id": {**_PROPOSAL_ID, "description": "Proposal id."},
+            "patch": _PATCH,
+            "reason": _REASON,
+            "secrets": _SECRETS,
+        },
+        "required": ["id", "patch"],
+        "additionalProperties": False,
+    }
+    return [
+        ToolSpec(
+            name="proposal_create",
+            description=_CREATE_DESCRIPTION,
+            input_schema=create_schema,
+            handler=create,
+        ),
+        ToolSpec(
+            name="proposal_revise",
+            description=_REVISE_DESCRIPTION,
+            input_schema=revise_schema,
+            handler=revise,
+        ),
+    ]

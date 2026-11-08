@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -305,3 +306,176 @@ def test_overwrite_replaces_existing(tmp_path: Path) -> None:
     write_credential(str(target), "new", overwrite=True)
     assert target.read_text() == "new"
     assert target.stat().st_mode & 0o777 == 0o600
+
+
+# ---- proposal_create / proposal_revise through the real plugin registration
+
+VIEW = {"id": 5, "kind": "preset", "status": "open", "revision": 1, "revisions": []}
+
+
+def proposal_harness(handler: Any) -> PluginHarness:
+    return PluginHarness(
+        OrchestratorPlugin,
+        config=CONFIG,
+        name="orchestrator",
+        transport=httpx.MockTransport(handler),
+    )
+
+
+def blob(res: ToolResult) -> str:
+    return res.text + json.dumps(res.structured)
+
+
+async def test_proposal_create_sends_the_env_secret_only_in_the_body(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("PROPOSAL_SRC_X", CANARY + "\n")
+    caplog.set_level(logging.DEBUG)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=VIEW)
+
+    args = {
+        "kind": "preset",
+        "target": "web",
+        "patch": {"env": {"TOKEN": {"protected": True}}},
+        "reason": "rotate",
+        "client_key": "k1",
+        "secrets": {"TOKEN": {"from_env": "PROPOSAL_SRC_X"}},
+    }
+    async with proposal_harness(handler) as h:
+        res = await h.call("proposal_create", args)
+    assert not res.is_error, res.text
+    assert res.structured == VIEW
+    assert CANARY not in blob(res) and CANARY not in caplog.text
+    (req,) = seen
+    assert (req.method, req.url.path) == ("POST", "/agent/v1/admin/proposals")
+    assert req.headers["authorization"] == f"Bearer {TOKEN}"
+    assert req.headers["x-orch-session"] == "s-1"
+    body = json.loads(req.content)
+    assert body == {
+        "kind": "preset",
+        "target": "web",
+        "patch": {"env": {"TOKEN": {"protected": True}}},
+        "reason": "rotate",
+        "client_key": "k1",
+        "secrets": {"TOKEN": CANARY},
+    }
+    assert CANARY not in str(req.url)
+    for k, v in req.headers.items():
+        assert CANARY not in v, k
+
+
+async def test_proposal_revise_posts_to_the_revise_route(tmp_path: Path) -> None:
+    f = tmp_path / "s"
+    f.write_text(CANARY + "\n")
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={**VIEW, "revision": 2})
+
+    async with proposal_harness(handler) as h:
+        res = await h.call(
+            "proposal_revise",
+            {"id": 5, "patch": {"docker": True}, "secrets": {"TOK": {"from_file": str(f)}}},
+        )
+        bare = await h.call("proposal_revise", {"id": 5, "patch": {"docker": True}})
+    assert not res.is_error and not bare.is_error
+    assert CANARY not in blob(res)
+    first, second = seen
+    assert (first.method, first.url.path) == ("POST", "/agent/v1/admin/proposals/5/revise")
+    assert json.loads(first.content) == {"patch": {"docker": True}, "secrets": {"TOK": CANARY}}
+    assert json.loads(second.content) == {"patch": {"docker": True}}
+
+
+async def test_proposal_upstream_error_keeps_its_code_and_hides_the_value(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("PROPOSAL_SRC_X", CANARY)
+    caplog.set_level(logging.DEBUG)
+
+    def echo(request: httpx.Request) -> httpx.Response:
+        text = "echo " + request.content.decode()
+        return httpx.Response(422, json={"error": {"code": "nothing_changed", "message": text}})
+
+    def raw_echo(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom " + request.content.decode())
+
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused " + request.content.decode())
+
+    args = {
+        "kind": "preset",
+        "target": "web",
+        "patch": {},
+        "reason": "r",
+        "secrets": {"TOKEN": {"from_env": "PROPOSAL_SRC_X"}},
+    }
+    async with proposal_harness(echo) as h:
+        res = await h.call("proposal_create", args)
+    assert res.is_error and "nothing_changed" in res.text and "422" in res.text
+    assert CANARY not in blob(res)
+    async with proposal_harness(raw_echo) as h:
+        res = await h.call("proposal_create", args)
+    assert res.is_error and "500" in res.text
+    assert CANARY not in blob(res) and TOKEN not in blob(res)
+    async with proposal_harness(boom) as h:
+        res = await h.call("proposal_create", args)
+    assert res.is_error and "request_failed" in res.text
+    assert CANARY not in blob(res)
+    assert CANARY not in caplog.text
+
+
+@pytest.mark.parametrize("tool", ["proposal_create", "proposal_revise"])
+async def test_proposal_protected_value_in_patch_is_refused_before_any_request(
+    tool: str,
+) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=VIEW)
+
+    patch = {"env": {"TOK": {"protected": True, "value": CANARY}}}
+    args: dict[str, Any] = {
+        "proposal_create": {"kind": "preset", "target": "web", "patch": patch, "reason": "r"},
+        "proposal_revise": {"id": 5, "patch": patch},
+    }[tool]
+    async with proposal_harness(handler) as h:
+        res = await h.call(tool, args)
+    assert res.is_error and "protected_value_refused" in res.text and "TOK" in res.text
+    assert CANARY not in blob(res)
+    assert seen == []
+
+
+async def test_proposal_unreadable_file_gives_the_class_name_only(tmp_path: Path) -> None:
+    seen: list[httpx.Request] = []
+    missing = tmp_path / "very-private-name"
+    unreadable = tmp_path / "locked"
+    unreadable.write_text(CANARY)
+    unreadable.chmod(0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=VIEW)
+
+    base = {"kind": "preset", "target": "web", "patch": {}, "reason": "r"}
+    async with proposal_harness(handler) as h:
+        res = await h.call(
+            "proposal_create", {**base, "secrets": {"TOK": {"from_file": str(missing)}}}
+        )
+        assert res.is_error
+        assert res.text == "proposal_create failed: file_missing"
+        assert "very-private-name" not in blob(res)
+        if os.geteuid() != 0:  # root reads a mode-0 file
+            res = await h.call(
+                "proposal_create", {**base, "secrets": {"TOK": {"from_file": str(unreadable)}}}
+            )
+            assert res.is_error and res.text.startswith("proposal_create failed: file_")
+            assert CANARY not in blob(res) and "locked" not in blob(res)
+        bad = await h.call("proposal_create", {**base, "secrets": {"bad name": {"from_env": "X"}}})
+        assert bad.is_error
+    assert seen == []

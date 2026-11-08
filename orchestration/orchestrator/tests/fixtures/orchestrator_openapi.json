@@ -110,6 +110,29 @@
     "operationId": "set_preset_secret_agent_v1_admin_presets__ref__secrets__name__put"
    }
   },
+  "/agent/v1/admin/proposals": {
+   "get": {
+    "operationId": "list_own_proposals_agent_v1_admin_proposals_get"
+   },
+   "post": {
+    "operationId": "create_proposal_agent_v1_admin_proposals_post"
+   }
+  },
+  "/agent/v1/admin/proposals/{proposal_id}": {
+   "get": {
+    "operationId": "get_own_proposal_agent_v1_admin_proposals__proposal_id__get"
+   }
+  },
+  "/agent/v1/admin/proposals/{proposal_id}/revise": {
+   "post": {
+    "operationId": "revise_proposal_agent_v1_admin_proposals__proposal_id__revise_post"
+   }
+  },
+  "/agent/v1/admin/proposals/{proposal_id}/withdraw": {
+   "post": {
+    "operationId": "withdraw_proposal_agent_v1_admin_proposals__proposal_id__withdraw_post"
+   }
+  },
   "/agent/v1/admin/schedules/runs": {
    "get": {
     "operationId": "admin_schedule_get_runs"

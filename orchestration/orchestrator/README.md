@@ -51,7 +51,8 @@ allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`), `usage_get` (read-only: the account's `five_hour` and
 `seven_day` usage windows, `GET /agent/v1/admin/usage`) and the history of discarded sessions
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
-tool). `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
+tool), and the caller's own change proposals (`proposals_list`, `proposal_get`,
+`proposal_withdraw`). `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
 the relay filters a page after paging, so a page can be short or empty while more sessions exist,
 and `next_before_id` (the relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id`
 of the next call. The cursor comes first because any-mcp cuts an over-budget tool text (40000
@@ -82,7 +83,17 @@ atomic replace) from the orchestrator's single local-channel answer (`X-Orch-Too
 result says only `to_file: {written, key, bytes}`. The same token reaches the same channel, so this
 guards the transcript, not a hostile model.
 
-The plugin always lists the sixteen agent tools, the admin tools and `secret_set`. Which an agent sees is decided by the `allow` list of the
+Local tools `orchestrator_proposal_create(kind, target, patch, reason, client_key?, secrets?)` and
+`orchestrator_proposal_revise(id, patch, reason?, secrets?)` file and revise a change proposal
+(`POST /agent/v1/admin/proposals` and `.../{id}/revise`, orchestrator >= 6.2.0) for a human to
+review in the web UI: security changes and human-only fields of presets, schedules and session
+specs go there. `patch` is an RFC 7396 merge patch of the target's spec; a protected env entry
+with a `value` in it is refused before any request. `secrets` maps a protected variable name to a
+reference `{from_file | from_env | from_command}`, resolved like `secret_set`; the values go only
+into the POST body, the result is the orchestrator's proposal view (no value), and errors carry a
+fixed class name or the upstream error code with every resolved value redacted.
+
+The plugin always lists the sixteen agent tools, the admin tools, `secret_set`, `proposal_create` and `proposal_revise`. Which an agent sees is decided by the `allow` list of the
 entry the orchestrator renders (`scale` only on a scalable session, the hive tools only in a hive).
 The session tools `sessions_list` and `session_send` are rendered for every session; the
 orchestrator decides what each session may list and send: a superleader session's leader lists and
@@ -123,7 +134,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.22.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.23.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

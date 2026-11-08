@@ -80,6 +80,7 @@ async def test_lists_all_tools() -> None:
         | TASK_TOOLS
         | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS}
         | {"orchestrator_secret_set"}
+        | {"orchestrator_proposal_create", "orchestrator_proposal_revise"}
     )
     assert set(await descriptions()) == every
     assert set(await descriptions(hive=False)) == every
@@ -603,8 +604,8 @@ async def test_no_io_at_load() -> None:
     await plugin.setup()
     specs = await plugin.load_tools()
     assert (
-        len(specs) == len(ALL_TOOLS) + len(TASK_TOOLS) + len(ADMIN_TOOLS) + 1
-    )  # + the local secret_set
+        len(specs) == len(ALL_TOOLS) + len(TASK_TOOLS) + len(ADMIN_TOOLS) + 3
+    )  # + the local secret_set, proposal_create and proposal_revise
 
 
 async def test_scale_and_init_tools_match_contracts() -> None:

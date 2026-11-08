@@ -27,6 +27,7 @@ from .secrets_local import (
     SPEC_TOOLS,
     TO_FILE_SCHEMA,
     SecretResolveError,
+    local_proposal_tools,
     local_secret_tool,
     refuse_protected_values,
     secret_error_result,
@@ -421,6 +422,7 @@ class OrchestratorPlugin(Plugin):
             *admin,
             *task_tools(base),
             local_secret_tool(base, self.cfg.token, self.cfg.session, self.ctx),
+            *local_proposal_tools(base, self.cfg.token, self.cfg.session, self.ctx),
             spec("me", "GET", "/me", _schema({})),
             spec(
                 "activity",
