@@ -107,10 +107,10 @@
   },
   "/agent/v1/admin/presets/{ref}/vault/{entry_id}": {
    "delete": {
-    "operationId": "vault_detach_agent_v1_admin_presets__ref__vault__entry_id__delete"
+    "operationId": "detach_vault_agent_v1_admin_presets__ref__vault__entry_id__delete"
    },
    "put": {
-    "operationId": "vault_attach_agent_v1_admin_presets__ref__vault__entry_id__put"
+    "operationId": "attach_vault_agent_v1_admin_presets__ref__vault__entry_id__put"
    }
   },
   "/agent/v1/admin/proposals": {
@@ -218,7 +218,7 @@
   },
   "/agent/v1/admin/vault": {
    "get": {
-    "operationId": "vault_list_agent_v1_admin_vault_get"
+    "operationId": "admin_vault_list"
    }
   },
   "/agent/v1/admin/webhooks/endpoints": {

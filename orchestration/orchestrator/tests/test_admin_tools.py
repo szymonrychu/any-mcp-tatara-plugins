@@ -701,3 +701,4 @@ async def test_proposal_with_secrets_is_refused_before_any_request(
         res = await h.call(name, args)
     assert res.is_error
     assert seen == []
+    assert "secret" in res.text.lower(), res.text

@@ -272,7 +272,11 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
             {
                 "ref": _REF,
                 "entry_id": _str("Vault entry id (uuid), from vault_list."),
-                "env": _str("Entry env name to detach; omitted: all envs of the entry."),
+                "env": {
+                    "type": "string",
+                    "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+                    "description": "Entry env name to detach; omitted: all envs of the entry.",
+                },
             },
             ("ref", "entry_id"),
         ),
