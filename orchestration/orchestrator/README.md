@@ -37,7 +37,7 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 Task tools (`tasks.py`): a task or decision answer over the tool output budget (40000 chars) is
 trimmed (oldest events, then oldest comments, long texts cut) and reports what it left out in
 `omitted`; `task_create`, `task_update` and `task_list` take an optional `project` slug (see
-`project_list`; omitted on create: the caller's own project); `task_list` answers a summary per task with child counts, `limit` (default 10, at most
+`project_list`; omitted on create: the caller's own project, `default` for a superleader); `task_list` answers a summary per task with child counts, `limit` (default 10, at most
 20) and `cursor`.
 
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the

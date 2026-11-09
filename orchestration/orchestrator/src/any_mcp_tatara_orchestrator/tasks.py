@@ -71,7 +71,10 @@ _ANSWER = (
     "The user answers in the web UI; the answer arrives as a chat message with a link to the "
     "task, then read it with task_get."
 )
-_PROJECT_RULE = "Project slug; see project_list. Agents work in their own project only."
+_PROJECT_RULE = (
+    "Project slug; see project_list. Agents work in their own project only; "
+    "a superleader may use any project."
+)
 _KEY = {"type": "string", "description": "Task key such as T-12."}
 _TASK_OUT = {
     "type": "object",
@@ -201,7 +204,8 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                     "assignee_self": {"type": "boolean"},
                     "project": {
                         "type": "string",
-                        "description": _PROJECT_RULE + " Omitted: your own project.",
+                        "description": _PROJECT_RULE
+                        + " Omitted: your own project (a superleader: default).",
                     },
                     "client_key": {
                         "type": "string",
