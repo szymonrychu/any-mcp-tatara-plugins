@@ -778,7 +778,9 @@ async def test_task_get_path_and_method() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
         seen.append((request.method, request.url.path, request.url.query.decode(), body))
-        return httpx.Response(200, json={"key": "T-5", "url": "https://x/tasks/T-5"})
+        task = {"key": "T-5", "version": 3, "url": "https://x/tasks/T-5"}
+        decision = {"id": 7, "task_key": "T-5", "status": "open", "url": "https://x/tasks/T-5"}
+        return httpx.Response(200, json=decision if "decisions" in request.url.path else task)
 
     options = [
         {"label": "a", "recommended": True},
@@ -788,7 +790,7 @@ async def test_task_get_path_and_method() -> None:
         (
             "task_get",
             {"key": "T-5"},
-            ("GET", "/agent/v1/tasks/T-5", "events_limit=20&comments_limit=20", None),
+            ("GET", "/agent/v1/tasks/T-5", "events_limit=10&comments_limit=0", None),
         ),
         (
             "task_create",
