@@ -2,9 +2,9 @@
 
 One row per route; ``__init__`` turns each into a ``ToolSpec``. The orchestrator refuses every
 route unless the caller is a superleader session, and the rendered allowlist offers these tools
-to such sessions only. Secret values never pass through a row: a protected variable is set with
-the local ``secret_set`` tool, and webhook credentials are issued by the upstream and stored by
-the orchestrator (see ``secrets_local``).
+to such sessions only. Secret values never pass through a row: a preset env variable refers to a
+value that a user wrote into agents-vault (vault_list, vault_attach, vault_detach), and webhook
+credentials are issued by the upstream and stored by the orchestrator (see ``secrets_local``).
 """
 
 from __future__ import annotations
@@ -79,26 +79,39 @@ _SCHED = _str("Schedule id.")
 _LIMIT = {"type": "integer", "minimum": 1, "maximum": 200}
 _SPEC = {
     "type": "object",
-    "description": "Session spec. A protected env entry never carries a value here: set it "
-    "with secret_set.",
+    "description": "Session spec. Secret values do not belong here: attach a vault entry to the "
+    "preset with vault_attach.",
 }
 _PATCH_SPEC = {
     "type": "object",
     "description": "JSON merge patch (RFC 7396) of the stored spec: objects merge, null deletes "
-    "a key, arrays replace. Keys you leave out are kept, protected variables included. Never "
-    "put a protected value here: set it with secret_set. Human-only fields (kube_access, "
+    "a key, arrays replace. Keys you leave out are kept. Secret values do not belong here: "
+    "attach a vault entry with vault_attach. Human-only fields (kube_access, "
     "session_messaging, docker, discard_hook_url, wrapper.permission_mode, "
     "wrapper.permissions) may only move toward safe.",
 }
 _PATCH_SPEC_SESSION = {
     **_PATCH_SPEC,
     "description": "JSON merge patch (RFC 7396) of the session's stored spec: objects merge, "
-    "null deletes a key, arrays replace. Keys you leave out are kept, protected variables "
-    "included. Never put a protected value here: set it with secret_set. A leader may only "
-    "lower usage_quota and shorten inactivity limits on its own session; human-only fields "
+    "null deletes a key, arrays replace. Keys you leave out are kept. Secret values do not "
+    "belong here. A leader may only lower usage_quota and shorten inactivity limits on its own "
+    "session; human-only fields "
     "(kube_access, session_messaging, docker, discard_hook_url, wrapper.permission_mode, "
     "wrapper.permissions) may only move toward safe.",
 }
+_PROPOSAL_PATCH = {
+    "type": "object",
+    "description": "JSON merge patch (RFC 7396) of the target's spec: objects merge, null "
+    "deletes a key, arrays replace. Never put a secret value here.",
+}
+_PROPOSAL_REASON = {"type": "string", "minLength": 1, "maxLength": 4000}
+_PROPOSAL_TEXT = (
+    "Security changes and human-only fields of presets, schedules and session specs go "
+    "here, not through preset_patch or session_patch (which refuse them). Secret values are "
+    "never part of a proposal: they live in the vault (vault_attach). The human reviews "
+    "every item in the web UI and approves, denies or asks for a rework; proposal_get shows "
+    "the verdicts and notes. "
+)
 _FILTERS = {
     "type": "object",
     "properties": {"allow": {"type": "array"}, "deny": {"type": "array"}},
@@ -155,16 +168,15 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "preset_get",
         "GET",
         f"{_A}/presets/{{ref}}",
-        "Show a preset by id or name. Protected env variables show metadata only "
-        "(set, version, updated_at), never a value.",
+        "Show a preset by id or name. A secret value is never shown.",
         schema({"ref": _REF}, ("ref",)),
     ),
     AdminRow(
         "preset_create",
         "POST",
         f"{_A}/presets",
-        "Create a preset. Declare a secret as an env entry with protected true and no value, "
-        "then set its value with secret_set.",
+        "Create a preset. Secret values come from the vault: after creating, attach entries "
+        "with vault_attach.",
         schema({"name": {"type": "string"}, "spec": _SPEC}, ("name",)),
         "*",
     ),
@@ -172,8 +184,8 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "preset_replace",
         "PUT",
         f"{_A}/presets/{{ref}}",
-        "Replace a preset (name and spec). A protected entry sent without a value keeps its "
-        "stored value; one left out is removed.",
+        "Replace a preset (name and spec). Secret values come from the vault: change them "
+        "with vault_attach and vault_detach, not here.",
         schema({"ref": _REF, "name": {"type": "string"}, "spec": _SPEC}, ("ref", "name")),
         "*",
     ),
@@ -199,17 +211,73 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "preset_delete",
         "DELETE",
         f"{_A}/presets/{{ref}}",
-        "Delete a preset and its stored secrets.",
+        "Delete a preset.",
         schema({"ref": _REF}, ("ref",)),
     ),
     AdminRow(
         "preset_copy",
         "POST",
         f"{_A}/presets/{{ref}}/copy",
-        "Copy a preset under a new name (default: derived). Protected variables are copied "
-        "as unset: set them again with secret_set.",
+        "Copy a preset under a new name (default: derived). Check the copy's vault "
+        "attachments with vault_list.",
         schema({"ref": _REF, "name": _NULL_STR}, ("ref",)),
         "*",
+    ),
+    # vault: users write the secret values in the web UI; superleaders only attach them
+    AdminRow(
+        "vault_list",
+        "GET",
+        f"{_A}/vault",
+        "List vault entries (name, description, labels, env names, readable values, "
+        "attachments) and presets with env names to re-attach. Choose an entry by name and "
+        "description; protected values are never shown.",
+        schema({"q": _str("Filter entries by name or description.")}),
+        None,
+        ("q",),
+    ),
+    AdminRow(
+        "vault_attach",
+        "PUT",
+        f"{_A}/presets/{{ref}}/vault/{{entry_id}}",
+        "Attach a vault entry to a preset: all envs of the entry are attached in one save, "
+        "or only the envs you list. The entry labels must match the preset (labels plus "
+        "project), else 422 vault_label_mismatch. Privileged presets included: no proposal is "
+        "needed. replace true replaces the entry's current attachment on the preset. Read "
+        "entry ids and env names from vault_list.",
+        schema(
+            {
+                "ref": _REF,
+                "entry_id": _str("Vault entry id (uuid), from vault_list."),
+                "envs": {
+                    "type": "array",
+                    "items": {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]{0,127}$"},
+                    "description": "Entry env names to attach; omitted: all envs of the entry.",
+                },
+                "replace": {
+                    "type": "boolean",
+                    "description": "Replace the entry's current attachment on the preset.",
+                },
+            },
+            ("ref", "entry_id"),
+        ),
+        "*",
+    ),
+    AdminRow(
+        "vault_detach",
+        "DELETE",
+        f"{_A}/presets/{{ref}}/vault/{{entry_id}}",
+        "Detach a vault entry from a preset: one env of the entry when env is given, else "
+        "every env of the entry. Privileged presets included.",
+        schema(
+            {
+                "ref": _REF,
+                "entry_id": _str("Vault entry id (uuid), from vault_list."),
+                "env": _str("Entry env name to detach; omitted: all envs of the entry."),
+            },
+            ("ref", "entry_id"),
+        ),
+        None,
+        ("env",),
     ),
     # sessions
     AdminRow(
@@ -323,7 +391,7 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "stale true means the reading is old; usage only grows until resets_at, so it is a "
         "lower bound.",
     ),
-    # change proposals (filed with the local proposal_create, revised with proposal_revise)
+    # change proposals
     AdminRow(
         "proposals_list",
         "GET",
@@ -336,20 +404,57 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         ("status", "limit"),
     ),
     AdminRow(
+        "proposal_create",
+        "POST",
+        f"{_A}/proposals",
+        "File a change proposal for a human to review. " + _PROPOSAL_TEXT + "kind is preset, "
+        "schedule or session; target is the preset id or name, schedule id or session slug. "
+        "client_key makes a retry return the first proposal instead of a second one. The "
+        "answer is the proposal as the orchestrator shows it.",
+        schema(
+            {
+                "kind": {"type": "string", "enum": ["preset", "schedule", "session"]},
+                "target": _str("Preset id or name, schedule id or slug."),
+                "patch": _PROPOSAL_PATCH,
+                "reason": _PROPOSAL_REASON,
+                "client_key": {"type": "string", "maxLength": 200},
+            },
+            ("kind", "target", "patch", "reason"),
+        ),
+        "*",
+    ),
+    AdminRow(
+        "proposal_revise",
+        "POST",
+        f"{_A}/proposals/{{id}}/revise",
+        "Send a new revision of one of your proposals after a rework verdict or a stale "
+        "notice: a full proposal against the target as it is now, not a delta (the patch "
+        "replaces the previous revision's). " + _PROPOSAL_TEXT + "The answer is the proposal "
+        "as the orchestrator shows it.",
+        schema(
+            {
+                "id": {"type": "integer", "description": "Proposal id."},
+                "patch": _PROPOSAL_PATCH,
+                "reason": _PROPOSAL_REASON,
+            },
+            ("id", "patch"),
+        ),
+        "*",
+    ),
+    AdminRow(
         "proposal_get",
         "GET",
         f"{_A}/proposals/{{proposal_id}}",
         "Read one of your change proposals with every revision: per item the before and after "
-        "values, the human's verdict (pending, approved, rework, denied) and note. A secret item "
-        "shows only set or changed, never a value. After a rework verdict or a stale notice, "
-        "send a new revision with proposal_revise.",
+        "values, the human's verdict (pending, approved, rework, denied) and note. "
+        "After a rework verdict or a stale notice, send a new revision with proposal_revise.",
         schema({"proposal_id": {"type": "integer"}}, ("proposal_id",)),
     ),
     AdminRow(
         "proposal_withdraw",
         "POST",
         f"{_A}/proposals/{{proposal_id}}/withdraw",
-        "Withdraw one of your open change proposals; its staged secrets are dropped.",
+        "Withdraw one of your open change proposals.",
         schema({"proposal_id": {"type": "integer"}}, ("proposal_id",)),
     ),
     # webhooks

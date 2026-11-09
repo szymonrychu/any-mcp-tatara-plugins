@@ -25,12 +25,8 @@ from .projects import project_tools
 from .secrets_local import (
     CREDENTIAL_TOOLS,
     OVERWRITE_SCHEMA,
-    SPEC_TOOLS,
     TO_FILE_SCHEMA,
     SecretResolveError,
-    local_proposal_tools,
-    local_secret_tool,
-    refuse_protected_values,
     secret_error_result,
     secrets_root,
     validate_to_file,
@@ -112,8 +108,6 @@ class OrchestratorPlugin(Plugin):
         }
 
     async def call(self, call: ToolCall) -> RawResponse:
-        if call.spec.name in SPEC_TOOLS:
-            refuse_protected_values(call.arguments.get("spec"))
         if call.spec.name == "session_discard" and not call.arguments.get("force"):
             # Send force only when set: a plain discard keeps the unchanged route.
             call = call.with_arguments({k: v for k, v in call.arguments.items() if k != "force"})
@@ -437,8 +431,6 @@ class OrchestratorPlugin(Plugin):
             *admin,
             *task_tools(base),
             *project_tools(base),
-            local_secret_tool(base, self.cfg.token, self.cfg.session, self.ctx),
-            *local_proposal_tools(base, self.cfg.token, self.cfg.session, self.ctx),
             spec("me", "GET", "/me", _schema({})),
             spec(
                 "activity",
