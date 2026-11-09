@@ -69,7 +69,10 @@ Secret values live in agents-vault and are written by users in the web UI. `vaul
 lists entries (name, description, labels, env names, readable values, attachments) and presets with env names
 to re-attach; protected values are never shown. `vault_attach` (`PUT /agent/v1/admin/presets/{ref}/vault/{entry_id}`, body
 `envs`, `replace`) attaches all envs of an entry in one save (entry labels must match the preset; privileged presets
-included, no proposal, nothing refused) and `vault_detach` (`DELETE` the same path, query `env`) detaches. Attachments carry `privileged` in `vault_list` and `attachment_privileged` in the `vault_attach` response (0.29.0, orchestrator >= 7.1.0): true means the preset's sessions have Kubernetes API access or docker/dind and can read every Secret in the namespace, so the entry's values are exposed to them; it is a mark, not a block. There is no `secret_set`
+included, no proposal, nothing refused) and `vault_detach` (`DELETE` the same path, query `env`) detaches. Attachments
+carry `privileged` in `vault_list` and `attachment_privileged` in the `vault_attach` response (0.29.0, orchestrator >=
+7.1.0): true means the preset's sessions have Kubernetes API access or docker/dind and can read every Secret in the
+namespace, so the entry's values are exposed to them; it is a mark, not a block. There is no `secret_set`
 (removed in 0.28.0, orchestrator >= 7.0.0): the preset and session tools no longer scan for protected values.
 
 `session_get` and `session_patch` (`GET` and `PATCH /agent/v1/admin/sessions/{slug}`) are also
@@ -138,7 +141,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.28.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.29.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

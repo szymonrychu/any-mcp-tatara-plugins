@@ -248,8 +248,7 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "means the preset's sessions have cluster access or docker/dind and can read every "
         "Secret in the namespace, so attaching exposes the entry's values to them; weigh "
         "that before attaching sensitive entries. replace true replaces the entry's current "
-        "attachment on the preset. Read "
-        "entry ids and env names from vault_list.",
+        "attachment on the preset. Read entry ids and env names from vault_list.",
         schema(
             {
                 "ref": _REF,
