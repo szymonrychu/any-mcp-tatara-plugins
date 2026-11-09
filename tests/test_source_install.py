@@ -43,6 +43,7 @@ ALL_TOOLS = sorted(
         "orchestrator_chat_status",
         "orchestrator_self_close",
         "orchestrator_activity",
+        "orchestrator_project_list",
         "orchestrator_secret_set",
         "orchestrator_proposal_create",
         "orchestrator_proposal_revise",

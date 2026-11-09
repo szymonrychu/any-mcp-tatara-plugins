@@ -41,6 +41,7 @@ ALL_TOOLS = {
     "orchestrator_chat_status",
     "orchestrator_self_close",
     "orchestrator_activity",
+    "orchestrator_project_list",
 }
 TASK_TOOLS = {
     "orchestrator_task_create",
@@ -179,7 +180,7 @@ async def test_session_tools_call_agent_routes() -> None:
 async def test_session_send_errors_surface_code() -> None:
     errors = {
         "a": (403, "not_leader"),
-        "b": (403, "target_not_superleader"),
+        "b": (403, "project_forbidden"),
         "c": (409, "hop_limit"),
         "d": (429, "pair_budget"),
     }
@@ -695,6 +696,49 @@ async def test_schemas_strict_and_enums() -> None:
     assert items["maxItems"] == 100
     assert items["items"]["additionalProperties"] is False
     assert items["items"]["properties"]["status"]["enum"] == ["todo", "inprogress", "done"]
+
+
+async def test_task_tools_accept_project() -> None:
+    tools = await tools_by_name()
+    for name in ("task_create", "task_update", "task_list"):
+        props = tools[f"orchestrator_{name}"]["inputSchema"]["properties"]
+        assert props["project"]["type"] == "string", name
+        assert "project_list" in props["project"]["description"], name
+    assert "project" not in tools["orchestrator_task_create"]["inputSchema"]["required"]
+    seen: list[tuple[str, str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, request.url.query.decode(), body))
+        return httpx.Response(200, json={"key": "T-5", "url": "https://x/tasks/T-5"})
+
+    async with harness(handler) as h:
+        await h.call("orchestrator_task_create", {"title": "t", "client_key": "k", "project": "p"})
+        await h.call("orchestrator_task_update", {"key": "T-5", "version": 1, "project": "q"})
+        await h.call("orchestrator_task_list", {"project": "p"})
+    assert seen == [
+        ("POST", "/agent/v1/tasks", "", {"title": "t", "client_key": "k", "project": "p"}),
+        ("PATCH", "/agent/v1/tasks/T-5", "", {"version": 1, "project": "q"}),
+        ("GET", "/agent/v1/tasks", "project=p&limit=10", None),
+    ]
+
+
+async def test_project_list_maps_to_agent_projects() -> None:
+    seen: list[tuple[str, str, str]] = []
+    projects = [{"slug": "default", "name": "Default", "description": "", "archived": False}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.url.query.decode()))
+        return httpx.Response(200, json=projects)
+
+    async with harness(handler) as h:
+        tool = {t["name"]: t for t in await h.list_tools()}["orchestrator_project_list"]
+        res = await h.call("orchestrator_project_list")
+    assert tool["inputSchema"]["properties"] == {}
+    assert tool["annotations"]["readOnlyHint"] is True
+    assert not res.is_error, res.text
+    assert json.loads(res.text) == projects
+    assert seen == [("GET", "/agent/v1/projects", "")]
 
 
 async def test_annotations_per_tool() -> None:
