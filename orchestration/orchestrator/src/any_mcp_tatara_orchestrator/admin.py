@@ -230,7 +230,9 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         f"{_A}/vault",
         "List vault entries (name, description, labels, env names, readable values, "
         "attachments) and presets with env names to re-attach. Choose an entry by name and "
-        "description; protected values are never shown.",
+        "description; protected values are never shown. Each attachment has privileged "
+        "(bool): true means the preset's sessions have cluster access or docker/dind and "
+        "can read every Secret in the namespace, so the entry's values are exposed to them.",
         schema({"q": _str("Filter entries by name or description.")}),
         None,
         ("q",),
@@ -242,7 +244,11 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "Attach a vault entry to a preset: all envs of the entry are attached in one save, "
         "or only the envs you list. The entry labels must match the preset (labels plus "
         "project), else 422 vault_label_mismatch. Privileged presets included: no proposal is "
-        "needed. replace true replaces the entry's current attachment on the preset. Read "
+        "needed and nothing is refused. The response has attachment_privileged (bool): true "
+        "means the preset's sessions have cluster access or docker/dind and can read every "
+        "Secret in the namespace, so attaching exposes the entry's values to them; weigh "
+        "that before attaching sensitive entries. replace true replaces the entry's current "
+        "attachment on the preset. Read "
         "entry ids and env names from vault_list.",
         schema(
             {

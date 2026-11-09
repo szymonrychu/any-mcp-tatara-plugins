@@ -702,3 +702,12 @@ async def test_proposal_with_secrets_is_refused_before_any_request(
     assert res.is_error
     assert seen == []
     assert "secret" in res.text.lower(), res.text
+
+
+def test_vault_descriptions_mark_privileged_attachments_without_refusing() -> None:
+    rows = rows_by_name()
+    assert "privileged" in rows["vault_list"].description
+    attach = rows["vault_attach"].description
+    assert "attachment_privileged" in attach
+    assert "read every Secret in the namespace" in attach
+    assert "nothing is refused" in attach
