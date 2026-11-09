@@ -876,8 +876,23 @@ async def test_task_get_path_and_method() -> None:
         ),
         (
             "decision_withdraw",
-            {"key": "T-5", "decision_id": "7"},
-            ("POST", "/agent/v1/tasks/T-5/decisions/7/withdraw", "", None),
+            {"key": "T-5", "decision_id": "7", "reason": "moot", "superseded_by": 9},
+            (
+                "POST",
+                "/agent/v1/tasks/T-5/decisions/7/withdraw",
+                "",
+                {"reason": "moot", "superseded_by": 9},
+            ),
+        ),
+        (
+            "decision_withdraw",
+            {"key": "T-5", "decision_id": "7", "reason": "moot", "answered_elsewhere": "in chat"},
+            (
+                "POST",
+                "/agent/v1/tasks/T-5/decisions/7/withdraw",
+                "",
+                {"reason": "moot", "answered_elsewhere": "in chat"},
+            ),
         ),
         (
             "todo_set",
@@ -915,6 +930,24 @@ async def test_decision_ask_requires_one_recommended_schema_hint() -> None:
     assert ask["inputSchema"]["required"] == ["key", "question", "options"]
 
 
+async def test_decision_withdraw_schema_and_texts() -> None:
+    tools = await tools_by_name()
+    w = tools["orchestrator_decision_withdraw"]
+    props = w["inputSchema"]["properties"]
+    assert w["inputSchema"]["required"] == ["key", "decision_id", "reason"]
+    assert props["reason"]["type"] == "string"
+    assert props["superseded_by"]["type"] == "integer"
+    assert props["answered_elsewhere"]["type"] == "string"
+    text = w["description"].lower()
+    assert "exactly one" in text and "422" in text
+    ask = tools["orchestrator_decision_ask"]["description"].lower()
+    assert "only channel" in ask and "never ask" in ask
+    assert "blocked by a tool, permission or sandbox" in ask and "fix" in ask
+    send = tools["orchestrator_chat_send"]["description"].lower()
+    assert "never ask the user a question here" in send
+    assert "orchestrator_decision_ask" in send and "link to the task" in send
+
+
 async def test_409_maps_to_is_error() -> None:
     cases = {
         ("task_update", 412): "stale_version",
@@ -933,7 +966,7 @@ async def test_409_maps_to_is_error() -> None:
 
     args = {
         "task_update": {"key": "T-1", "version": 1},
-        "decision_withdraw": {"key": "T-1", "decision_id": "3"},
+        "decision_withdraw": {"key": "T-1", "decision_id": "3", "reason": "r", "superseded_by": 4},
         "task_get": {"key": "T-1"},
     }
     async with harness(handler) as h:

@@ -34,7 +34,7 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_project_list` | `GET /agent/v1/projects` (your own project; a superleader gets every active project) |
 | `orchestrator_self_close(reason)` | `POST /agent/v1/close` (close the session once idle, leader only) |
 
-Task tools (`tasks.py`, `views.py`): `task_get` takes a `view` (`summary` default, `open_decisions`, `todo`,
+Task tools (`tasks.py`, `views.py`): `decision_withdraw` takes `reason` and exactly one of `superseded_by` (decision id) or `answered_elsewhere` (text); `task_get` takes a `view` (`summary` default, `open_decisions`, `todo`,
 `events`, `comments`) and answers only that part; the write tools (`task_create`, `task_update`,
 `task_comment`, `todo_set`, `todo_update`, `decision_ask`, `decision_withdraw`) answer a short
 confirmation (key, version, url; `todo_set` also the new `[id, text]` items). A task answer over the
@@ -151,7 +151,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.31.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.32.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

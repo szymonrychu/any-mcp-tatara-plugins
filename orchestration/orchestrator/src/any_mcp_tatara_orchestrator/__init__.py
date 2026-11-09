@@ -407,7 +407,9 @@ class OrchestratorPlugin(Plugin):
                 "reply_to (a relay never quotes). 409 occupier_closing means retry after "
                 "retry_after seconds. Other rooms bound to another session are refused with "
                 "room_bound, and a second room while you are bound with session_bound. Text is "
-                "1 to 16000 characters. The user's reply arrives as a new turn framed <chat ...>."
+                "1 to 16000 characters. Never ask the user a question here: ask it with "
+                "orchestrator_decision_ask; a link to the task is fine. The user's reply arrives "
+                "as a new turn framed <chat ...>."
             ),
             "chat_react": (
                 "React to a chat message with an emoji. Leader only. to takes the m<n> shown on a "

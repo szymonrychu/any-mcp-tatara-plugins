@@ -303,6 +303,9 @@ async def call_checked(h: PluginHarness, tool: str, args: dict[str, Any]) -> dic
     return res.structured
 
 
+WITHDRAW_ARGS = {"key": "T-19", "decision_id": "7", "reason": "moot", "superseded_by": 9}
+
+
 @pytest.mark.parametrize(
     ("make", "view"),
     [(big_task, "events"), (big_task, "comments"), (t19_like, "events")],
@@ -344,7 +347,7 @@ async def test_body_over_the_default_read_cap_is_read_whole() -> None:
                 ],
             },
         ),
-        ("decision_withdraw", {"key": "T-19", "decision_id": "7"}),
+        ("decision_withdraw", WITHDRAW_ARGS),
     ],
 )
 async def test_decision_tools_answer_compactly_for_a_huge_context(tool: str, args: dict) -> None:
@@ -655,7 +658,7 @@ async def test_write_tools_answer_a_short_confirmation(tool: str, args: dict, ke
                 ],
             },
         ),
-        ("decision_withdraw", {"key": "T-19", "decision_id": "7"}),
+        ("decision_withdraw", WITHDRAW_ARGS),
     ],
 )
 async def test_decision_tools_answer_a_short_confirmation(tool: str, args: dict) -> None:
@@ -672,7 +675,7 @@ async def test_error_answers_pass_through() -> None:
     async with PluginHarness(
         OrchestratorPlugin, config=CONFIG, name="orchestrator", transport=transport
     ) as h:
-        res = await h.call("orchestrator_decision_withdraw", {"key": "T-19", "decision_id": "7"})
+        res = await h.call("orchestrator_decision_withdraw", WITHDRAW_ARGS)
     assert res.is_error and "not_open" in res.text
 
 
