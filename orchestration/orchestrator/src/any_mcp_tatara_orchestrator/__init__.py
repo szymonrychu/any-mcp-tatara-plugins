@@ -32,7 +32,8 @@ from .secrets_local import (
     validate_to_file,
     write_credential,
 )
-from .tasks import FIT_TOOLS, TASK_LIST_LIMIT, TASK_WINDOW_DEFAULT, task_tools
+from .tasks import SUMMARY_EVENTS, TASK_LIST_LIMIT, TASK_WINDOW_DEFAULT, task_tools
+from .views import ACKS, task_view
 
 __all__ = ["OrchestratorPlugin"]
 
@@ -120,15 +121,10 @@ class OrchestratorPlugin(Plugin):
             call = call.with_arguments({"limit": TASK_LIST_LIMIT, **call.arguments})
             return self._fit_tasks(call.spec.name, await self._read_whole(call))
         if call.spec.name == "task_get":
-            call = call.with_arguments(
-                {
-                    "events_limit": TASK_WINDOW_DEFAULT,
-                    "comments_limit": TASK_WINDOW_DEFAULT,
-                    **call.arguments,
-                }
-            )
-        if call.spec.name in FIT_TOOLS:
-            return self._fit_tasks(call.spec.name, await self._read_whole(call))
+            view, call = self._task_get_window(call)
+            return self._fit_tasks(call.spec.name, await self._read_whole(call), view)
+        if call.spec.name in ACKS:
+            return self._ack(call.spec.name, await self._read_whole(call))
         if call.spec.name not in CREDENTIAL_TOOLS:
             return await super().call(call)
         # An issued credential goes to ``to_file`` or nowhere: it never reaches the result.
@@ -173,7 +169,24 @@ class OrchestratorPlugin(Plugin):
             self.ctx.http, call, headers=await self.credentials(call), max_bytes=_LARGE_READ_CAP
         )
 
-    def _fit_tasks(self, name: str, raw: RawResponse) -> RawResponse:
+    @staticmethod
+    def _task_get_window(call: ToolCall) -> tuple[str, ToolCall]:
+        """Split ``view`` off and ask the taskboard only for the events and comments it shows."""
+        args = dict(call.arguments)
+        view = args.pop("view", "summary")
+        events = {"summary": SUMMARY_EVENTS, "events": TASK_WINDOW_DEFAULT}.get(view, 0)
+        comments = TASK_WINDOW_DEFAULT if view == "comments" else 0
+        shown = {"events_limit": events, "comments_limit": comments}
+        if events:
+            shown["events_limit"] = args.get("events_limit", events)
+        if comments:
+            shown["comments_limit"] = args.get("comments_limit", comments)
+        for name, used in (("events_before", events), ("comments_before", comments)):
+            if used and name in args:
+                shown[name] = args[name]
+        return view, call.with_arguments({"key": args["key"], **shown})
+
+    def _fit_tasks(self, name: str, raw: RawResponse, view: str = "summary") -> RawResponse:
         """Fit a task answer (or compact a task_list page) into the output budget: the task
         tools declare output schemas, so any-mcp refuses an over-budget answer instead of
         cutting it."""
@@ -183,9 +196,22 @@ class OrchestratorPlugin(Plugin):
             return raw
         if name == "task_list":
             shaped = summarize_tasks(value)
+        elif isinstance(value, dict):
+            shaped = fit_task(task_view(value, view), self.ctx.response_budget_chars)
         else:
-            shaped = fit_task(value, self.ctx.response_budget_chars)
+            return raw
         return raw if shaped is value else RawResponse.from_value(shaped)
+
+    @staticmethod
+    def _ack(name: str, raw: RawResponse) -> RawResponse:
+        """Answer a write with a short confirmation instead of the whole task."""
+        try:
+            value = raw.json()
+        except ValueError:
+            return raw
+        if not isinstance(value, dict):
+            return raw
+        return RawResponse.from_value(ACKS[name](value))
 
     @staticmethod
     def _compact_presets(raw: RawResponse) -> RawResponse:

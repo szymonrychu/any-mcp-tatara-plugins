@@ -11,8 +11,10 @@ from typing import Any
 
 from any_mcp.types import HttpBinding, ToolSpec
 
+from .views import TASK_VIEWS
+
 __all__ = [
-    "FIT_TOOLS",
+    "SUMMARY_EVENTS",
     "TASK_LIST_LIMIT",
     "TASK_LIST_MAX",
     "TASK_WINDOW_DEFAULT",
@@ -20,24 +22,13 @@ __all__ = [
     "task_tools",
 ]
 
-# Tools answering one task (or one decision) that fit.fit_task trims to the output budget.
-FIT_TOOLS = frozenset(
-    {
-        "task_create",
-        "task_update",
-        "task_get",
-        "task_comment",
-        "decision_ask",
-        "decision_withdraw",
-        "todo_set",
-        "todo_update",
-    }
-)
 TASK_LIST_LIMIT = 10
 # 20 bounded summaries stay under the 40000 char budget (fit.summarize_tasks).
 TASK_LIST_MAX = 20
 TASK_WINDOW_DEFAULT = 20
 TASK_WINDOW_MAX = 200
+# Events the summary view of task_get shows unless events_limit says otherwise.
+SUMMARY_EVENTS = 10
 _TRIMMED = (
     "A task too large for the tool output budget comes back trimmed: the oldest events, then "
     "the oldest comments are left out and long texts are cut (marked ...[cut N chars]); "
@@ -63,9 +54,10 @@ _LABEL_RULE = (
     f"Labels are trimmed and lowercased by the server and must then match {_LABEL_PATTERN} "
     "(1 to 40 characters of a-z 0-9 - _ . :)."
 )
+_ACKED = " Answers a short confirmation, not the task; read the task with task_get."
 _LIFECYCLE = (
     "Lifecycle: create or claim a task at the start of work, keep its todo list current as you "
-    "go, and close the task (status done, or dropped) when the work is finished."
+    "go, and close the task (status done, or dropped) when the work is finished." + _ACKED
 )
 _ANSWER = (
     "The user answers in the web UI; the answer arrives as a chat message with a link to the "
@@ -87,6 +79,34 @@ _TASK_OUT = {
         "omitted": _OMITTED,
     },
     "required": ["url"],
+}
+_ACK_OUT = {
+    "type": "object",
+    "description": "A short confirmation; read the task with task_get.",
+    "properties": {
+        "key": {"type": "string"},
+        "version": {"type": "integer", "description": "Task version, valid for task_update."},
+        "url": {"type": "string", "description": "Absolute link to the task."},
+        "comment_id": {"type": ["integer", "null"], "description": "task_comment: newest comment."},
+        "comments_total": {"type": "integer", "description": "task_comment: comments on the task."},
+        "todo": {
+            "type": "array",
+            "description": "todo_set: the new items as [id, text cut to 60 chars], in order.",
+            "items": {"type": "array"},
+        },
+    },
+    "required": ["key", "version", "url"],
+}
+_DECISION_ACK_OUT = {
+    "type": "object",
+    "description": "A short confirmation; the answer arrives as a chat message.",
+    "properties": {
+        "id": {"type": ["integer", "string"]},
+        "task_key": {"type": "string"},
+        "status": {"type": "string", "description": "open, answered or withdrawn."},
+        "url": {"type": "string", "description": "Absolute link to the task."},
+    },
+    "required": ["id", "task_key", "status", "url"],
 }
 _LIST_OUT = {
     "type": "object",
@@ -214,7 +234,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                 },
                 ("title", "client_key"),
             ),
-            _TASK_OUT,
+            _ACK_OUT,
             _hints(),
             "*",
         ),
@@ -240,7 +260,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                 },
                 ("key", "version"),
             ),
-            _TASK_OUT,
+            _ACK_OUT,
             _hints(idempotent=True),
             "*",
         ),
@@ -296,16 +316,26 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "task_get",
             "GET",
             "/tasks/{key}",
-            "Read one task with its todo list, decisions (including answers), comments and "
-            "events. Use it to read a user's answer after the chat message that links the task. "
-            "Returns the newest 20 events and comments by default; events_total and "
-            "comments_total say how many exist; page back with events_before / comments_before; "
-            "events_limit=0 and comments_limit=0 give the decisions and todo only. " + _TRIMMED,
+            "Read one task. The view picks what comes back; every view carries key, project, "
+            "title, kind, status, labels, assignee_session, version, blocked, open_decisions, "
+            "url, events_total, comments_total and updated_at. summary (default): the body, "
+            "open decisions in full, answered decisions as id, question, answer and note, "
+            "withdrawn ones only as a count, the todo items still todo or inprogress plus "
+            "todo_done, and the newest 10 events (no comments). open_decisions: the open "
+            "decisions in full. todo: every todo item. events: the newest 20 events. comments: "
+            "the newest 20 comments. Use it to read a user's answer after the chat message that "
+            "links the task. events_limit (events and summary) and comments_limit (comments) "
+            "resize the window; page back with events_before / comments_before. " + _TRIMMED,
             _schema(
                 {
                     "key": _KEY,
-                    "events_limit": _window("Newest N events; default 20; 0 = none."),
-                    "comments_limit": _window("Newest N comments; default 20; 0 = none."),
+                    "view": {
+                        "type": "string",
+                        "enum": list(TASK_VIEWS),
+                        "description": "What to read; default summary. See the tool description.",
+                    },
+                    "events_limit": _window("Newest N events (summary, events); 0 = none."),
+                    "comments_limit": _window("Newest N comments (comments view)."),
                     "events_before": _BEFORE,
                     "comments_before": _BEFORE,
                 },
@@ -321,7 +351,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "/tasks/{key}/comments",
             "Add a comment to a task. Comments never notify the user. " + _LIFECYCLE,
             _schema({"key": _KEY, "body": {"type": "string"}}, ("key", "body")),
-            _TASK_OUT,
+            _ACK_OUT,
             _hints(),
             "*",
         ),
@@ -349,7 +379,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                 },
                 ("key", "question", "options"),
             ),
-            _TASK_OUT,
+            _DECISION_ACK_OUT,
             _hints(),
             "*",
         ),
@@ -358,9 +388,10 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "POST",
             "/tasks/{key}/decisions/{decision_id}/withdraw",
             "Withdraw a decision you asked while it is still open (HTTP 409 once answered). "
-            + _ANSWER,
+            + _ANSWER
+            + _ACKED,
             _schema({"key": _KEY, "decision_id": {"type": "string"}}, ("key", "decision_id")),
-            _TASK_OUT,
+            _DECISION_ACK_OUT,
             _hints(idempotent=True),
         ),
         spec(
@@ -376,7 +407,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                 },
                 ("key", "items"),
             ),
-            _TASK_OUT,
+            _ACK_OUT,
             _hints(idempotent=True),
             "*",
         ),
@@ -394,7 +425,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                 },
                 ("key", "item_id"),
             ),
-            _TASK_OUT,
+            _ACK_OUT,
             _hints(idempotent=True),
             "*",
         ),

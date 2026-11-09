@@ -34,7 +34,11 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_project_list` | `GET /agent/v1/projects` (your own project; a superleader gets every active project) |
 | `orchestrator_self_close(reason)` | `POST /agent/v1/close` (close the session once idle, leader only) |
 
-Task tools (`tasks.py`): a task or decision answer over the tool output budget (40000 chars) is
+Task tools (`tasks.py`, `views.py`): `task_get` takes a `view` (`summary` default, `open_decisions`, `todo`,
+`events`, `comments`) and answers only that part; the write tools (`task_create`, `task_update`,
+`task_comment`, `todo_set`, `todo_update`, `decision_ask`, `decision_withdraw`) answer a short
+confirmation (key, version, url; `todo_set` also the new `[id, text]` items). A task answer over the
+tool output budget (40000 chars) is
 trimmed (oldest events, then oldest comments, long texts cut) and reports what it left out in
 `omitted`; `task_create`, `task_update` and `task_list` take an optional `project` slug (see
 `project_list`; omitted on create: the caller's own project, `default` for a superleader); `task_list` answers a summary per task with child counts, `limit` (default 10, at most

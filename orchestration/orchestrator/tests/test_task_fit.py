@@ -14,6 +14,14 @@ from any_mcp.response import DEFAULT_BUDGET_CHARS
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.fit import MIN_KEEP, fit_task, measure, summarize_tasks
+from any_mcp_tatara_orchestrator.views import (
+    TASK_VIEWS,
+    comment_ack,
+    decision_ack,
+    task_ack,
+    task_view,
+    todo_ack,
+)
 
 URL = "https://lab.example.test/tasks/T-19"
 AT = "2026-11-07T10:00:00+00:00"
@@ -295,27 +303,31 @@ async def call_checked(h: PluginHarness, tool: str, args: dict[str, Any]) -> dic
     return res.structured
 
 
-@pytest.mark.parametrize("make", [big_task, t19_like], ids=["265k", "t19"])
-@pytest.mark.parametrize(("tool", "args"), TASK_CALLS, ids=[c[0] for c in TASK_CALLS])
-async def test_every_task_tool_fits_a_task_over_40k(make: Any, tool: str, args: dict) -> None:
+@pytest.mark.parametrize(
+    ("make", "view"),
+    [(big_task, "events"), (big_task, "comments"), (t19_like, "events")],
+    ids=["265k-events", "265k-comments", "t19-events"],
+)
+async def test_task_get_window_views_fit_a_task_over_40k(make: Any, view: str) -> None:
     upstream = make()
     assert measure(upstream) > T19_CHARS
     async with harness(upstream) as h:
-        out = await call_checked(h, tool, args)
+        out = await call_checked(h, "task_get", {"key": "T-19", "view": view})
     assert all(out[f] == upstream[f] for f in PROTECTED)
-    kept = [e["id"] for e in out["events"]]
-    ids = [e["id"] for e in upstream["events"]]
+    kept = [e["id"] for e in out[view]]
+    ids = [e["id"] for e in upstream[view]]
     assert kept == ids[len(ids) - len(kept) :]
-    assert out["omitted"]["events"] == len(ids) - len(kept)
-    assert out["omitted"]["comments"] == len(upstream["comments"]) - len(out["comments"])
+    assert out.get("omitted", {}).get(view, 0) == len(ids) - len(kept)
 
 
 async def test_body_over_the_default_read_cap_is_read_whole() -> None:
     upstream = big_task()
     assert len(json.dumps(upstream).encode()) > READ_CAP
     async with harness(upstream) as h:
-        out = await call_checked(h, "task_get", {"key": "T-19"})
-    assert out["omitted"]["events"] == 400
+        out = await call_checked(
+            h, "task_get", {"key": "T-19", "view": "events", "events_limit": 200}
+        )
+    assert out["omitted"]["events"] == 163  # the events view is events only, so 237 fit
 
 
 @pytest.mark.parametrize(
@@ -335,19 +347,19 @@ async def test_body_over_the_default_read_cap_is_read_whole() -> None:
         ("decision_withdraw", {"key": "T-19", "decision_id": "7"}),
     ],
 )
-async def test_decision_tools_fit_a_huge_context(tool: str, args: dict) -> None:
+async def test_decision_tools_answer_compactly_for_a_huge_context(tool: str, args: dict) -> None:
     upstream = dict(decision(7, status="open", context=100_000), task_key="T-19", url=URL)
     async with harness(upstream) as h:
         out = await call_checked(h, tool, args)
-    assert out["omitted"]["cut"] == 1
-    assert out["url"] == URL and out["task_key"] == "T-19"
+    assert out == {"id": 7, "task_key": "T-19", "status": "open", "url": URL}
 
 
-async def test_small_task_answer_is_unchanged() -> None:
+async def test_small_task_summary_is_the_view_of_the_task() -> None:
     upstream = task(events=3)
     async with harness(upstream) as h:
         out = await call_checked(h, "task_get", {"key": "T-19"})
-    assert out == upstream
+    assert out == task_view(upstream, "summary")
+    assert "omitted" not in out
 
 
 async def test_task_list_is_compact_limited_and_pages() -> None:
@@ -379,6 +391,7 @@ async def test_task_get_sends_window_defaults_and_values() -> None:
             "task_get",
             {
                 "key": "T-19",
+                "view": "comments",
                 "events_limit": 0,
                 "comments_limit": 5,
                 "events_before": 90,
@@ -386,8 +399,8 @@ async def test_task_get_sends_window_defaults_and_values() -> None:
             },
         )
     assert seen == [
-        "events_limit=20&comments_limit=20",
-        "events_limit=0&events_before=90&comments_limit=5&comments_before=7",
+        "events_limit=10&comments_limit=0",
+        "events_limit=0&comments_limit=5&comments_before=7",
     ]
 
 
@@ -404,10 +417,282 @@ async def test_task_get_window_schema() -> None:
 async def test_task_get_totals_validate_and_are_declared() -> None:
     answer = task(events=3) | {"events_total": 3, "comments_total": 0}
     async with harness(answer) as h:
-        out = await call_checked(h, "task_get", {"key": "T-19"})
         tools = {t["name"]: t for t in await h.list_tools() if "outputSchema" in t}
-    assert out["events_total"] == 3
-    assert out["comments_total"] == 0
+        for view in TASK_VIEWS:
+            out = await call_checked(h, "task_get", {"key": "T-19", "view": view})
+            assert (out["events_total"], out["comments_total"]) == (3, 0), view
     props = tools["orchestrator_task_get"]["outputSchema"]["properties"]
     assert props["events_total"]["type"] == "integer"
     assert props["comments_total"]["type"] == "integer"
+
+
+# T-101: task_get views and short confirmations for the write tools.
+CORE = {
+    "key",
+    "project",
+    "title",
+    "kind",
+    "status",
+    "labels",
+    "assignee_session",
+    "version",
+    "blocked",
+    "open_decisions",
+    "url",
+    "events_total",
+    "comments_total",
+    "updated_at",
+}
+
+
+def rich() -> dict[str, Any]:
+    open_d = decision(1, status="open", context=50)
+    chosen = decision(2, answer={"choice": 0, "label": "a"})
+    chosen["note"] = "n" * 300
+    typed = decision(3, answer={"text": "t" * 300})
+    plain = decision(4, answer={"choice": 1, "label": "b"})
+    withdrawn = decision(5, status="withdrawn")
+    out = task(
+        events=30,
+        comments=[comment(1, 5), comment(2, 5)],
+        decisions=[open_d, chosen, typed, plain, withdrawn],
+        body="the body",
+    )
+    out["project"] = "default"
+    out["events_total"] = 30
+    out["comments_total"] = 2
+    out["waiting_sessions"] = ["s-9"]
+    out["todo"] = [
+        {"id": 1, "text": "a", "status": "todo", "position": 0},
+        {"id": 2, "text": "b", "status": "inprogress", "position": 1},
+        {"id": 3, "text": "c", "status": "done", "position": 2},
+        {"id": 4, "text": "d", "status": "done", "position": 3},
+    ]
+    return out
+
+
+def test_summary_shape() -> None:
+    src = rich()
+    before = copy.deepcopy(src)
+    out = task_view(src, "summary")
+    assert src == before
+    assert set(out) == CORE | {
+        "body",
+        "waiting_sessions",
+        "decisions",
+        "decisions_withdrawn",
+        "todo",
+        "todo_done",
+        "events",
+    }
+    assert out["body"] == "the body"
+    assert out["todo"] == [
+        {"id": 1, "text": "a", "status": "todo"},
+        {"id": 2, "text": "b", "status": "inprogress"},
+    ]
+    assert out["todo_done"] == 2
+    assert out["decisions_withdrawn"] == 1
+    assert out["events"] == src["events"]
+    assert "comments" not in out
+
+
+def test_summary_decisions_open_full_answered_collapsed() -> None:
+    d_open, d_choice, d_text, d_plain = task_view(rich(), "summary")["decisions"]
+    assert set(d_open) == {"id", "asking_slug", "question", "context", "options", "created_at"}
+    assert d_open["id"] == 1 and d_open["context"] == "y" * 50
+    assert set(d_choice) == {"id", "question", "answer", "note"}
+    assert d_choice["answer"] == "a"
+    assert d_choice["note"] == "n" * 200 + "...[cut 100 chars]"
+    assert d_text["answer"] == "t" * 200 + "...[cut 100 chars]"
+    assert "note" not in d_text
+    assert d_plain == {"id": 4, "question": "q4?", "answer": "b"}
+
+
+def test_summary_omits_withdrawn_count_when_none() -> None:
+    src = task(decisions=[decision(1, status="open")])
+    out = task_view(src, "summary")
+    assert "decisions_withdrawn" not in out
+    assert out["todo"] == [] and out["todo_done"] == 30
+
+
+def test_open_decisions_view() -> None:
+    out = task_view(rich(), "open_decisions")
+    assert set(out) == CORE | {"decisions"}
+    assert [d["id"] for d in out["decisions"]] == [1]
+    assert "context" in out["decisions"][0]
+
+
+def test_todo_view_keeps_every_status() -> None:
+    out = task_view(rich(), "todo")
+    assert set(out) == CORE | {"todo", "todo_done"}
+    assert [i["id"] for i in out["todo"]] == [1, 2, 3, 4]
+    assert set(out["todo"][0]) == {"id", "text", "status"}
+    assert out["todo_done"] == 2
+
+
+def test_events_and_comments_views() -> None:
+    src = rich()
+    events = task_view(src, "events")
+    assert set(events) == CORE | {"events"} and events["events"] == src["events"]
+    comments = task_view(src, "comments")
+    assert set(comments) == CORE | {"comments"} and comments["comments"] == src["comments"]
+
+
+def test_core_only_carries_fields_the_upstream_has() -> None:
+    out = task_view(task(), "open_decisions")
+    assert "events_total" not in out and out["key"] == "T-19"
+
+
+def test_acks() -> None:
+    src = rich()
+    assert task_ack(src) == {"key": "T-19", "version": 57, "url": URL}
+    assert comment_ack(src) == {
+        "key": "T-19",
+        "version": 57,
+        "url": URL,
+        "comment_id": 2,
+        "comments_total": 2,
+    }
+    src["todo"] = [{"id": 9, "text": "x" * 80, "status": "todo", "position": 0}]
+    assert todo_ack(src)["todo"] == [[9, "x" * 60 + "...[cut 20 chars]"]]
+    assert set(todo_ack(src)) == {"key", "version", "url", "todo"}
+    d = dict(decision(7, status="open"), task_key="T-19", url=URL)
+    assert decision_ack(d) == {"id": 7, "task_key": "T-19", "status": "open", "url": URL}
+
+
+async def test_task_get_default_is_summary_with_window() -> None:
+    seen: list[str] = []
+    async with harness(rich(), seen) as h:
+        out = await call_checked(h, "task_get", {"key": "T-19"})
+    assert seen == ["events_limit=10&comments_limit=0"]
+    assert "comments" not in out and out["todo_done"] == 2
+
+
+@pytest.mark.parametrize(
+    ("args", "query"),
+    [
+        (
+            {"view": "summary", "events_before": 9, "comments_before": 3},
+            "events_limit=10&events_before=9&comments_limit=0",
+        ),
+        ({"view": "summary", "events_limit": 4}, "events_limit=4&comments_limit=0"),
+        ({"view": "open_decisions", "events_before": 9}, "events_limit=0&comments_limit=0"),
+        ({"view": "todo", "events_limit": 50}, "events_limit=0&comments_limit=0"),
+        (
+            {"view": "events", "events_before": 9},
+            "events_limit=20&events_before=9&comments_limit=0",
+        ),
+        ({"view": "events", "events_limit": 200}, "events_limit=200&comments_limit=0"),
+        (
+            {"view": "comments", "comments_before": 3},
+            "events_limit=0&comments_limit=20&comments_before=3",
+        ),
+        (
+            {"view": "comments", "comments_limit": 5, "events_limit": 9},
+            "events_limit=0&comments_limit=5",
+        ),
+    ],
+)
+async def test_task_get_view_sets_the_upstream_window(args: dict, query: str) -> None:
+    seen: list[str] = []
+    async with harness(rich(), seen) as h:
+        await call_checked(h, "task_get", {"key": "T-19", **args})
+    assert seen == [query]
+
+
+async def test_big_task_views_fit() -> None:
+    summary_upstream = big_task()
+    summary_upstream["events"] = summary_upstream["events"][-10:]  # the taskboard honours the limit
+    async with harness(summary_upstream) as h:
+        summary = await call_checked(h, "task_get", {"key": "T-19"})
+    async with harness(big_task()) as h:
+        events = await call_checked(h, "task_get", {"key": "T-19", "view": "events"})
+        comments = await call_checked(h, "task_get", {"key": "T-19", "view": "comments"})
+    # The summary shows only 10 events and no comments, so it is a small fraction of the
+    # budget even for a 265k task; 25% is a generous bound.
+    assert measure(summary) < DEFAULT_BUDGET_CHARS // 4
+    assert "omitted" in events and "omitted" in comments
+
+
+WRITES = [
+    ("task_create", {"title": "t", "client_key": "k"}, {"key", "version", "url"}),
+    ("task_update", {"key": "T-19", "version": 57, "status": "done"}, {"key", "version", "url"}),
+    (
+        "task_comment",
+        {"key": "T-19", "body": "hi"},
+        {"key", "version", "url", "comment_id", "comments_total"},
+    ),
+    ("todo_set", {"key": "T-19", "items": [{"text": "x"}]}, {"key", "version", "url", "todo"}),
+    (
+        "todo_update",
+        {"key": "T-19", "item_id": "2", "status": "done"},
+        {"key", "version", "url"},
+    ),
+]
+
+
+@pytest.mark.parametrize(("tool", "args", "keys"), WRITES, ids=[w[0] for w in WRITES])
+async def test_write_tools_answer_a_short_confirmation(tool: str, args: dict, keys: set) -> None:
+    upstream = big_task()
+    upstream["events"].append(event(401))
+    async with harness(upstream) as h:
+        out = await call_checked(h, tool, args)
+    assert set(out) == keys
+    assert out["key"] == "T-19" and out["version"] == 57 and out["url"] == URL
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        (
+            "decision_ask",
+            {
+                "key": "T-19",
+                "question": "q?",
+                "options": [
+                    {"label": "a", "recommended": True},
+                    {"label": "b", "recommended": False},
+                ],
+            },
+        ),
+        ("decision_withdraw", {"key": "T-19", "decision_id": "7"}),
+    ],
+)
+async def test_decision_tools_answer_a_short_confirmation(tool: str, args: dict) -> None:
+    upstream = dict(decision(7, status="open", context=100_000), task_key="T-19", url=URL)
+    async with harness(upstream) as h:
+        out = await call_checked(h, tool, args)
+    assert out == {"id": 7, "task_key": "T-19", "status": "open", "url": URL}
+
+
+async def test_error_answers_pass_through() -> None:
+    transport = httpx.MockTransport(
+        lambda r: httpx.Response(409, json={"error": {"code": "not_open", "message": "closed"}})
+    )
+    async with PluginHarness(
+        OrchestratorPlugin, config=CONFIG, name="orchestrator", transport=transport
+    ) as h:
+        res = await h.call("orchestrator_decision_withdraw", {"key": "T-19", "decision_id": "7"})
+    assert res.is_error and "not_open" in res.text
+
+
+async def test_schemas_declare_view_and_acks() -> None:
+    async with harness({}) as h:
+        tools = {t["name"]: t for t in await h.list_tools()}
+    view = tools["orchestrator_task_get"]["inputSchema"]["properties"]["view"]
+    assert view["enum"] == ["summary", "open_decisions", "todo", "events", "comments"]
+    assert "default" in view["description"].lower()
+    for name in ("task_create", "task_update", "task_comment", "todo_set", "todo_update"):
+        out = tools[f"orchestrator_{name}"]["outputSchema"]
+        assert out["required"] == ["key", "version", "url"]
+    for name in ("decision_ask", "decision_withdraw"):
+        out = tools[f"orchestrator_{name}"]["outputSchema"]
+        assert out["required"] == ["id", "task_key", "status", "url"]
+
+
+async def test_unknown_view_is_rejected() -> None:
+    async with harness(rich()) as h:
+        res = await h.call("orchestrator_task_get", {"key": "T-19", "view": "bogus"})
+    assert res.is_error
+    with pytest.raises(ValueError, match="bogus"):
+        task_view(rich(), "bogus")
