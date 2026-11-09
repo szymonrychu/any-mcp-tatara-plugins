@@ -119,8 +119,14 @@ to none, and otherwise the orchestrator refuses with `room_bound` or `session_bo
 refusal codes are `room_not_allowed`, `room_not_authorised`, `bad_reference`, `rate_limited`,
 `not_leader` and `chat_unavailable`. With `hive` true the
 hive tool descriptions start with "You are agent <agent>, one of up to <max_replicas> agents in hive
-<slug>; the workdir is shared."; with `auto_compact_pct` set the handover description advises
-handing over at a natural boundary once context passes `auto_compact_pct - 15` percent.
+<slug>; the workdir is shared.". The handover description no longer
+advises a context threshold: the orchestrator sends a `handover_due` note when a handover is due.
+`orchestrator_leadership_handover` and `orchestrator_session_send` take an optional `handled`
+(up to 50 integers): the ids (the `id` attribute of `<session-message>`) of messages from other
+sessions the call answers or that need no answer; unmarked ones carry over to the next leader.
+`orchestrator_me` tells the leader its answer carries `leader_state`, the live generated state, to
+read first after taking over; its and the handover description end with the re-read rule for
+decision and approval states.
 
 Peers' work is never streamed to an agent: it pulls it on demand with `orchestrator_activity`
 (optional `agent` pod name, `limit` 1..200; answers `{"lines": [...]}`, newest last), and the
@@ -145,7 +151,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.30.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.31.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081
