@@ -5,7 +5,7 @@ Distribution `any-mcp-tatara-orchestrator`, module `any_mcp_tatara_orchestrator`
 agents call the agents-orchestrator agent API `/agent/v1`. It does no network I/O at start; every
 tool is a thin HTTP call that returns the server JSON, and a non-2xx answer becomes a tool error
 carrying the server's `error.code` and message (`not_leader`, `stale_epoch`, `no_peers`, `alone`,
-`static_session`, `out_of_range`, `leader_would_leave`, `invalid_path`, `target_not_superleader`,
+`static_session`, `out_of_range`, `leader_would_leave`, `invalid_path`, `project_forbidden`,
 `hop_limit`, `pair_budget`, ...).
 
 Config fields (extra keys are refused): `base_url`, `token`, `session` (session key), `agent` (pod
@@ -31,11 +31,13 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_chat_send(text, room?, reply_to?)` | `POST /agent/v1/chat/messages` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_react(to, key)` | `POST /agent/v1/chat/reactions` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_status(id)` | `GET /agent/v1/chat/messages/{id}` (delivery status of a send `s<n>`) |
+| `orchestrator_project_list` | `GET /agent/v1/projects` (your own project; a superleader gets every active project) |
 | `orchestrator_self_close(reason)` | `POST /agent/v1/close` (close the session once idle, leader only) |
 
 Task tools (`tasks.py`): a task or decision answer over the tool output budget (40000 chars) is
 trimmed (oldest events, then oldest comments, long texts cut) and reports what it left out in
-`omitted`; `task_list` answers a summary per task with child counts, `limit` (default 10, at most
+`omitted`; `task_create`, `task_update` and `task_list` take an optional `project` slug (see
+`project_list`; omitted on create: the caller's own project, `default` for a superleader); `task_list` answers a summary per task with child counts, `limit` (default 10, at most
 20) and `cursor`.
 
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
@@ -97,12 +99,13 @@ reference `{from_file | from_env | from_command}`, resolved like `secret_set`; t
 into the POST body, the result is the orchestrator's proposal view (no value), and errors carry a
 fixed class name or the upstream error code with every resolved value redacted.
 
-The plugin always lists the sixteen agent tools, the admin tools, `secret_set`, `proposal_create` and `proposal_revise`. Which an agent sees is decided by the `allow` list of the
+The plugin always lists the seventeen agent tools, the admin tools, `secret_set`, `proposal_create` and `proposal_revise`. Which an agent sees is decided by the `allow` list of the
 entry the orchestrator renders (`scale` only on a scalable session, the hive tools only in a hive).
 The session tools `sessions_list` and `session_send` are rendered for every session; the
 orchestrator decides what each session may list and send: a superleader session's leader lists and
-messages every other session, any other session's leader lists and messages only the superleader
-sessions. A message arrives at the target leader as a new turn framed
+messages every other session, any other session's leader lists and messages the other sessions of
+its project and the superleader sessions (a send to another project is refused with
+`project_forbidden`, unless that session messaged it in the reply window). A message arrives at the target leader as a new turn framed
 `<session-message from="<slug>" ...>`; an answer is a send back to that slug. The chat tools
 reach the user's chat through the orchestrator, leader only. The final answer of a turn reaches the
 chat only for a chat-started turn; at any other time the leader calls `orchestrator_chat_send`. A
@@ -140,7 +143,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.26.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.27.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

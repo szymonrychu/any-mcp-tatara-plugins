@@ -332,6 +332,11 @@
     "operationId": "me_agent_v1_me_get"
    }
   },
+  "/agent/v1/projects": {
+   "get": {
+    "operationId": "projects_agent_v1_projects_get"
+   }
+  },
   "/agent/v1/scale": {
    "post": {
     "operationId": "scale_agent_v1_scale_post"

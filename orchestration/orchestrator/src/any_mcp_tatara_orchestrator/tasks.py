@@ -71,6 +71,10 @@ _ANSWER = (
     "The user answers in the web UI; the answer arrives as a chat message with a link to the "
     "task, then read it with task_get."
 )
+_PROJECT_RULE = (
+    "Project slug; see project_list. Agents work in their own project only; "
+    "a superleader may use any project."
+)
 _KEY = {"type": "string", "description": "Task key such as T-12."}
 _TASK_OUT = {
     "type": "object",
@@ -198,6 +202,11 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                     "kind": {"type": "string", "enum": ["idea", "task"]},
                     "labels": _labels("Labels of the task."),
                     "assignee_self": {"type": "boolean"},
+                    "project": {
+                        "type": "string",
+                        "description": _PROJECT_RULE
+                        + " Omitted: your own project (a superleader: default).",
+                    },
                     "client_key": {
                         "type": "string",
                         "description": "Idempotency key chosen by you, stable across retries.",
@@ -224,6 +233,10 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                     "status": {"type": "string", "enum": _TASK_STATUS},
                     "labels": _labels("Replaces the labels of the task."),
                     "assignee_self": {"type": "boolean"},
+                    "project": {
+                        "type": "string",
+                        "description": _PROJECT_RULE + " Moves the task to that project.",
+                    },
                 },
                 ("key", "version"),
             ),
@@ -254,6 +267,10 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                         "description": f"Match any of these labels. {_LABEL_RULE}",
                     },
                     "labels": {"type": "string", "enum": ["mine"]},
+                    "project": {
+                        "type": "string",
+                        "description": _PROJECT_RULE + " Only tasks of that project.",
+                    },
                     "limit": {"type": "integer", "minimum": 1, "maximum": TASK_LIST_MAX},
                     "cursor": {
                         "type": "string",
@@ -263,7 +280,17 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             ),
             _LIST_OUT,
             _hints(read_only=True, idempotent=True),
-            query=("status", "mine", "waiting", "session", "label", "labels", "limit", "cursor"),
+            query=(
+                "status",
+                "mine",
+                "waiting",
+                "session",
+                "label",
+                "labels",
+                "project",
+                "limit",
+                "cursor",
+            ),
         ),
         spec(
             "task_get",

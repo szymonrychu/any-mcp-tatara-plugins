@@ -93,6 +93,14 @@ async def test_every_http_row_exists_in_the_orchestrator_openapi() -> None:
         assert (s.http.method, norm(s.http.path)) in known, (s.name, s.http.method, s.http.path)
 
 
+async def test_project_list_exists_in_the_orchestrator_openapi() -> None:
+    known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
+    by_name = {s.name: s for s in await specs()}
+    http = by_name["project_list"].http
+    assert http is not None
+    assert (http.method, norm(http.path)) in known
+
+
 def test_local_proposal_tools_target_routes_in_the_orchestrator_openapi() -> None:
     known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
     for name, route in LOCAL_ROUTES.items():
