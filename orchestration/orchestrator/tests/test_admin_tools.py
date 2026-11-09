@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 
 from any_mcp.context import PluginContext
 from any_mcp.response import DEFAULT_BUDGET_CHARS
@@ -38,13 +39,9 @@ EXPECTED = {
     "history_search", "history_get", "history_records", "usage_get",
     "chat_admin_room", "chat_users", "chat_room_allow", "chat_open", "chat_open_status",
     "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
-    "leadership_withdraw",
+    "leadership_withdraw", "vault_list", "vault_attach", "vault_detach", "proposal_create",
+    "proposal_revise",
 }  # fmt: skip
-# Local handler tools and the upstream route each one POSTs to.
-LOCAL_ROUTES = {
-    "proposal_create": ("POST", "/agent/v1/admin/proposals"),
-    "proposal_revise": ("POST", "/agent/v1/admin/proposals/{}/revise"),
-}
 
 
 def norm(path: str) -> str:
@@ -101,16 +98,27 @@ async def test_project_list_exists_in_the_orchestrator_openapi() -> None:
     assert (http.method, norm(http.path)) in known
 
 
-def test_local_proposal_tools_target_routes_in_the_orchestrator_openapi() -> None:
+async def test_vault_rows_are_pinned_to_the_orchestrator_openapi() -> None:
     known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
-    for name, route in LOCAL_ROUTES.items():
-        assert route in known, name
-
-
-async def test_local_proposal_tools_are_handlers() -> None:
+    want = {
+        "vault_list": ("GET", "/agent/v1/admin/vault"),
+        "vault_attach": ("PUT", "/agent/v1/admin/presets/{}/vault/{}"),
+        "vault_detach": ("DELETE", "/agent/v1/admin/presets/{}/vault/{}"),
+        "proposal_create": ("POST", "/agent/v1/admin/proposals"),
+        "proposal_revise": ("POST", "/agent/v1/admin/proposals/{}/revise"),
+    }
     by_name = {s.name: s for s in await specs()}
-    for name in LOCAL_ROUTES:
-        assert by_name[name].handler is not None and by_name[name].http is None, name
+    for name, route in want.items():
+        http = by_name[name].http
+        assert http is not None and by_name[name].handler is None, name
+        assert (http.method, norm(http.path)) == route and route in known, name
+
+
+async def test_secret_set_is_gone() -> None:
+    names = {s.name for s in await specs()}
+    assert "secret_set" not in names
+    assert not any("/secrets/" in s.http.path for s in await specs() if s.http is not None)
+    assert not any("/secrets/" in p for p in OPENAPI["paths"])
 
 
 def test_every_admin_row_has_a_description_and_a_closed_schema() -> None:
@@ -222,6 +230,38 @@ async def test_rows_call_their_routes() -> None:
             "proposal_withdraw",
             {"proposal_id": 7},
             ("POST", "/agent/v1/admin/proposals/7/withdraw", "", None),
+        ),
+        ("vault_list", {}, ("GET", "/agent/v1/admin/vault", "", None)),
+        ("vault_list", {"q": "gh"}, ("GET", "/agent/v1/admin/vault", "q=gh", None)),
+        (
+            "vault_attach",
+            {"ref": "web", "entry_id": "E1", "envs": ["TOK"], "replace": True},
+            (
+                "PUT",
+                "/agent/v1/admin/presets/web/vault/E1",
+                "",
+                {"envs": ["TOK"], "replace": True},
+            ),
+        ),
+        (
+            "vault_detach",
+            {"ref": "web", "entry_id": "E1", "env": "TOK"},
+            ("DELETE", "/agent/v1/admin/presets/web/vault/E1", "env=TOK", None),
+        ),
+        (
+            "proposal_create",
+            {"kind": "preset", "target": "web", "patch": {"a": 1}, "reason": "r"},
+            (
+                "POST",
+                "/agent/v1/admin/proposals",
+                "",
+                {"kind": "preset", "target": "web", "patch": {"a": 1}, "reason": "r"},
+            ),
+        ),
+        (
+            "proposal_revise",
+            {"id": 5, "patch": {"a": 2}},
+            ("POST", "/agent/v1/admin/proposals/5/revise", "", {"patch": {"a": 2}}),
         ),
     ]
     async with harness(handler) as h:
@@ -636,3 +676,29 @@ async def test_chat_admin_rows_call_their_routes() -> None:
     for (name, _, want), got in zip(calls, seen, strict=True):
         assert got[:3] == want[:3], name
         assert (got[3] or {}) == (want[3] or {}), name
+
+
+@pytest.mark.parametrize(
+    "name,args",
+    [
+        (
+            "proposal_create",
+            {"kind": "preset", "target": "w", "patch": {}, "reason": "r", "secrets": {}},
+        ),
+        ("proposal_revise", {"id": 1, "patch": {}, "secrets": {"T": {"from_env": "X"}}}),
+    ],
+)
+async def test_proposal_with_secrets_is_refused_before_any_request(
+    name: str, args: dict[str, Any]
+) -> None:
+    seen: list[Any] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    async with harness(handler) as h:
+        res = await h.call(name, args)
+    assert res.is_error
+    assert seen == []
+    assert "secret" in res.text.lower(), res.text

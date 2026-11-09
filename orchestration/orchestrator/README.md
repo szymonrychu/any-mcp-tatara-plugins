@@ -65,7 +65,12 @@ of the next call. The cursor comes first because any-mcp cuts an over-budget too
 chars) at its tail, and a full page of hits can exceed it. A
 contract test pins every row's method and path to `tests/fixtures/orchestrator_openapi.json`.
 
-Preset and session tools refuse a protected env entry that carries a `value` (use `secret_set`).
+Secret values live in agents-vault and are written by users in the web UI. `vault_list` (`GET /agent/v1/admin/vault`, query `q`)
+lists entries (name, description, labels, env names, readable values, attachments) and presets with env names
+to re-attach; protected values are never shown. `vault_attach` (`PUT /agent/v1/admin/presets/{ref}/vault/{entry_id}`, body
+`envs`, `replace`) attaches all envs of an entry in one save (entry labels must match the preset; privileged presets
+included, no proposal) and `vault_detach` (`DELETE` the same path, query `env`) detaches. There is no `secret_set`
+(removed in 0.28.0, orchestrator >= 7.0.0): the preset and session tools no longer scan for protected values.
 
 `session_get` and `session_patch` (`GET` and `PATCH /agent/v1/admin/sessions/{slug}`) are also
 rendered for every session that is not a superleader, which may read and patch only its own
@@ -77,29 +82,19 @@ shorten `inactivity` limits on its own session, human-only fields only move towa
 `replicas`, `max_replicas`, `static`, `workdir`, `pvc_size` and `cache` cannot change on a live
 session.
 
-Local tool `orchestrator_secret_set(preset, name, from_file | from_env | from_command)`: the value
-is resolved in the plugin process (file capped at 64 KiB, an env var of the pod, or a command run
-without a shell with a 10 s limit) and sent as the body of `PUT /agent/v1/admin/presets/{ref}/secrets/{name}`
-(the orchestrator refuses a name that is not a protected variable of the preset, as in the GitLab
-CI variables model: write-only, overwrite-only). The result is `{name, set, version, bytes}`;
-errors carry a fixed class name, never a value, a path or command output.
 `webhook_create`, `webhook_update`, `webhook_clone` and `webhook_rotate` take an optional `to_file`
 (absolute path inside the secrets directory, config `secrets_dir`, default `~/.agent-secrets`, created 0700; real paths are checked so symlinks and `..` cannot escape; an existing file is refused unless `overwrite` is true): the credential the upstream issues once is written there (mode 0600,
 atomic replace) from the orchestrator's single local-channel answer (`X-Orch-Tool: local`), and the
 result says only `to_file: {written, key, bytes}`. The same token reaches the same channel, so this
 guards the transcript, not a hostile model.
 
-Local tools `orchestrator_proposal_create(kind, target, patch, reason, client_key?, secrets?)` and
-`orchestrator_proposal_revise(id, patch, reason?, secrets?)` file and revise a change proposal
-(`POST /agent/v1/admin/proposals` and `.../{id}/revise`, orchestrator >= 6.2.0) for a human to
-review in the web UI: security changes and human-only fields of presets, schedules and session
-specs go there. `patch` is an RFC 7396 merge patch of the target's spec; a protected env entry
-with a `value` in it is refused before any request. `secrets` maps a protected variable name to a
-reference `{from_file | from_env | from_command}`, resolved like `secret_set`; the values go only
-into the POST body, the result is the orchestrator's proposal view (no value), and errors carry a
-fixed class name or the upstream error code with every resolved value redacted.
+`proposal_create(kind, target, patch, reason, client_key?)` and `proposal_revise(id, patch, reason?)` file and revise a
+change proposal (`POST /agent/v1/admin/proposals` and `.../{id}/revise`) for a human to review in the web UI: security
+changes and human-only fields of presets, schedules and session specs go there. `patch` is an RFC 7396 merge patch of
+the target's spec. Proposals carry no secrets; a call with a `secrets` argument is refused by the closed schema before
+any request.
 
-The plugin always lists the seventeen agent tools, the admin tools, `secret_set`, `proposal_create` and `proposal_revise`. Which an agent sees is decided by the `allow` list of the
+The plugin always lists the seventeen agent tools, the admin tools (vault and proposal tools included). Which an agent sees is decided by the `allow` list of the
 entry the orchestrator renders (`scale` only on a scalable session, the hive tools only in a hive).
 The session tools `sessions_list` and `session_send` are rendered for every session; the
 orchestrator decides what each session may list and send: a superleader session's leader lists and
@@ -143,7 +138,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.27.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.28.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

@@ -54,8 +54,6 @@ def blob(res: Any) -> str:
 def fake(seen: list[httpx.Request], *, with_credential: bool = True) -> Any:
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        if request.method == "PUT" and "/secrets/" in request.url.path:
-            return httpx.Response(200, json={"name": "TOK", "set": True, "version": 3})
         body: dict[str, Any] = {"id": "w1", "password_secret": "webhook-w1-password"}
         body["key"] = "password"
         if with_credential and request.headers.get("x-orch-tool") == "local":
@@ -63,50 +61,6 @@ def fake(seen: list[httpx.Request], *, with_credential: bool = True) -> Any:
         return httpx.Response(201, json=body)
 
     return handler
-
-
-async def test_secret_set_full_call(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.DEBUG)
-    f = tmp_path / "v"
-    f.write_text(CANARY + "\n")
-    seen: list[httpx.Request] = []
-    async with harness(fake(seen)) as h:
-        names = {t["name"] for t in await h.list_tools()}
-        assert "orchestrator_secret_set" in names
-        res = await h.call("secret_set", {"preset": "web", "name": "TOK", "from_file": str(f)})
-    assert not res.is_error
-    assert res.structured == {"name": "TOK", "set": True, "version": 3, "bytes": len(CANARY)}
-    assert CANARY not in blob(res) and CANARY not in caplog.text
-    (req,) = seen
-    assert (req.method, req.url.path) == ("PUT", "/agent/v1/admin/presets/web/secrets/TOK")
-    assert json.loads(req.content) == {"value": CANARY}
-    assert req.headers["authorization"] == f"Bearer {TOKEN}"
-    known = {(m.upper(), p) for p, ms in OPENAPI["paths"].items() for m in ms}
-    assert ("PUT", "/agent/v1/admin/presets/{ref}/secrets/{name}") in known
-
-
-async def test_secret_set_refused_for_a_non_protected_target(tmp_path: Path) -> None:
-    f = tmp_path / "v"
-    f.write_text(CANARY)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            422, json={"error": {"code": "not_protected", "message": "echo " + CANARY}}
-        )
-
-    async with harness(handler) as h:
-        res = await h.call("secret_set", {"preset": "web", "name": "PLAIN", "from_file": str(f)})
-    assert res.is_error and "422" in res.text
-    assert CANARY not in blob(res)
-
-
-async def test_secret_resolve_errors_route_to_a_fixed_class_text() -> None:
-    async with harness(fake([])) as h:
-        res = await h.call(
-            "secret_set", {"preset": "p", "name": "TOK", "from_env": "NOPE_" + CANARY}
-        )
-    assert res.is_error and "env_missing" in res.text
-    assert CANARY not in blob(res)
 
 
 @pytest.mark.parametrize("tool", CRED_TOOLS)
@@ -223,29 +177,6 @@ async def test_a_failed_file_write_leaks_nothing(tmp_path: Path, monkeypatch: An
     assert res.is_error and "to_file_failed" in res.text
     assert CANARY not in blob(res)
     assert list(root.iterdir()) == []
-
-
-@pytest.mark.parametrize(
-    "tool", ["preset_create", "preset_replace", "preset_patch", "session_create", "session_patch"]
-)
-async def test_protected_env_value_is_refused(tool: str) -> None:
-    seen: list[httpx.Request] = []
-    args: dict[str, Any] = {
-        "preset_create": {"name": "n"},
-        "preset_replace": {"ref": "n", "name": "n"},
-        "preset_patch": {"ref": "n"},
-        "session_create": {},
-        "session_patch": {"slug": "n"},
-    }[tool]
-    spec = {"env": {"TOK": {"protected": True, "value": CANARY}}}
-    async with harness(fake(seen)) as h:
-        res = await h.call(tool, {**args, "spec": spec})
-        assert res.is_error and "secret_set" in res.text and "TOK" in res.text
-        assert CANARY not in blob(res)
-        ok = {"env": {"TOK": {"protected": True}, "PLAIN": {"value": "x", "protected": False}}}
-        res = await h.call(tool, {**args, "spec": ok})
-    assert not res.is_error
-    assert len(seen) == 1 and CANARY.encode() not in seen[0].content
 
 
 async def test_upstream_errors_of_credential_tools_keep_their_code(tmp_path: Path) -> None:

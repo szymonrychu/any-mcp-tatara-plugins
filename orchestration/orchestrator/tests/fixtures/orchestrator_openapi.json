@@ -105,9 +105,12 @@
     "operationId": "copy_preset_agent_v1_admin_presets__ref__copy_post"
    }
   },
-  "/agent/v1/admin/presets/{ref}/secrets/{name}": {
+  "/agent/v1/admin/presets/{ref}/vault/{entry_id}": {
+   "delete": {
+    "operationId": "detach_vault_agent_v1_admin_presets__ref__vault__entry_id__delete"
+   },
    "put": {
-    "operationId": "set_preset_secret_agent_v1_admin_presets__ref__secrets__name__put"
+    "operationId": "attach_vault_agent_v1_admin_presets__ref__vault__entry_id__put"
    }
   },
   "/agent/v1/admin/proposals": {
@@ -211,6 +214,11 @@
   "/agent/v1/admin/usage": {
    "get": {
     "operationId": "get_usage_agent_v1_admin_usage_get"
+   }
+  },
+  "/agent/v1/admin/vault": {
+   "get": {
+    "operationId": "admin_vault_list"
    }
   },
   "/agent/v1/admin/webhooks/endpoints": {
