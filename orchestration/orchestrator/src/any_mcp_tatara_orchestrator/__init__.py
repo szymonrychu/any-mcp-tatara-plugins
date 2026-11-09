@@ -226,19 +226,26 @@ class OrchestratorPlugin(Plugin):
         if not isinstance(exc, UpstreamError):
             return error_result(exc, plugin=self.ctx.name, secrets=secrets)
         status = exc.response.status
-        code, message = None, ""
+        code, message, extra = None, "", {}
         try:
             error = exc.response.json().get("error")
             if isinstance(error, dict):
                 code = error.get("code")
                 message = str(error.get("message") or "")
+                if error.get("proposable") is True:
+                    extra["proposable"] = True
+                fields = error.get("fields")
+                if isinstance(fields, list) and all(isinstance(f, str) for f in fields):
+                    extra["fields"] = fields
         except Exception:
             pass
         if not isinstance(code, str) or not code:
             return error_result(exc, plugin=self.ctx.name, secrets=secrets)
         text = f"orchestrator error {code}" + (f": {message}" if message else "")
-        text = redact(" ".join(text.split())[:_ERROR_LIMIT], secrets) + f" (HTTP {status})"
-        error_body = {"kind": "upstream", "code": code, "message": text, "status": status}
+        text = redact(" ".join(text.split())[:_ERROR_LIMIT], secrets)
+        text += " (proposable: true)" if extra.get("proposable") else ""
+        text += f" (HTTP {status})"
+        error_body = {"kind": "upstream", "code": code, "message": text, "status": status, **extra}
         return ToolResult(text=text, structured={"error": error_body}, is_error=True)
 
     def _hive_prefix(self) -> str:
