@@ -659,6 +659,25 @@ async def test_scale_and_init_tools_match_contracts() -> None:
         assert seen == [("PUT", {"scripts": ["echo b"]})]
 
 
+async def test_refused_edit_surfaces_proposable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        proposable = request.url.path == "/agent/v1/scale"
+        error = {"code": "human_only_field", "message": "only a human can change: x"}
+        if proposable:
+            error["proposable"] = True
+            error["fields"] = ["x"]
+        return httpx.Response(403, json={"error": error})
+
+    async with harness(handler) as h:
+        r = await h.call("orchestrator_scale", {"replicas": 2})
+        assert r.is_error and r.structured["error"]["proposable"] is True
+        assert r.structured["error"]["fields"] == ["x"]
+        assert "proposable: true" in r.text
+        r = await h.call("orchestrator_init_scripts_get")
+        assert r.is_error and "proposable" not in r.text
+        assert "proposable" not in r.structured["error"]
+
+
 async def tools_by_name() -> dict[str, dict[str, Any]]:
     async with harness(ok) as h:
         return {t["name"]: t for t in await h.list_tools()}
