@@ -168,7 +168,7 @@ def test_events_then_comments_then_texts() -> None:
     out = fit_task(upstream, DEFAULT_BUDGET_CHARS)
     assert measure(out) <= DEFAULT_BUDGET_CHARS
     assert out["events"] == []
-    assert out["omitted"]["events"] > 0
+    assert out["omitted"]["events"] == 400
     assert out["omitted"]["comments"] == 41 - len(out["comments"])
     assert out["omitted"]["cut"] >= 1
     assert all(out[f] == upstream[f] for f in PROTECTED)
@@ -303,17 +303,21 @@ async def call_checked(h: PluginHarness, tool: str, args: dict[str, Any]) -> dic
     return res.structured
 
 
-@pytest.mark.parametrize("view", ["events", "comments"])
-async def test_task_get_window_views_fit_a_task_over_40k(view: str) -> None:
-    upstream = big_task()
-    assert measure(task_view(upstream, view)) > T19_CHARS
+@pytest.mark.parametrize(
+    ("make", "view"),
+    [(big_task, "events"), (big_task, "comments"), (t19_like, "events")],
+    ids=["265k-events", "265k-comments", "t19-events"],
+)
+async def test_task_get_window_views_fit_a_task_over_40k(make: Any, view: str) -> None:
+    upstream = make()
+    assert measure(upstream) > T19_CHARS
     async with harness(upstream) as h:
         out = await call_checked(h, "task_get", {"key": "T-19", "view": view})
     assert all(out[f] == upstream[f] for f in PROTECTED)
     kept = [e["id"] for e in out[view]]
     ids = [e["id"] for e in upstream[view]]
     assert kept == ids[len(ids) - len(kept) :]
-    assert out["omitted"][view] == len(ids) - len(kept)
+    assert out.get("omitted", {}).get(view, 0) == len(ids) - len(kept)
 
 
 async def test_body_over_the_default_read_cap_is_read_whole() -> None:
@@ -323,7 +327,7 @@ async def test_body_over_the_default_read_cap_is_read_whole() -> None:
         out = await call_checked(
             h, "task_get", {"key": "T-19", "view": "events", "events_limit": 200}
         )
-    assert out["omitted"]["events"] > 0
+    assert out["omitted"]["events"] == 163  # the events view is events only, so 237 fit
 
 
 @pytest.mark.parametrize(
@@ -597,11 +601,16 @@ async def test_task_get_view_sets_the_upstream_window(args: dict, query: str) ->
 
 
 async def test_big_task_views_fit() -> None:
-    async with harness(big_task()) as h:
+    summary_upstream = big_task()
+    summary_upstream["events"] = summary_upstream["events"][-10:]  # the taskboard honours the limit
+    async with harness(summary_upstream) as h:
         summary = await call_checked(h, "task_get", {"key": "T-19"})
+    async with harness(big_task()) as h:
         events = await call_checked(h, "task_get", {"key": "T-19", "view": "events"})
         comments = await call_checked(h, "task_get", {"key": "T-19", "view": "comments"})
-    assert "omitted" not in summary or summary["omitted"].get("events", 0) > 0
+    # The summary shows only 10 events and no comments, so it is a small fraction of the
+    # budget even for a 265k task; 25% is a generous bound.
+    assert measure(summary) < DEFAULT_BUDGET_CHARS // 4
     assert "omitted" in events and "omitted" in comments
 
 
@@ -679,3 +688,11 @@ async def test_schemas_declare_view_and_acks() -> None:
     for name in ("decision_ask", "decision_withdraw"):
         out = tools[f"orchestrator_{name}"]["outputSchema"]
         assert out["required"] == ["id", "task_key", "status", "url"]
+
+
+async def test_unknown_view_is_rejected() -> None:
+    async with harness(rich()) as h:
+        res = await h.call("orchestrator_task_get", {"key": "T-19", "view": "bogus"})
+    assert res.is_error
+    with pytest.raises(ValueError, match="bogus"):
+        task_view(rich(), "bogus")

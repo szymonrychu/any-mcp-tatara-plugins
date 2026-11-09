@@ -92,8 +92,10 @@ def task_view(task: dict[str, Any], view: str) -> dict[str, Any]:
     elif view == "todo":
         out["todo"] = _items(task, open_only=False)
         out["todo_done"] = sum(i["status"] == "done" for i in task.get("todo", []))
-    else:
+    elif view in ("events", "comments"):
         out[view] = task.get(view, [])
+    else:
+        raise ValueError(f"unknown task view {view!r}; expected one of {', '.join(TASK_VIEWS)}")
     return out
 
 
