@@ -72,7 +72,9 @@ contract test pins every row's method and path to `tests/fixtures/orchestrator_o
 Secret values live in agents-vault and are written by users in the web UI. `vault_list` (`GET /agent/v1/admin/vault`, query `q`)
 lists entries (name, description, labels, env names, readable values, attachments) and presets with env names
 to re-attach; protected values are never shown. `vault_attach` (`PUT /agent/v1/admin/presets/{ref}/vault/{entry_id}`, body
-`envs`, `replace`) attaches all envs of an entry in one save (entry labels must match the preset; privileged presets
+`envs`, `replace`) attaches all envs of an entry in one save (or those in `envs`, an object mapping entry env name to
+preset env name, e.g. `{"GITHUB_TOKEN": "BOT_TOKEN"}`; same name on both sides attaches a subset unrenamed; `replace`
+overwrites an existing preset env of the same name, else 409 `env_exists`) (entry labels must match the preset; privileged presets
 included, no proposal, nothing refused) and `vault_detach` (`DELETE` the same path, query `env`) detaches. Attachments
 carry `privileged` in `vault_list` and `attachment_privileged` in the `vault_attach` response (0.29.0, orchestrator >=
 7.1.0): true means the preset's sessions have Kubernetes API access or docker/dind and can read every Secret in the

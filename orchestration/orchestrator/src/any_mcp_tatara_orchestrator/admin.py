@@ -241,26 +241,36 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "vault_attach",
         "PUT",
         f"{_A}/presets/{{ref}}/vault/{{entry_id}}",
-        "Attach a vault entry to a preset: all envs of the entry are attached in one save, "
-        "or only the envs you list. The entry labels must match the preset (labels plus "
+        "Attach a vault entry to a preset: all envs of the entry are attached in one save "
+        "under their own names, or only the envs you map (envs: entry env name to preset env "
+        "name, which also renames). The entry labels must match the preset (labels plus "
         "project), else 422 vault_label_mismatch. Privileged presets included: no proposal is "
         "needed and nothing is refused. The response has attachment_privileged (bool): true "
         "means the preset's sessions have cluster access or docker/dind and can read every "
         "Secret in the namespace, so attaching exposes the entry's values to them; weigh "
-        "that before attaching sensitive entries. replace true replaces the entry's current "
-        "attachment on the preset. Read entry ids and env names from vault_list.",
+        "that before attaching sensitive entries. A preset env of the same name that already "
+        "exists and is not a reference to the same entry env gives 409 env_exists unless "
+        "replace is true, which overwrites it. Read entry ids and env names from vault_list.",
         schema(
             {
                 "ref": _REF,
                 "entry_id": _str("Vault entry id (uuid), from vault_list."),
                 "envs": {
-                    "type": "array",
-                    "items": {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]{0,127}$"},
-                    "description": "Entry env names to attach; omitted: all envs of the entry.",
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": {"pattern": "^[A-Z_][A-Z0-9_]{0,127}$"},
+                    "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
+                    },
+                    "description": "Maps entry env name to preset env name, e.g. "
+                    '{"GITHUB_TOKEN": "BOT_TOKEN"}. Same name on both sides attaches a '
+                    "subset unrenamed. Omitted: all envs of the entry under their own names.",
                 },
                 "replace": {
                     "type": "boolean",
-                    "description": "Replace the entry's current attachment on the preset.",
+                    "description": "Overwrite an existing preset env of the same name "
+                    "(else 409 env_exists unless it already references the same entry env).",
                 },
             },
             ("ref", "entry_id"),
