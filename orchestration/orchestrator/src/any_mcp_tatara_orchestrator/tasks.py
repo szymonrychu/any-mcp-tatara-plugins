@@ -360,7 +360,11 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "POST",
             "/tasks/{key}/decisions",
             "Ask the user a decision on a task, with 2 to 8 options, exactly one marked "
-            "recommended. Not blocking: continue other work. " + _ANSWER + " The task counts "
+            "recommended. This is the only channel for a question to the user: never ask a "
+            "question in chat (orchestrator_chat_send) or in your final answer. When the action "
+            "the decision unblocks was blocked by a tool, permission or sandbox block, the same "
+            "decision also asks for the fix of that block, so one answer unblocks it. "
+            "Not blocking: continue other work. " + _ANSWER + " The task counts "
             "as blocked while a decision is open. A repeated client_key returns the same "
             "decision. " + _LIFECYCLE,
             _schema(
@@ -388,11 +392,36 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "POST",
             "/tasks/{key}/decisions/{decision_id}/withdraw",
             "Withdraw a decision you asked while it is still open (HTTP 409 once answered). "
-            + _ANSWER
-            + _ACKED,
-            _schema({"key": _KEY, "decision_id": {"type": "string"}}, ("key", "decision_id")),
+            "A withdrawal needs an outcome: reason plus exactly one of superseded_by (the id "
+            "of the decision that replaces it) or answered_elsewhere (where the answer came "
+            "from); HTTP 422 when reason is missing, both or neither outcome is given, or "
+            "superseded_by is not a decision you can see. " + _ANSWER + _ACKED,
+            _schema(
+                {
+                    "key": _KEY,
+                    "decision_id": {"type": "string"},
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the decision is withdrawn (1 to 2000 characters).",
+                    },
+                    "superseded_by": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Id of the decision that replaces this one.",
+                    },
+                    "answered_elsewhere": {
+                        "type": "string",
+                        "description": (
+                            "Where the user answered instead (1 to 4000 characters); "
+                            "give this or superseded_by, not both."
+                        ),
+                    },
+                },
+                ("key", "decision_id", "reason"),
+            ),
             _DECISION_ACK_OUT,
             _hints(idempotent=True),
+            "*",
         ),
         spec(
             "todo_set",
