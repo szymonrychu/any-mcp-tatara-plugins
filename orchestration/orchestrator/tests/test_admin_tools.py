@@ -235,12 +235,12 @@ async def test_rows_call_their_routes() -> None:
         ("vault_list", {"q": "gh"}, ("GET", "/agent/v1/admin/vault", "q=gh", None)),
         (
             "vault_attach",
-            {"ref": "web", "entry_id": "E1", "envs": ["TOK"], "replace": True},
+            {"ref": "web", "entry_id": "E1", "envs": {"TOK": "BOT_TOKEN"}, "replace": True},
             (
                 "PUT",
                 "/agent/v1/admin/presets/web/vault/E1",
                 "",
-                {"envs": ["TOK"], "replace": True},
+                {"envs": {"TOK": "BOT_TOKEN"}, "replace": True},
             ),
         ),
         (
@@ -711,3 +711,26 @@ def test_vault_descriptions_mark_privileged_attachments_without_refusing() -> No
     assert "attachment_privileged" in attach
     assert "read every Secret in the namespace" in attach
     assert "nothing is refused" in attach
+
+
+@pytest.mark.parametrize(
+    "envs",
+    [["TOK"], {}, {"tok": "BOT"}, {"TOK": "bot"}, {"TOK": 1}],
+)
+async def test_vault_attach_rejects_bad_envs(envs: Any) -> None:
+    seen: list[Any] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    async with harness(handler) as h:
+        res = await h.call("vault_attach", {"ref": "web", "entry_id": "E1", "envs": envs})
+        assert res.is_error
+    assert seen == []
+
+
+def test_vault_attach_envs_maps_entry_env_to_preset_env() -> None:
+    envs = rows_by_name()["vault_attach"].schema["properties"]["envs"]
+    assert envs["type"] == "object" and envs["minProperties"] == 1
+    assert "propertyNames" in envs and "additionalProperties" in envs
