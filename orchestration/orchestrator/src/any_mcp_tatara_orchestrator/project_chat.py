@@ -16,10 +16,12 @@ _BASE = "/agent/v1"
 PROJECT_CHAT_READ_LIMIT = 20
 _PROJECT = {
     "type": "string",
-    "description": "Project slug. Required for a superleader session; a leader's own project.",
+    "description": "Project slug. Required for a superleader session; a leader may name any of its "
+    "projects (home or granted), default its home project.",
 }
 _SEND = (
-    "Post to your project's room. Leader only. The post is pushed as a turn to the leader of "
+    "Post to a project room of yours (home by default, or a granted one with project). "
+    "Leader only. The post is pushed as a turn to the leader of "
     "every other session of your project (never to a superleader); to narrows the push to those "
     "session slugs, but every leader of the project can still read it with "
     "orchestrator_project_chat_read. Asynchronous: returns post_id, delivered and skipped at "
@@ -30,7 +32,8 @@ _SEND = (
     "or that need no answer. A superleader session must give project."
 )
 _READ = (
-    "Read your project's room, newest first, limit posts per page (default 20, at most 100); "
+    "Read a project room of yours (home by default, or a granted one with project), newest "
+    "first, limit posts per page (default 20, at most 100); "
     "next_before_id pages back, after_id reads posts newer than an id. Leader only. A "
     "superleader session must give project and may read any project."
 )
