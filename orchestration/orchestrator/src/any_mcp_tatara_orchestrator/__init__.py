@@ -27,6 +27,7 @@ from .common import HANDLED
 from .fit import fit_task, summarize_tasks
 from .memory import memory_tools
 from .plan import plan_tools
+from .plan_local import local_plan_specs, plan_export, plan_questions_ask, plan_steps_push
 from .project_chat import PROJECT_CHAT_READ_LIMIT, project_chat_tools
 from .projects import project_tools
 from .secrets_local import (
@@ -130,6 +131,13 @@ class OrchestratorPlugin(Plugin):
     async def call(self, call: ToolCall) -> RawResponse:
         if call.spec.name == "spec_pull":
             return RawResponse.from_value(await spec_pull(self.ctx.http, self.cfg, call.arguments))
+        local = {
+            "plan_steps_push": plan_steps_push,
+            "plan_export": plan_export,
+            "plan_questions_ask": plan_questions_ask,
+        }.get(call.spec.name)
+        if local is not None:
+            return RawResponse.from_value(await local(self.ctx.http, self.cfg, call.arguments))
         if call.spec.name == "spec_push":
             return RawResponse.from_value(await spec_push(self.ctx.http, self.cfg, call.arguments))
         if call.spec.name == "session_discard" and not call.arguments.get("force"):
@@ -508,6 +516,7 @@ class OrchestratorPlugin(Plugin):
             *memory_tools(base),
             *spec_tools(base),
             *plan_tools(base),
+            *local_plan_specs(base),
             *local_spec_specs(base),
             *project_chat_tools(base),
             spec("me", "GET", "/me", _schema({})),

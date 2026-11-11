@@ -76,6 +76,9 @@ PLAN_TOOLS = {
     "orchestrator_plan_step_update",
     "orchestrator_plan_gate",
     "orchestrator_spec_section",
+    "orchestrator_plan_steps_push",
+    "orchestrator_plan_export",
+    "orchestrator_plan_questions_ask",
 }
 TASK_TOOLS = {
     "orchestrator_task_create",
