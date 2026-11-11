@@ -47,7 +47,7 @@ trimmed (oldest events, then oldest comments, long texts cut) and reports what i
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
 orchestrator refuses them unless the caller is a superleader session and renders them into the
 allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
-`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`), sessions (`session_get`, `session_patch`, `session_create`,
+`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`; `preset_patch` and `preset_replace` take an optional `project` slug that moves the preset to another existing project: 422 `unknown_project`, 422 `vault_label_mismatch`, and 403 `privileged_preset_move` for a preset with a grant flag on while the orchestrator switch is off; running sessions keep their project), sessions (`session_get`, `session_patch`, `session_create`,
 `session_discard`, `session_restart`, `agent_restart`, `command_get`), `leadership_withdraw`
 (`POST /agent/v1/admin/sessions/{slug}/leadership/withdraw`, body `{request_id?}`: withdraw one or
 every pending handover request, never the orchestrator's `rollout` request, which is 409
