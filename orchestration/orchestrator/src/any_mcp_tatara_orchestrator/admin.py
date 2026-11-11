@@ -72,6 +72,7 @@ def _str(text: str) -> dict[str, Any]:
 
 _OBJ = {"type": "object"}
 _REF = _str("Preset id or name.")
+_PROJECT = _str("Project slug of an existing project (see project_list).")
 _SLUG = _str("Session slug.")
 _POD = _str("Agent pod name.")
 _EP = _str("Webhook endpoint id.")
@@ -185,22 +186,29 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "PUT",
         f"{_A}/presets/{{ref}}",
         "Replace a preset (name and spec). Secret values come from the vault: change them "
-        "with vault_attach and vault_detach, not here.",
-        schema({"ref": _REF, "name": {"type": "string"}, "spec": _SPEC}, ("ref", "name")),
+        "with vault_attach and vault_detach, not here. An omitted project keeps the stored one.",
+        schema(
+            {"ref": _REF, "name": {"type": "string"}, "spec": _SPEC, "project": _PROJECT},
+            ("ref", "name"),
+        ),
         "*",
     ),
     AdminRow(
         "preset_patch",
         "PATCH",
         f"{_A}/presets/{{ref}}",
-        "Change part of a preset (name, labels, spec) by id or name. Prefer this over "
-        "preset_replace: read-modify-write is not needed. Example: "
+        "Change part of a preset (name, labels, project, spec) by id or name. Prefer this over "
+        "preset_replace: read-modify-write is not needed. Set project to move the preset to "
+        "another existing project (422 unknown_project; 422 vault_label_mismatch when its vault "
+        "refs no longer match the project label; 422 project_archived when the target project "
+        "is archived); running sessions keep their project. Example: "
         '{"ref": "webhook", "spec": {"usage_quota": {"five_hour_pct": 80}}}.',
         schema(
             {
                 "ref": _REF,
                 "name": {"type": "string"},
                 "labels": {"type": "array", "items": {"type": "string"}},
+                "project": _PROJECT,
                 "spec": _PATCH_SPEC,
             },
             ("ref",),

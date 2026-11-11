@@ -47,7 +47,9 @@ trimmed (oldest events, then oldest comments, long texts cut) and reports what i
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
 orchestrator refuses them unless the caller is a superleader session and renders them into the
 allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
-`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`), sessions (`session_get`, `session_patch`, `session_create`,
+`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`; `preset_patch` and `preset_replace` take an optional `project` slug that
+moves the preset to another existing project: 422 `unknown_project`, 422 `vault_label_mismatch`,
+422 `project_archived`; running sessions keep their project), sessions (`session_get`, `session_patch`, `session_create`,
 `session_discard`, `session_restart`, `agent_restart`, `command_get`), `leadership_withdraw`
 (`POST /agent/v1/admin/sessions/{slug}/leadership/withdraw`, body `{request_id?}`: withdraw one or
 every pending handover request, never the orchestrator's `rollout` request, which is 409
@@ -153,7 +155,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.33.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.34.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

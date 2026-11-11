@@ -114,6 +114,19 @@ async def test_project_create_is_pinned_and_described() -> None:
     assert "project_exists" in row.description
 
 
+async def test_preset_rows_take_a_project_to_move_a_preset() -> None:
+    rows = rows_by_name()
+    for name, method in (("preset_patch", "PATCH"), ("preset_replace", "PUT")):
+        row = rows[name]
+        assert row.method == method and row.path == "/admin/presets/{ref}"
+        assert row.schema["properties"]["project"]["type"] == "string"
+        assert "project" not in row.schema["required"]
+    desc = rows["preset_patch"].description
+    for word in ("project", "unknown_project", "vault_label_mismatch", "project_archived"):
+        assert word in desc
+    assert "privileged_preset_move" not in desc
+
+
 async def test_vault_rows_are_pinned_to_the_orchestrator_openapi() -> None:
     known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
     want = {
@@ -179,6 +192,21 @@ async def test_rows_call_their_routes() -> None:
                 "/agent/v1/admin/presets/web",
                 "",
                 {"spec": {"usage_quota": {"five_hour_pct": 80}}},
+            ),
+        ),
+        (
+            "preset_patch",
+            {"ref": "web", "project": "acme"},
+            ("PATCH", "/agent/v1/admin/presets/web", "", {"project": "acme"}),
+        ),
+        (
+            "preset_replace",
+            {"ref": "web", "name": "web", "spec": {}, "project": "acme"},
+            (
+                "PUT",
+                "/agent/v1/admin/presets/web",
+                "",
+                {"name": "web", "spec": {}, "project": "acme"},
             ),
         ),
         (
