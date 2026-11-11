@@ -52,6 +52,8 @@ SPEC_TOOLS = {
     "orchestrator_spec_comment",
     "orchestrator_spec_comments",
     "orchestrator_spec_comment_resolve",
+    "orchestrator_spec_pull",
+    "orchestrator_spec_push",
 }
 TASK_TOOLS = {
     "orchestrator_task_create",

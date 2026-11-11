@@ -34,6 +34,8 @@ ALL_TOOLS = sorted(
         "orchestrator_spec_comment",
         "orchestrator_spec_comments",
         "orchestrator_spec_comment_resolve",
+        "orchestrator_spec_pull",
+        "orchestrator_spec_push",
         "orchestrator_me",
         "orchestrator_leadership_handover",
         "orchestrator_lock_claim",
