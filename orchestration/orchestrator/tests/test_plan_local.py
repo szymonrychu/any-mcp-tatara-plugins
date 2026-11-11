@@ -27,6 +27,8 @@ class Board:
         self.gate_task: str | None = "T-9"
         self.decisions: list[dict[str, Any]] = []
         self.put_status = 200
+        self.withdraw_status = 200
+        self.post_fail_on: str | None = None
 
     def add_decision(
         self, question: str, options: list[dict[str, Any]], status: str = "open"
@@ -98,10 +100,19 @@ class Board:
                 },
             )
         if m := re.fullmatch(r"/agent/v1/tasks/(T-\d+)/decisions", p):
+            if body["question"] == self.post_fail_on:
+                return httpx.Response(500, json={"error": {"code": "boom"}})
+            replay = next(
+                (d for d in self.decisions if d.get("client_key") == body["client_key"]), None
+            )
+            if replay is not None:  # the real relay replays by (task, session, client_key)
+                return httpx.Response(200, json=replay)
             decision = self.add_decision(body["question"], body["options"])
             decision["client_key"] = body["client_key"]
             return httpx.Response(201, json=decision)
         if m := re.fullmatch(r"/agent/v1/tasks/(T-\d+)/decisions/(\d+)/withdraw", p):
+            if self.withdraw_status != 200:
+                return httpx.Response(self.withdraw_status, json={"error": {"code": "forbidden"}})
             for d in self.decisions:
                 if d["id"] == int(m[2]):
                     d["status"] = "withdrawn"
@@ -169,7 +180,7 @@ def write_steps(tmp_path: Path, steps: list[dict[str, Any]], name: str = "steps.
     return name
 
 
-async def test_push_puts_with_the_current_steps_version(tmp_path: Path) -> None:
+async def test_push_sends_the_steps_version_given_by_the_caller(tmp_path: Path) -> None:
     board = Board()
     steps = [
         {"n": 1, "title": "a", "body": "x", "depends_on": []},
@@ -177,13 +188,44 @@ async def test_push_puts_with_the_current_steps_version(tmp_path: Path) -> None:
     ]
     file = write_steps(tmp_path, steps)
     async with harness(board, tmp_path) as h:
-        res = await h.call("orchestrator_plan_steps_push", {"spec": "S-3", "file": file})
+        res = await h.call(
+            "orchestrator_plan_steps_push", {"spec": "S-3", "file": file, "steps_version": 2}
+        )
     assert not res.is_error, res.text
     assert json.loads(res.text) == {"spec": "S-3", "keys": ["T-21", "T-22"]}
-    assert board.requests[0][:2] == ("GET", "/agent/v1/specs/S-3/steps")
+    assert board.writes() == [
+        ("PUT", "/agent/v1/specs/S-3/steps", {"steps_version": 2, "steps": steps})
+    ]
+    assert not any(m == "GET" for m, _, _, _ in board.requests)
+
+
+async def test_push_uses_the_version_recorded_by_plan_export(tmp_path: Path) -> None:
+    board = Board()
+    board.steps_version = 4
+    steps = [{"n": 1, "title": "a", "body": "x", "depends_on": []}]
+    async with harness(board, tmp_path) as h:
+        exported = await h.call("orchestrator_plan_export", {"spec": "S-3"})
+        assert json.loads(exported.text)["steps_version"] == 4
+        board.steps_version = 7  # someone edited meanwhile
+        spec_dir = tmp_path / ".scratchpad" / "my-spec" / "spec"
+        (spec_dir / "steps.json").write_text(json.dumps({"steps": steps}))
+        res = await h.call(
+            "orchestrator_plan_steps_push",
+            {"spec": "S-3", "file": ".scratchpad/my-spec/spec/steps.json"},
+        )
+    assert not res.is_error, res.text
     assert board.writes() == [
         ("PUT", "/agent/v1/specs/S-3/steps", {"steps_version": 4, "steps": steps})
     ]
+
+
+async def test_push_without_a_known_base_version_is_refused(tmp_path: Path) -> None:
+    board = Board()
+    file = write_steps(tmp_path, [{"n": 1, "title": "t", "body": "", "depends_on": []}])
+    async with harness(board, tmp_path) as h:
+        res = await h.call("orchestrator_plan_steps_push", {"spec": "S-3", "file": file})
+    assert res.is_error and "steps_version_unknown" in res.text
+    assert board.writes() == []
 
 
 @pytest.mark.parametrize("bad", ["/etc/steps.json", "../steps.json", "a/../../steps.json"])
@@ -240,7 +282,9 @@ async def test_push_stale_steps_version_is_surfaced(tmp_path: Path) -> None:
     board.put_status = 412
     file = write_steps(tmp_path, [{"n": 1, "title": "t", "body": "", "depends_on": []}])
     async with harness(board, tmp_path) as h:
-        res = await h.call("orchestrator_plan_steps_push", {"spec": "S-3", "file": file})
+        res = await h.call(
+            "orchestrator_plan_steps_push", {"spec": "S-3", "file": file, "steps_version": 1}
+        )
     assert res.is_error and "stale_version" in res.text
 
 
@@ -256,11 +300,25 @@ async def test_push_refuses_a_request_over_the_relay_cap(tmp_path: Path) -> None
     assert board.requests == []
 
 
+async def test_push_refuses_an_oversized_file_before_reading_it(tmp_path: Path) -> None:
+    board = Board()
+    (tmp_path / "big.json").write_text(" " * (300 * 1024) + '{"steps": []}')
+    async with harness(board, tmp_path) as h:
+        res = await h.call(
+            "orchestrator_plan_steps_push",
+            {"spec": "S-3", "file": "big.json", "steps_version": 1},
+        )
+    assert res.is_error and "payload_too_large" in res.text
+    assert board.requests == []
+
+
 async def test_push_result_has_no_step_body(tmp_path: Path) -> None:
     board = Board()
     file = write_steps(tmp_path, [{"n": 1, "title": "t", "body": SECRET_BODY, "depends_on": []}])
     async with harness(board, tmp_path) as h:
-        res = await h.call("orchestrator_plan_steps_push", {"spec": "S-3", "file": file})
+        res = await h.call(
+            "orchestrator_plan_steps_push", {"spec": "S-3", "file": file, "steps_version": 1}
+        )
     assert SECRET_BODY not in res.text
 
 
@@ -417,3 +475,60 @@ async def test_result_lists_every_question_without_options_or_context(tmp_path: 
         ("Old?", "answered"),
         ("New?", "posted"),
     ]
+
+
+async def test_reverting_a_question_asks_it_again(tmp_path: Path) -> None:
+    board = Board()
+    a = opts(*A)
+    b = opts(("A MVP", True), ("C", False))
+    async with harness(board, tmp_path) as h:
+        await ask(h, [question(options=a)])
+        await ask(h, [question(options=b)])
+        res = await ask(h, [question(options=a)])
+    assert not res.is_error, res.text
+    open_ = [d for d in board.decisions if d["status"] == "open"]
+    assert [d["options"] for d in open_] == [stored(*A)]
+    row = json.loads(res.text)[0]
+    assert row["decision_id"] == open_[0]["id"] and row["action"] == "revised"
+
+
+async def test_withdraw_forbidden_for_another_sessions_decision_is_reported(
+    tmp_path: Path,
+) -> None:
+    board = Board()
+    old = board.add_decision("Which db?", stored(*A))
+    board.withdraw_status = 403
+    qs = [question(options=opts(("A MVP", True), ("C", False))), question("Second?")]
+    async with harness(board, tmp_path, "s-2") as h:
+        res = await ask(h, qs)
+    assert not res.is_error, res.text
+    rows = json.loads(res.text)
+    assert [r["question"] for r in rows] == ["Which db?", "Second?"]
+    assert rows[0]["action"] == "posted" and rows[0]["decision_id"] != old["id"]
+    assert "another session" in rows[0]["note"]
+    assert rows[1]["action"] == "posted"
+
+
+async def test_post_failure_keeps_earlier_rows_and_continues(tmp_path: Path) -> None:
+    board = Board()
+    board.post_fail_on = "Second?"
+    async with harness(board, tmp_path) as h:
+        res = await ask(h, [question(), question("Second?"), question("Third?")])
+    assert not res.is_error, res.text
+    rows = json.loads(res.text)
+    assert [(r["question"], r["action"]) for r in rows] == [
+        ("Which db?", "posted"),
+        ("Second?", "failed"),
+        ("Third?", "posted"),
+    ]
+    assert "500" in rows[1]["note"]
+
+
+async def test_withdraw_answered_meanwhile_is_noted(tmp_path: Path) -> None:
+    board = Board()
+    board.add_decision("Which db?", stored(*A))
+    board.withdraw_status = 409
+    async with harness(board, tmp_path) as h:
+        res = await ask(h, [question(options=opts(("A MVP", True), ("C", False)))])
+    row = json.loads(res.text)[0]
+    assert row["action"] == "posted" and "answered meanwhile" in row["note"]

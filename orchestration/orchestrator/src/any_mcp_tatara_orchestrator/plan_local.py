@@ -39,6 +39,7 @@ __all__ = ["local_plan_specs", "plan_export", "plan_questions_ask", "plan_steps_
 
 _BASE = "/agent/v1"
 EXPORT_FILE = "plan-steps.md"
+VERSION_FILE = ".plan-steps-version"
 _NO_GATE = "link the improvement task to the spec first (task_update spec)"
 _REVISED = "question revised"
 _QUESTION_OPTION = {
@@ -77,8 +78,10 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
                 "Write the whole step set of a spec's plan from a JSON file in your working copy: "
                 '{"steps": [{"n", "title", "body", "depends_on": [n], "model"?, "labels"?, '
                 '"todo"?: [text]}]}. n must run 1..N without gaps or repeats (checked before any '
-                "request). The current steps_version is read first and sent with the set, so a "
-                "plan changed meanwhile is refused (stale_version). Steps are keyed by n: new "
+                "request). The steps_version the file was based on is sent with the set: the one "
+                "you pass, else the one plan_export recorded next to the file; with neither "
+                "the push is refused (steps_version_unknown). A plan changed since is refused "
+                "(HTTP 412 stale_version): export again and redo. Steps are keyed by n: new "
                 "ones are created, changed ones updated, unstarted ones missing from the file "
                 "are dropped; a started or done one missing is refused (step_in_progress). Each "
                 "body is up to 32 KiB, the file up to 256 KiB encoded. Answers the step keys "
@@ -92,6 +95,11 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
                         "type": "string",
                         "description": "JSON file inside the workdir.",
                     },
+                    "steps_version": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "steps_version the file is based on (plan_steps).",
+                    },
                 },
                 ("spec", "file"),
             ),
@@ -104,8 +112,9 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
                 "Write the plan header and every step, in order, with bodies and todo, as one "
                 f"markdown file {EXPORT_FILE} under dir (default .scratchpad/<spec name>/spec/, "
                 "inside the workdir) for reading with your file tools. It is a view: never push "
-                "it back; edit steps with plan_step_edit or plan_steps_push. Answers the path "
-                "and the step count, never the text."
+                "it back; edit steps with plan_step_edit or plan_steps_push. Records the "
+                "steps_version next to it for plan_steps_push. Answers the path, the step "
+                "count and the steps_version, never the text."
             ),
             input_schema=_schema(
                 {
@@ -128,8 +137,9 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
                 "with the same options is skipped, an answered one is never asked again "
                 "(answered, not re-asked), an open one whose options changed is posted anew and "
                 "the old one withdrawn as superseded. Answers a row per question: question, "
-                "decision_id, action (posted, skipped, revised or answered). The user answers in "
-                "the web UI; read the outcome with plan_gate."
+                "decision_id, action (posted, skipped, revised, answered or failed) and a note "
+                "when something needs attention (a failed question does not stop the others). "
+                "The user answers in the web UI; read the outcome with plan_gate."
             ),
             input_schema=_schema(
                 {
@@ -161,6 +171,8 @@ def _task_key(value: object) -> str:
 
 def _load_steps(path: str) -> list[dict[str, Any]]:
     try:
+        if os.stat(path).st_size > MAX_REQUEST_BYTES:
+            raise SpecLocalError("payload_too_large: the steps file exceeds 256 KiB")
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, UnicodeDecodeError, ValueError):
@@ -186,12 +198,30 @@ async def plan_steps_push(
 ) -> dict[str, Any]:
     root = _workdir(cfg)
     key = _spec_key(args.get("spec"))
-    steps = _load_steps(confine(args.get("file"), root))  # before any request
-    _encode({"steps_version": 10**12, "steps": steps})  # an upper bound, before any request
-    listed = (await _request(http, cfg, "GET", f"/specs/{key}/steps")).json()
-    data = _encode({"steps_version": int(listed["steps_version"]), "steps": steps})
+    path = confine(args.get("file"), root)
+    steps = _load_steps(path)  # before any request
+    version = _base_version(args.get("steps_version"), path, key)
+    data = _encode({"steps_version": version, "steps": steps})
     raw = await _request(http, cfg, "PUT", f"/specs/{key}/steps", content=data)
     return {"spec": key, "keys": raw.json()["keys"]}
+
+
+def _base_version(given: object, path: str, key: str) -> int:
+    if given is not None:
+        if type(given) is not int or given < 0:
+            raise SpecLocalError("steps_version_invalid")
+        return given
+    try:
+        with open(os.path.join(os.path.dirname(path), VERSION_FILE), encoding="utf-8") as fh:
+            recorded = json.load(fh)
+        if recorded["spec"] == key and type(recorded["steps_version"]) is int:
+            return int(recorded["steps_version"])
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    raise SpecLocalError(
+        "steps_version_unknown: run plan_export for this spec in the file's directory "
+        "or pass steps_version"
+    )
 
 
 def _line(text: object) -> str:
@@ -235,7 +265,8 @@ async def plan_export(http: httpx.AsyncClient, cfg: Any, args: Mapping[str, Any]
         name = str((await _request(http, cfg, "GET", f"/specs/{key}")).json()["name"])
         directory = confine(_default_dir(name), root)
     plan = (await _request(http, cfg, "GET", f"/specs/{key}/plan")).json()
-    items = (await _request(http, cfg, "GET", f"/specs/{key}/steps")).json()["items"]
+    listed = (await _request(http, cfg, "GET", f"/specs/{key}/steps")).json()
+    items = listed["items"]
     lines = _render_header(plan)
     for item in items:
         task = (
@@ -251,7 +282,16 @@ async def plan_export(http: httpx.AsyncClient, cfg: Any, args: Mapping[str, Any]
     text = "\n".join(lines).rstrip() + "\n"
     target = confine(os.path.join(directory, EXPORT_FILE), root)
     _write_text(target, text)
-    return {"spec": key, "path": target, "steps": len(items), "size": len(text.encode())}
+    version = int(listed["steps_version"])
+    marker = {"spec": key, "steps_version": version}
+    _write_text(os.path.join(directory, VERSION_FILE), json.dumps(marker) + "\n")
+    return {
+        "spec": key,
+        "path": target,
+        "steps": len(items),
+        "steps_version": version,
+        "size": len(text.encode()),
+    }
 
 
 def _normalized(options: list[Mapping[str, Any]], *, consequence: str) -> list[dict[str, Any]]:
@@ -286,8 +326,12 @@ def _check_questions(raw: object) -> list[dict[str, Any]]:
     return out
 
 
-def _digest(question: str, options: list[dict[str, Any]]) -> str:
-    return _sha(question + json.dumps(options, sort_keys=True, ensure_ascii=False))[:12]
+def _digest(question: str, options: list[dict[str, Any]], prior: list[object]) -> str:
+    # prior = ids of every earlier decision with this question text (any status): the key is
+    # bound to the state it is based on, so a revert A -> B -> A gets a fresh key instead of
+    # replaying the withdrawn first decision.
+    basis = json.dumps(sorted(prior), default=str)
+    return _sha(question + json.dumps(options, sort_keys=True, ensure_ascii=False) + basis)[:12]
 
 
 async def _gate_task(http: httpx.AsyncClient, cfg: Any, key: str, task: object) -> str:
@@ -299,10 +343,14 @@ async def _gate_task(http: httpx.AsyncClient, cfg: Any, key: str, task: object) 
     return _task_key(gate)
 
 
-def _row(question: str, decision_id: object, action: str) -> dict[str, Any]:
+def _row(
+    question: str, decision_id: object, action: str, note: str | None = None
+) -> dict[str, Any]:
     row = {"question": question, "decision_id": decision_id, "action": action}
     if action == "answered":
         row["note"] = "answered, not re-asked"
+    if note:
+        row["note"] = note
     return row
 
 
@@ -318,7 +366,8 @@ async def plan_questions_ask(
             http, cfg, "GET", f"/tasks/{gate}", params={"events_limit": 0, "comments_limit": 0}
         )
     ).json()
-    existing = [d for d in task.get("decisions", []) if d.get("status") != "withdrawn"]
+    history = list(task.get("decisions", []))
+    existing = [d for d in history if d.get("status") != "withdrawn"]
     rows: list[dict[str, Any]] = []
     for item in questions:
         text = item["question"]
@@ -336,19 +385,26 @@ async def plan_questions_ask(
         if current is not None:
             rows.append(_row(text, current["id"], "skipped"))
             continue
+        prior = [d["id"] for d in history if d.get("question") == text]
         body: dict[str, Any] = {
             "question": text,
             "options": options,
-            "client_key": f"gate-{spec_number}-{_digest(text, options)}",
+            "client_key": f"gate-{spec_number}-{_digest(text, options, prior)}",
         }
         if item.get("context"):
             body["context"] = item["context"]
-        created = (
-            await _request(
-                http, cfg, "POST", f"/tasks/{gate}/decisions", content=json.dumps(body).encode()
-            )
-        ).json()
+        try:
+            created = (
+                await _request(
+                    http, cfg, "POST", f"/tasks/{gate}/decisions", content=json.dumps(body).encode()
+                )
+            ).json()
+        except UpstreamError as exc:
+            note = f"not posted, relay answered {exc.response.status}; repeat the call"
+            rows.append(_row(text, None, "failed", note))
+            continue
         action = "posted"
+        notes: list[str] = []
         for old in open_:
             withdraw = {"reason": _REVISED, "superseded_by": created["id"]}
             try:
@@ -361,7 +417,15 @@ async def plan_questions_ask(
                 )
                 action = "revised"
             except UpstreamError as exc:
-                if exc.response.status != 409:  # answered meanwhile: nothing to withdraw
-                    raise
-        rows.append(_row(text, created["id"], action))
+                status = exc.response.status
+                if status == 409:
+                    notes.append(f"old decision {old['id']} was answered meanwhile")
+                elif status == 403:
+                    notes.append(
+                        f"old decision {old['id']} was asked by another session and is still "
+                        "open: ask that session or the user to withdraw it"
+                    )
+                else:
+                    notes.append(f"old decision {old['id']} not withdrawn ({status})")
+        rows.append(_row(text, created["id"], action, "; ".join(notes) or None))
     return rows
