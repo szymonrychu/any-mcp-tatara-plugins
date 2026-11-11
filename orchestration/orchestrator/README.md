@@ -42,7 +42,15 @@ tool output budget (40000 chars) is
 trimmed (oldest events, then oldest comments, long texts cut) and reports what it left out in
 `omitted`; `task_create`, `task_update` and `task_list` take an optional `project` slug (see
 `project_list`; omitted on create: the caller's own project, `default` for a superleader); `task_list` answers a summary per task with child counts, `limit` (default 10, at most
-20) and `cursor`.
+20) and `cursor`; they also take an optional `spec` key (`S-n`; `task_update` accepts null to unlink).
+
+Spec tools (`specs.py`, `specs_local.py`): `spec_list`, `spec_get`, `spec_create`, `spec_update`, `spec_versions`,
+`spec_comment`, `spec_comments`, `spec_comment_resolve` are relay rows under `/agent/v1/specs` (no document bodies;
+`approved` is set by the user only and the server answers 403 `user_only`). `spec_pull` and `spec_push` run in the
+plugin: they copy document bodies between the task board and files under the workdir (config `workdir`, default the
+process working directory at load; default dir `.scratchpad/<spec name>/spec/`, real paths, no `..`, no symlinks) with a
+`.spec.json` sidecar of versions, refuse a request over 256 KiB (JSON-encoded) before sending it, report a changed
+document as `stale_version` per file, and never return a body.
 
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
 orchestrator refuses them unless the caller is a superleader session and renders them into the
@@ -155,7 +163,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.34.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.35.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

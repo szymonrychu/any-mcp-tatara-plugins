@@ -370,6 +370,34 @@
     "operationId": "session_send_agent_v1_sessions__slug__messages_post"
    }
   },
+  "/agent/v1/specs": {
+   "get": {
+    "operationId": "collection_agent_v1_specs_get"
+   },
+   "patch": {
+    "operationId": "collection_agent_v1_specs_patch"
+   },
+   "post": {
+    "operationId": "collection_agent_v1_specs_post"
+   },
+   "put": {
+    "operationId": "collection_agent_v1_specs_put"
+   }
+  },
+  "/agent/v1/specs/{path}": {
+   "get": {
+    "operationId": "item_agent_v1_specs__path__get"
+   },
+   "patch": {
+    "operationId": "item_agent_v1_specs__path__patch"
+   },
+   "post": {
+    "operationId": "item_agent_v1_specs__path__post"
+   },
+   "put": {
+    "operationId": "item_agent_v1_specs__path__put"
+   }
+  },
   "/agent/v1/tasks": {
    "get": {
     "operationId": "collection_agent_v1_tasks_get"

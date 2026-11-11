@@ -9,10 +9,11 @@ session ask the orchestrator to discard it once every agent is idle.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from any_mcp.errors import UpstreamError, error_result, redact
 from any_mcp.http import execute_binding
@@ -32,6 +33,8 @@ from .secrets_local import (
     validate_to_file,
     write_credential,
 )
+from .specs import spec_tools
+from .specs_local import SpecLocalError, local_spec_specs, spec_pull, spec_push
 from .tasks import SUMMARY_EVENTS, TASK_LIST_LIMIT, TASK_WINDOW_DEFAULT, task_tools
 from .views import ACKS, task_view
 
@@ -73,6 +76,13 @@ class OrchestratorConfig(BaseModel):
     hive: bool = False
     auto_compact_pct: int | None = None
     secrets_dir: str | None = None
+    workdir: str | None = None
+
+    @model_validator(mode="after")
+    def _default_workdir(self) -> OrchestratorConfig:
+        if self.workdir is None:
+            self.workdir = os.getcwd()
+        return self
 
 
 def _schema(properties: dict[str, Any], required: Sequence[str] = ()) -> dict[str, Any]:
@@ -121,6 +131,10 @@ class OrchestratorPlugin(Plugin):
         }
 
     async def call(self, call: ToolCall) -> RawResponse:
+        if call.spec.name == "spec_pull":
+            return RawResponse.from_value(await spec_pull(self.ctx.http, self.cfg, call.arguments))
+        if call.spec.name == "spec_push":
+            return RawResponse.from_value(await spec_push(self.ctx.http, self.cfg, call.arguments))
         if call.spec.name == "session_discard" and not call.arguments.get("force"):
             # Send force only when set: a plain discard keeps the unchanged route.
             call = call.with_arguments({k: v for k, v in call.arguments.items() if k != "force"})
@@ -255,6 +269,11 @@ class OrchestratorPlugin(Plugin):
     async def on_error(self, call: ToolCall, exc: Exception) -> ToolResult:
         if isinstance(exc, SecretResolveError):
             return secret_error_result(exc, call.spec.name)
+        if isinstance(exc, SpecLocalError):
+            text = f"{call.spec.name} failed: {exc}"
+            return ToolResult(
+                text=text, structured={"error": {"kind": "spec", "message": text}}, is_error=True
+            )
         secrets = [self.cfg.token]
         if not isinstance(exc, UpstreamError):
             return error_result(exc, plugin=self.ctx.name, secrets=secrets)
@@ -474,6 +493,8 @@ class OrchestratorPlugin(Plugin):
             *admin,
             *task_tools(base),
             *project_tools(base),
+            *spec_tools(base),
+            *local_spec_specs(base),
             spec("me", "GET", "/me", _schema({})),
             spec(
                 "activity",
