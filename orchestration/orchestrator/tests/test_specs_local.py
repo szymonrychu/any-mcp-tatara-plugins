@@ -139,10 +139,10 @@ async def test_pull_writes_files_and_sidecar(tmp_path: Path) -> None:
     root = tmp_path / "work" / "spec"
     assert (root / "plan.md").read_text() == BODY
     assert (root / "research" / "topic.md").read_text() == "# R\n"
-    assert json.loads((root / ".spec.json").read_text()) == {
-        "key": "S-3",
-        "docs": {"plan.md": 2, "research/topic.md": 5},
-    }
+    sidecar = json.loads((root / ".spec.json").read_text())
+    assert sidecar["key"] == "S-3"
+    assert sidecar["docs"] == {"plan.md": 2, "research/topic.md": 5}
+    assert set(sidecar["sha"]) == {"plan.md", "research/topic.md"}
     out = json.loads(res.text)
     assert out["key"] == "S-3"
     assert sorted(f["path"] for f in out["files"]) == ["plan.md", "research/topic.md"]
@@ -339,14 +339,14 @@ async def test_push_typical_192kib_markdown_passes(tmp_path: Path) -> None:
 async def test_push_non_ascii_not_escaped(tmp_path: Path) -> None:
     board = Board()
     (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "u.md").write_text("zażółć ☃\n")
+    (tmp_path / "d" / "u.md").write_text("za\u017c\u00f3\u0142\u0107 \u2603\n", encoding="utf-8")
     async with harness(board, tmp_path) as h:
         res = await h.call(
             "orchestrator_spec_push", {"spec": "S-3", "dir": "d", "files": ["u.md"], "note": "n"}
         )
     assert not res.is_error, res.text
     raw = board.requests[-1][3]
-    assert "zażółć ☃".encode() in raw
+    assert "za\u017c\u00f3\u0142\u0107 \u2603".encode() in raw
     assert b"\\u" not in raw
 
 
@@ -384,3 +384,174 @@ async def test_upstream_404_is_surfaced(tmp_path: Path) -> None:
         res = await h.call("orchestrator_spec_pull", {"spec": "S-99"})
     assert res.is_error
     assert "not_found" in res.text
+
+
+async def test_push_revert_a_b_a_is_not_replayed(tmp_path: Path) -> None:
+    keys: dict[tuple[str, int], int] = {}
+    board = Board()
+    inner = board.__call__
+
+    def replaying(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            put = json.loads(request.content)
+            seen = keys.get((request.url.path, put["client_key"]))
+            if seen is not None:
+                return httpx.Response(201, json={"path": "a.md", "version": seen})
+            resp = inner(request)
+            if resp.status_code == 201:
+                keys[(request.url.path, put["client_key"])] = json.loads(resp.content)["version"]
+            return resp
+        return inner(request)
+
+    (tmp_path / "d").mkdir()
+    async with PluginHarness(
+        OrchestratorPlugin,
+        config={
+            "base_url": "http://orch.test:8081",
+            "token": "tok-for-tests",
+            "session": "s-1",
+            "agent": "agent-0",
+            "slug": "my-hive",
+            "workdir": str(tmp_path),
+        },
+        name="orchestrator",
+        transport=httpx.MockTransport(replaying),
+    ) as h:
+        for text in ("A\n", "B\n", "A\n"):
+            (tmp_path / "d" / "a.md").write_text(text)
+            res = await h.call(
+                "orchestrator_spec_push",
+                {"spec": "S-3", "dir": "d", "files": ["a.md"], "note": "n"},
+            )
+            assert not res.is_error, res.text
+    assert board.specs["S-3"]["docs"]["a.md"] == {"version": 3, "body": "A\n"}
+    assert json.loads((tmp_path / "d" / ".spec.json").read_text())["docs"] == {"a.md": 3}
+
+
+async def test_pull_refuses_to_overwrite_unpushed_edits(tmp_path: Path) -> None:
+    board = Board()
+    board.add("plan.md", BODY, 1)
+    async with harness(board, tmp_path) as h:
+        await h.call("orchestrator_spec_pull", {"spec": "S-3", "dir": "d"})
+        (tmp_path / "d" / "plan.md").write_text("my edit\n")
+        board.add("plan.md", BODY + "more\n", 2)
+        res = await h.call("orchestrator_spec_pull", {"spec": "S-3", "dir": "d"})
+        assert res.is_error and "local_changes: plan.md" in res.text
+        assert (tmp_path / "d" / "plan.md").read_text() == "my edit\n"
+        assert json.loads((tmp_path / "d" / ".spec.json").read_text())["docs"] == {"plan.md": 1}
+        forced = await h.call(
+            "orchestrator_spec_pull", {"spec": "S-3", "dir": "d", "overwrite": True}
+        )
+        assert not forced.is_error, forced.text
+    assert (tmp_path / "d" / "plan.md").read_text() == BODY + "more\n"
+
+
+async def test_pull_over_untouched_or_pushed_files_is_allowed(tmp_path: Path) -> None:
+    board = Board()
+    board.add("plan.md", BODY, 1)
+    async with harness(board, tmp_path) as h:
+        await h.call("orchestrator_spec_pull", {"spec": "S-3", "dir": "d"})
+        board.add("plan.md", "v2\n", 2)
+        again = await h.call("orchestrator_spec_pull", {"spec": "S-3", "dir": "d"})
+        assert not again.is_error, again.text
+        (tmp_path / "d" / "plan.md").write_text("v3\n")
+        await h.call(
+            "orchestrator_spec_push",
+            {"spec": "S-3", "dir": "d", "files": ["plan.md"], "note": "n"},
+        )
+        board.add("plan.md", "v4\n", 4)
+        last = await h.call("orchestrator_spec_pull", {"spec": "S-3", "dir": "d"})
+    assert not last.is_error, last.text
+    assert (tmp_path / "d" / "plan.md").read_text() == "v4\n"
+
+
+async def test_pull_refuses_an_untracked_existing_file(tmp_path: Path) -> None:
+    board = Board()
+    board.add("plan.md", BODY, 1)
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "plan.md").write_text("mine\n")
+    async with harness(board, tmp_path) as h:
+        res = await h.call("orchestrator_spec_pull", {"spec": "S-3", "dir": "d"})
+    assert res.is_error and "local_changes" in res.text
+
+
+async def test_crlf_survives_push(tmp_path: Path) -> None:
+    board = Board()
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "w.md").write_bytes(b"a\r\nb\r\n")
+    async with harness(board, tmp_path) as h:
+        res = await h.call(
+            "orchestrator_spec_push", {"spec": "S-3", "dir": "d", "files": ["w.md"], "note": "n"}
+        )
+    assert not res.is_error, res.text
+    assert board.puts()[0]["body"] == "a\r\nb\r\n"
+
+
+@pytest.mark.parametrize("bad", ["a/./b.md", "a//b.md", "./a.md"])
+async def test_push_refuses_dot_and_empty_segments(tmp_path: Path, bad: str) -> None:
+    board = Board()
+    (tmp_path / "d").mkdir()
+    async with harness(board, tmp_path) as h:
+        res = await h.call(
+            "orchestrator_spec_push", {"spec": "S-3", "dir": "d", "files": [bad], "note": "n"}
+        )
+    assert res.is_error and "document_path_invalid" in res.text
+    assert board.requests == []
+
+
+async def test_push_non_stale_error_keeps_earlier_results(tmp_path: Path) -> None:
+    board = Board()
+    inner = board.__call__
+
+    def failing(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT" and request.url.path.endswith("/b.md"):
+            return httpx.Response(422, json={"error": {"code": "invalid"}})
+        return inner(request)
+
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "a.md").write_text("a")
+    (tmp_path / "d" / "b.md").write_text("b")
+    async with PluginHarness(
+        OrchestratorPlugin,
+        config={
+            "base_url": "http://orch.test:8081",
+            "token": "tok-for-tests",
+            "session": "s-1",
+            "agent": "agent-0",
+            "slug": "my-hive",
+            "workdir": str(tmp_path),
+        },
+        name="orchestrator",
+        transport=httpx.MockTransport(failing),
+    ) as h:
+        res = await h.call(
+            "orchestrator_spec_push",
+            {"spec": "S-3", "dir": "d", "files": ["a.md", "b.md"], "note": "n"},
+        )
+    assert not res.is_error, res.text
+    assert json.loads(res.text)["files"] == [
+        {"path": "a.md", "version": 1},
+        {"path": "b.md", "error": "upstream_422"},
+    ]
+
+
+async def test_long_client_keys_do_not_collide(tmp_path: Path) -> None:
+    board = Board()
+    (tmp_path / "d").mkdir()
+    base = "q" * 100
+    for name in ("x" * 110 + "1.md", "x" * 110 + "2.md"):
+        (tmp_path / "d" / name).write_text("t")
+    async with harness(board, tmp_path) as h:
+        res = await h.call(
+            "orchestrator_spec_push",
+            {
+                "spec": "S-3",
+                "dir": "d",
+                "files": ["x" * 110 + "1.md", "x" * 110 + "2.md"],
+                "note": "n",
+                "client_key": base,
+            },
+        )
+    assert not res.is_error, res.text
+    keys = [p["client_key"] for p in board.puts()]
+    assert len(set(keys)) == 2 and all(len(k) <= 200 for k in keys)
