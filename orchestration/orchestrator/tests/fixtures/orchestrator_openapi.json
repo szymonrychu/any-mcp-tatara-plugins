@@ -113,6 +113,11 @@
     "operationId": "attach_vault_agent_v1_admin_presets__ref__vault__entry_id__put"
    }
   },
+  "/agent/v1/admin/projects": {
+   "post": {
+    "operationId": "create_project_agent_v1_admin_projects_post"
+   }
+  },
   "/agent/v1/admin/proposals": {
    "get": {
     "operationId": "list_own_proposals_agent_v1_admin_proposals_get"
