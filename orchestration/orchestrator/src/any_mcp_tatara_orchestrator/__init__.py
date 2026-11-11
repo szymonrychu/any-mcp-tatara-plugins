@@ -334,6 +334,9 @@ class OrchestratorPlugin(Plugin):
         return {
             "me": hive
             + "Show who you are, who the leader is, the epoch, and the agents of the session. "
+            "project is your home project, extra_projects the other projects granted to your "
+            "session (full member access in each), projects_scope both comma-separated, home "
+            "first (* for a superleader). "
             "The leader alone answers the user; members take work from the leader through "
             "mcp__ccw__send_message and report back. Check orchestrator_lock_list before "
             "editing a file another agent may hold. Notes from the orchestrator and other "

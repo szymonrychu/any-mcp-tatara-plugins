@@ -73,6 +73,24 @@ def _str(text: str) -> dict[str, Any]:
 _OBJ = {"type": "object"}
 _REF = _str("Preset id or name.")
 _PROJECT = _str("Project slug of an existing project (see project_list).")
+_GRANT_TEXT = (
+    "Every grant is a change proposal the user approves on the Proposals page; nothing is "
+    "granted before that (answer 202 with the proposal, follow it with proposal_get; 200 "
+    "with the first proposal on a client_key replay). A grant is never revised: withdraw it "
+    "with proposal_withdraw and grant again. At most 9 extra projects. Errors: own_project "
+    "(already the home project), already_granted, unknown_project, project_archived, "
+    "too_many_projects; not_found for an unknown or unmanageable target."
+)
+_GRANT_SCHEMA = {
+    "project": _PROJECT,
+    "reason": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000,
+        "description": "Why the grant is needed, shown to the user who approves it.",
+    },
+    "client_key": {"type": "string", "maxLength": 200},
+}
 _SLUG = _str("Session slug.")
 _POD = _str("Agent pod name.")
 _EP = _str("Webhook endpoint id.")
@@ -231,6 +249,26 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         schema({"ref": _REF, "name": _NULL_STR}, ("ref",)),
         "*",
     ),
+    # extra projects of presets (copied to every session created from the preset)
+    AdminRow(
+        "preset_projects_grant",
+        "POST",
+        f"{_A}/presets/{{ref}}/projects",
+        "Ask the user to grant a preset an extra project: once approved, every session created "
+        "from the preset also fully belongs to that project; running sessions keep theirs. "
+        + _GRANT_TEXT,
+        schema({"ref": _REF, **_GRANT_SCHEMA}, ("ref", "project", "reason")),
+        "*",
+    ),
+    AdminRow(
+        "preset_projects_revoke",
+        "DELETE",
+        f"{_A}/presets/{{ref}}/projects/{{project}}",
+        "Remove an extra project from a preset at once (no approval needed); running sessions "
+        "keep theirs (revoke those with session_projects_revoke). Answers the preset view. "
+        "not_found when the project is not one of its extra projects.",
+        schema({"ref": _REF, "project": _PROJECT}, ("ref", "project")),
+    ),
     # projects
     AdminRow(
         "project_create",
@@ -346,7 +384,8 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "GET",
         f"{_A}/sessions/{{slug}}",
         "Show a session by slug, with its agents. A superleader reads its own or a manageable "
-        "session, any other leader its own. start_state (booting, ready, bootstrap_failed) and "
+        "session, any other leader its own. project is its home project, extra_projects the "
+        "other projects it fully belongs to. start_state (booting, ready, bootstrap_failed) and "
         "bootstrap_failures (pod, step, message, redacted log_tail) say why an agent failed to "
         "start: read them and act without the user.",
         schema({"slug": _SLUG}, ("slug",)),
@@ -369,9 +408,40 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "POST",
         f"{_A}/sessions",
         "Create a session from a preset (preset_id), a spec, or a preset with spec overrides. "
-        "The new session is not a trigger session and has its own leader.",
-        schema({"preset_id": _NULL_STR, "slug": _NULL_STR, "spec": {"type": ["object", "null"]}}),
+        "The new session is not a trigger session and has its own leader. project places it "
+        "(default: the preset's project); it also gets the preset's extra projects.",
+        schema(
+            {
+                "preset_id": _NULL_STR,
+                "slug": _NULL_STR,
+                "spec": {"type": ["object", "null"]},
+                "project": {
+                    "type": ["string", "null"],
+                    "description": "Project slug of an existing, active project (see "
+                    "project_list); omitted: the preset's project.",
+                },
+            }
+        ),
         "*",
+    ),
+    AdminRow(
+        "session_projects_grant",
+        "POST",
+        f"{_A}/sessions/{{slug}}/projects",
+        "Ask the user to grant a session an extra project: once approved the session has the "
+        "access of a full member of that project (its tasks, specs, project room and sessions) "
+        "next to its home project, at once, with no restart. " + _GRANT_TEXT,
+        schema({"slug": _SLUG, **_GRANT_SCHEMA}, ("slug", "project", "reason")),
+        "*",
+    ),
+    AdminRow(
+        "session_projects_revoke",
+        "DELETE",
+        f"{_A}/sessions/{{slug}}/projects/{{project}}",
+        "Remove an extra project from a session at once (no approval needed, no restart); the "
+        "session is told. Answers the session view. not_found when the project is not one of "
+        "its extra projects.",
+        schema({"slug": _SLUG, "project": _PROJECT}, ("slug", "project")),
     ),
     AdminRow(
         "session_discard",
@@ -458,7 +528,9 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "GET",
         f"{_A}/proposals",
         "List your own change proposals, newest first, current revision only. status: active "
-        "(default: open, rework, stale), open, closed or all. Each shows its status, revision, "
+        "(default: open, rework, stale), open, closed or all. kind session_projects or "
+        "preset_projects is a project grant (session_projects_grant, preset_projects_grant). "
+        "Each shows its status, revision, "
         "stale flag and per-item verdicts; read one with proposal_get.",
         schema({"status": _str("active, open, closed or all."), "limit": _LIMIT}),
         None,
