@@ -1,0 +1,1 @@
+agents-orchestrator tag v7.12.0 (commit 31a1b0c, T-124 chat notes and skills), /agent/v1 paths only (method + operationId). Re-vendored from its openapi.json: for each path starting with /agent/v1 write {"paths": {path: {method: {"operationId": id}}}} with sorted keys and indent 1. New against the previous vendoring (v7.11.0): the chat notes and chat skills operations.

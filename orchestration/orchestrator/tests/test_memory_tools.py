@@ -182,7 +182,13 @@ async def test_chat_memory_schemas_and_annotations() -> None:
     assert save["properties"]["body"]["minLength"] == 1
     assert save["properties"]["expected_version"]["minimum"] == 0
 
-    async with harness(lambda r: httpx.Response(200, json={})) as h:
+    sent: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json={})
+
+    async with harness(record) as h:
         for name, args in (
             ("chat_notes_get", {"room": "!r:x"}),
             ("chat_notes_update", {"body": "x", "expected_version": 0, "room": "!r:x"}),
@@ -193,6 +199,7 @@ async def test_chat_memory_schemas_and_annotations() -> None:
         ):
             result = await h.call(f"orchestrator_{name}", args)
             assert result.is_error, (name, args)
+            assert not sent, (name, args)
 
 
 async def test_chat_memory_routes_exist_in_the_orchestrator_openapi() -> None:
