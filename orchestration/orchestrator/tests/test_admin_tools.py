@@ -40,7 +40,7 @@ EXPECTED = {
     "chat_admin_room", "chat_users", "chat_room_allow", "chat_open", "chat_open_status",
     "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
     "leadership_withdraw", "vault_list", "vault_attach", "vault_detach", "proposal_create",
-    "proposal_revise",
+    "proposal_revise", "project_create",
 }  # fmt: skip
 
 
@@ -96,6 +96,22 @@ async def test_project_list_exists_in_the_orchestrator_openapi() -> None:
     http = by_name["project_list"].http
     assert http is not None
     assert (http.method, norm(http.path)) in known
+
+
+async def test_project_create_is_pinned_and_described() -> None:
+    known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
+    row = rows_by_name()["project_create"]
+    route = (row.method, "/agent/v1" + norm(row.path))
+    assert route == ("POST", "/agent/v1/admin/projects")
+    assert route in known
+    assert row.schema["required"] == ["slug", "name"]
+    props = row.schema["properties"]
+    assert props["slug"]["pattern"] == "^[a-z0-9][a-z0-9-]{0,39}$"
+    assert (props["name"]["minLength"], props["name"]["maxLength"]) == (1, 80)
+    assert props["description"]["maxLength"] == 4000
+    assert "superleader" in row.description
+    assert "never deleted" in row.description
+    assert "project_exists" in row.description
 
 
 async def test_vault_rows_are_pinned_to_the_orchestrator_openapi() -> None:
@@ -230,6 +246,16 @@ async def test_rows_call_their_routes() -> None:
             "proposal_withdraw",
             {"proposal_id": 7},
             ("POST", "/agent/v1/admin/proposals/7/withdraw", "", None),
+        ),
+        (
+            "project_create",
+            {"slug": "acme", "name": "Acme", "description": "d"},
+            (
+                "POST",
+                "/agent/v1/admin/projects",
+                "",
+                {"slug": "acme", "name": "Acme", "description": "d"},
+            ),
         ),
         ("vault_list", {}, ("GET", "/agent/v1/admin/vault", "", None)),
         ("vault_list", {"q": "gh"}, ("GET", "/agent/v1/admin/vault", "q=gh", None)),

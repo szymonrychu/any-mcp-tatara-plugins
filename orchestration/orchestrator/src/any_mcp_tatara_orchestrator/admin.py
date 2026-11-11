@@ -223,6 +223,40 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         schema({"ref": _REF, "name": _NULL_STR}, ("ref",)),
         "*",
     ),
+    # projects
+    AdminRow(
+        "project_create",
+        "POST",
+        f"{_A}/projects",
+        "Create a project (superleader only): a named bucket that presets, sessions, tasks "
+        "and specs belong to. Projects are never deleted, only archived by the user in the "
+        "web UI, so pick the slug with care. 409 project_exists means the slug is taken. "
+        "Answers 201 with slug, name, description, archived, created_at, updated_at, "
+        "presets and sessions.",
+        schema(
+            {
+                "slug": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+                    "description": "Project slug: lowercase letters, digits and hyphens, "
+                    "1 to 40 characters, starting with a letter or digit.",
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "description": "Display name, 1 to 80 characters.",
+                },
+                "description": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": "Optional description, up to 4000 characters.",
+                },
+            },
+            ("slug", "name"),
+        ),
+        "*",
+    ),
     # vault: users write the secret values in the web UI; superleaders only attach them
     AdminRow(
         "vault_list",
