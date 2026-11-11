@@ -11,6 +11,7 @@ from typing import Any
 
 from any_mcp.types import HttpBinding, ToolSpec
 
+from .specs import SPEC_KEY_PATTERN
 from .views import TASK_VIEWS
 
 __all__ = [
@@ -67,6 +68,7 @@ _PROJECT_RULE = (
     "Project slug; see project_list. Agents work in their own project only; "
     "a superleader may use any project."
 )
+_SPEC_RULE = "Spec key such as S-3 (see spec_get)."
 _KEY = {"type": "string", "description": "Task key such as T-12."}
 _TASK_OUT = {
     "type": "object",
@@ -227,6 +229,11 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                         "description": _PROJECT_RULE
                         + " Omitted: your own project (a superleader: default).",
                     },
+                    "spec": {
+                        "type": "string",
+                        "pattern": SPEC_KEY_PATTERN,
+                        "description": _SPEC_RULE + " Links the task to that spec.",
+                    },
                     "client_key": {
                         "type": "string",
                         "description": "Idempotency key chosen by you, stable across retries.",
@@ -256,6 +263,11 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                     "project": {
                         "type": "string",
                         "description": _PROJECT_RULE + " Moves the task to that project.",
+                    },
+                    "spec": {
+                        "type": ["string", "null"],
+                        "pattern": SPEC_KEY_PATTERN,
+                        "description": _SPEC_RULE + " Links the task to that spec; null unlinks.",
                     },
                 },
                 ("key", "version"),
@@ -291,6 +303,11 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                         "type": "string",
                         "description": _PROJECT_RULE + " Only tasks of that project.",
                     },
+                    "spec": {
+                        "type": "string",
+                        "pattern": SPEC_KEY_PATTERN,
+                        "description": _SPEC_RULE + " Only tasks linked to that spec.",
+                    },
                     "limit": {"type": "integer", "minimum": 1, "maximum": TASK_LIST_MAX},
                     "cursor": {
                         "type": "string",
@@ -308,6 +325,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                 "label",
                 "labels",
                 "project",
+                "spec",
                 "limit",
                 "cursor",
             ),

@@ -32,6 +32,7 @@ from .secrets_local import (
     validate_to_file,
     write_credential,
 )
+from .specs import spec_tools
 from .tasks import SUMMARY_EVENTS, TASK_LIST_LIMIT, TASK_WINDOW_DEFAULT, task_tools
 from .views import ACKS, task_view
 
@@ -474,6 +475,7 @@ class OrchestratorPlugin(Plugin):
             *admin,
             *task_tools(base),
             *project_tools(base),
+            *spec_tools(base),
             spec("me", "GET", "/me", _schema({})),
             spec(
                 "activity",
