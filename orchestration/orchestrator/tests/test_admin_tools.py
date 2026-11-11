@@ -122,8 +122,9 @@ async def test_preset_rows_take_a_project_to_move_a_preset() -> None:
         assert row.schema["properties"]["project"]["type"] == "string"
         assert "project" not in row.schema["required"]
     desc = rows["preset_patch"].description
-    for word in ("project", "unknown_project", "vault_label_mismatch", "privileged_preset_move"):
+    for word in ("project", "unknown_project", "vault_label_mismatch", "project_archived"):
         assert word in desc
+    assert "privileged_preset_move" not in desc
 
 
 async def test_vault_rows_are_pinned_to_the_orchestrator_openapi() -> None:

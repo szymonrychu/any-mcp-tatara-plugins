@@ -200,9 +200,8 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "Change part of a preset (name, labels, project, spec) by id or name. Prefer this over "
         "preset_replace: read-modify-write is not needed. Set project to move the preset to "
         "another existing project (422 unknown_project; 422 vault_label_mismatch when its vault "
-        "refs no longer match the project label; 403 privileged_preset_move for a preset with "
-        "kube_cluster_access, kube_namespace_access, session_messaging or docker on); running "
-        "sessions keep their project. Example: "
+        "refs no longer match the project label; 422 project_archived when the target project "
+        "is archived); running sessions keep their project. Example: "
         '{"ref": "webhook", "spec": {"usage_quota": {"five_hour_pct": 80}}}.',
         schema(
             {
