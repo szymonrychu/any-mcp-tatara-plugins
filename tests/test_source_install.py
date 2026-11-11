@@ -54,6 +54,8 @@ ALL_TOOLS = sorted(
         "orchestrator_self_close",
         "orchestrator_activity",
         "orchestrator_project_list",
+        "orchestrator_project_chat_send",
+        "orchestrator_project_chat_read",
         "orchestrator_task_create",
         "orchestrator_task_update",
         "orchestrator_task_list",

@@ -345,6 +345,14 @@
     "operationId": "me_agent_v1_me_get"
    }
   },
+  "/agent/v1/project/messages": {
+   "get": {
+    "operationId": "project_read_agent_v1_project_messages_get"
+   },
+   "post": {
+    "operationId": "project_post_agent_v1_project_messages_post"
+   }
+  },
   "/agent/v1/projects": {
    "get": {
     "operationId": "projects_agent_v1_projects_get"

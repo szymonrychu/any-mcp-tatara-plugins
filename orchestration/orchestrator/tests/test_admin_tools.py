@@ -98,6 +98,15 @@ async def test_project_list_exists_in_the_orchestrator_openapi() -> None:
     assert (http.method, norm(http.path)) in known
 
 
+async def test_project_chat_rows_exist_in_the_orchestrator_openapi() -> None:
+    known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
+    by_name = {s.name: s for s in await specs()}
+    for name in ("project_chat_send", "project_chat_read"):
+        http = by_name[name].http
+        assert http is not None
+        assert (http.method, norm(http.path)) in known, name
+
+
 async def test_project_create_is_pinned_and_described() -> None:
     known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
     row = rows_by_name()["project_create"]
