@@ -307,6 +307,14 @@
     "operationId": "message_status_agent_v1_chat_messages__send_id__get"
    }
   },
+  "/agent/v1/chat/notes": {
+   "get": {
+    "operationId": "notes_get_agent_v1_chat_notes_get"
+   },
+   "put": {
+    "operationId": "notes_put_agent_v1_chat_notes_put"
+   }
+  },
   "/agent/v1/chat/reactions": {
    "post": {
     "operationId": "send_reaction_agent_v1_chat_reactions_post"
@@ -315,6 +323,22 @@
   "/agent/v1/chat/rooms": {
    "get": {
     "operationId": "rooms_agent_v1_chat_rooms_get"
+   }
+  },
+  "/agent/v1/chat/skills": {
+   "get": {
+    "operationId": "skills_list_agent_v1_chat_skills_get"
+   }
+  },
+  "/agent/v1/chat/skills/{name}": {
+   "delete": {
+    "operationId": "skill_delete_agent_v1_chat_skills__name__delete"
+   },
+   "get": {
+    "operationId": "skill_get_agent_v1_chat_skills__name__get"
+   },
+   "put": {
+    "operationId": "skill_put_agent_v1_chat_skills__name__put"
    }
   },
   "/agent/v1/close": {
