@@ -2,9 +2,11 @@
 
 Besides leadership, locks, scale, init scripts, session messaging and the activity pull, it
 offers four chat tools (``chat_rooms``, ``chat_send``, ``chat_react``, ``chat_status``) through
-which a session leader reaches the user's chat. A chat room and a session are bound one to one: a
-session talks in at most one room, its bound room. ``self_close`` lets the leader of a finished
-session ask the orchestrator to discard it once every agent is idle.
+which a session leader reaches the user's chat, and six room memory tools (``chat_notes_get``,
+``chat_notes_update``, ``chat_skills_list``, ``chat_skills_get``, ``chat_skills_save``,
+``chat_skills_delete``) for the notes and skills of its room. A chat room and a session are bound
+one to one: a session talks in at most one room, its bound room. ``self_close`` lets the leader
+of a finished session ask the orchestrator to discard it once every agent is idle.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSp
 from .admin import ADMIN_TOOLS, HISTORY_SEARCH_LIMIT, summarize_presets
 from .common import HANDLED
 from .fit import fit_task, summarize_tasks
+from .memory import memory_tools
 from .project_chat import PROJECT_CHAT_READ_LIMIT, project_chat_tools
 from .projects import project_tools
 from .secrets_local import (
@@ -491,6 +494,7 @@ class OrchestratorPlugin(Plugin):
             *admin,
             *task_tools(base),
             *project_tools(base),
+            *memory_tools(base),
             *spec_tools(base),
             *local_spec_specs(base),
             *project_chat_tools(base),
