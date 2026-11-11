@@ -42,6 +42,8 @@ ALL_TOOLS = {
     "orchestrator_self_close",
     "orchestrator_activity",
     "orchestrator_project_list",
+    "orchestrator_project_chat_send",
+    "orchestrator_project_chat_read",
 }
 SPEC_TOOLS = {
     "orchestrator_spec_list",

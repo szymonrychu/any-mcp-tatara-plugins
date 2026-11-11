@@ -21,7 +21,9 @@ from any_mcp.plugin import Plugin
 from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSpec
 
 from .admin import ADMIN_TOOLS, HISTORY_SEARCH_LIMIT, summarize_presets
+from .common import HANDLED
 from .fit import fit_task, summarize_tasks
+from .project_chat import PROJECT_CHAT_READ_LIMIT, project_chat_tools
 from .projects import project_tools
 from .secrets_local import (
     CREDENTIAL_TOOLS,
@@ -52,15 +54,6 @@ _REREAD_RULE = (
     "Decision and approval states are never taken from a summary or transcript: re-read them "
     "from the source (orchestrator_task_get, the PR, the proposal) before acting."
 )
-_HANDLED = {
-    "type": "array",
-    "items": {"type": "integer"},
-    "maxItems": 50,
-    "description": (
-        "Ids (the id attribute of <session-message>) of messages from other sessions this call "
-        "answers or that need no answer; unmarked ones carry over to the next leader."
-    ),
-}
 
 
 class OrchestratorConfig(BaseModel):
@@ -146,6 +139,8 @@ class OrchestratorPlugin(Plugin):
         if call.spec.name == "task_list":
             call = call.with_arguments({"limit": TASK_LIST_LIMIT, **call.arguments})
             return self._fit_tasks(call.spec.name, await self._read_whole(call))
+        if call.spec.name == "project_chat_read":
+            call = call.with_arguments({"limit": PROJECT_CHAT_READ_LIMIT, **call.arguments})
         if call.spec.name == "task_get":
             view, call = self._task_get_window(call)
             return self._fit_tasks(call.spec.name, await self._read_whole(call), view)
@@ -495,6 +490,7 @@ class OrchestratorPlugin(Plugin):
             *project_tools(base),
             *spec_tools(base),
             *local_spec_specs(base),
+            *project_chat_tools(base),
             spec("me", "GET", "/me", _schema({})),
             spec(
                 "activity",
@@ -517,7 +513,7 @@ class OrchestratorPlugin(Plugin):
                         "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
                         "epoch": {"type": "integer"},
                         "to": {"type": ["string", "null"], "description": "Agent name."},
-                        "handled": _HANDLED,
+                        "handled": HANDLED,
                     },
                     ["reason", "epoch"],
                 ),
@@ -565,7 +561,7 @@ class OrchestratorPlugin(Plugin):
                     {
                         "slug": {"type": "string", "description": "Slug of the target session."},
                         "text": {"type": "string"},
-                        "handled": _HANDLED,
+                        "handled": HANDLED,
                     },
                     ["slug", "text"],
                 ),
