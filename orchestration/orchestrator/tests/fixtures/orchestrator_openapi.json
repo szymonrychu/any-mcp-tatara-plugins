@@ -105,6 +105,16 @@
     "operationId": "copy_preset_agent_v1_admin_presets__ref__copy_post"
    }
   },
+  "/agent/v1/admin/presets/{ref}/projects": {
+   "post": {
+    "operationId": "grant_preset_project_agent_v1_admin_presets__ref__projects_post"
+   }
+  },
+  "/agent/v1/admin/presets/{ref}/projects/{project}": {
+   "delete": {
+    "operationId": "revoke_preset_project_agent_v1_admin_presets__ref__projects__project__delete"
+   }
+  },
   "/agent/v1/admin/presets/{ref}/vault/{entry_id}": {
    "delete": {
     "operationId": "detach_vault_agent_v1_admin_presets__ref__vault__entry_id__delete"
@@ -209,6 +219,16 @@
   "/agent/v1/admin/sessions/{slug}/leadership/withdraw": {
    "post": {
     "operationId": "withdraw_handover_agent_v1_admin_sessions__slug__leadership_withdraw_post"
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}/projects": {
+   "post": {
+    "operationId": "grant_session_project_agent_v1_admin_sessions__slug__projects_post"
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}/projects/{project}": {
+   "delete": {
+    "operationId": "revoke_session_project_agent_v1_admin_sessions__slug__projects__project__delete"
    }
   },
   "/agent/v1/admin/sessions/{slug}/restart": {

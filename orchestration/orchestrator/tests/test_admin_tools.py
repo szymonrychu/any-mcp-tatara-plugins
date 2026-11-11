@@ -40,7 +40,8 @@ EXPECTED = {
     "chat_admin_room", "chat_users", "chat_room_allow", "chat_open", "chat_open_status",
     "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
     "leadership_withdraw", "vault_list", "vault_attach", "vault_detach", "proposal_create",
-    "proposal_revise", "project_create",
+    "proposal_revise", "project_create", "session_projects_grant", "session_projects_revoke",
+    "preset_projects_grant", "preset_projects_revoke",
 }  # fmt: skip
 
 
@@ -121,6 +122,92 @@ async def test_project_create_is_pinned_and_described() -> None:
     assert "superleader" in row.description
     assert "never deleted" in row.description
     assert "project_exists" in row.description
+
+
+GRANT_ROUTES = {
+    "session_projects_grant": ("POST", "/agent/v1/admin/sessions/{}/projects"),
+    "session_projects_revoke": ("DELETE", "/agent/v1/admin/sessions/{}/projects/{}"),
+    "preset_projects_grant": ("POST", "/agent/v1/admin/presets/{}/projects"),
+    "preset_projects_revoke": ("DELETE", "/agent/v1/admin/presets/{}/projects/{}"),
+}
+
+
+async def test_project_grant_rows_are_pinned_and_described() -> None:
+    known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
+    rows = rows_by_name()
+    for name, route in GRANT_ROUTES.items():
+        row = rows[name]
+        assert (row.method, "/agent/v1" + norm(row.path)) == route, name
+        assert route in known, name
+    for name, target in (("session_projects_grant", "slug"), ("preset_projects_grant", "ref")):
+        row = rows[name]
+        assert row.schema["required"] == [target, "project", "reason"]
+        assert set(row.schema["properties"]) == {target, "project", "reason", "client_key"}
+        assert "approves" in row.description and "proposal" in row.description
+    for name, target in (("session_projects_revoke", "slug"), ("preset_projects_revoke", "ref")):
+        row = rows[name]
+        assert row.schema["required"] == [target, "project"]
+        assert row.body is None
+
+
+async def test_project_grant_rows_call_their_routes() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(202, json={"id": 1, "kind": "session_projects"})
+
+    grant = {"project": "spellslinger", "reason": "T-120", "client_key": "k"}
+    calls = [
+        (
+            "session_projects_grant",
+            {"slug": "epics-2", **grant},
+            ("POST", "/agent/v1/admin/sessions/epics-2/projects", grant),
+        ),
+        (
+            "session_projects_revoke",
+            {"slug": "epics-2", "project": "spellslinger"},
+            ("DELETE", "/agent/v1/admin/sessions/epics-2/projects/spellslinger", None),
+        ),
+        (
+            "preset_projects_grant",
+            {"ref": "web", **grant},
+            ("POST", "/agent/v1/admin/presets/web/projects", grant),
+        ),
+        (
+            "preset_projects_revoke",
+            {"ref": "web", "project": "spellslinger"},
+            ("DELETE", "/agent/v1/admin/presets/web/projects/spellslinger", None),
+        ),
+    ]
+    async with harness(handler) as h:
+        for name, args, want in calls:
+            seen.clear()
+            res = await h.call(name, args)
+            assert not res.is_error, (name, res.text)
+            assert seen == [want], name
+
+
+async def test_session_create_takes_a_project() -> None:
+    row = rows_by_name()["session_create"]
+    assert row.schema["properties"]["project"]["type"] == ["string", "null"]
+    seen: list[Any] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(201, json={"slug": "s"})
+
+    async with harness(handler) as h:
+        res = await h.call("session_create", {"preset_id": "web", "project": "spellslinger"})
+    assert not res.is_error, res.text
+    assert seen == [{"preset_id": "web", "project": "spellslinger"}]
+
+
+def test_session_texts_name_extra_projects() -> None:
+    rows = rows_by_name()
+    assert "extra_projects" in rows["session_get"].description
+    assert "session_projects" in rows["proposals_list"].description
 
 
 async def test_preset_rows_take_a_project_to_move_a_preset() -> None:

@@ -57,8 +57,12 @@ orchestrator refuses them unless the caller is a superleader session and renders
 allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
 `preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`; `preset_patch` and `preset_replace` take an optional `project` slug that
 moves the preset to another existing project: 422 `unknown_project`, 422 `vault_label_mismatch`,
-422 `project_archived`; running sessions keep their project), sessions (`session_get`, `session_patch`, `session_create`,
-`session_discard`, `session_restart`, `agent_restart`, `command_get`), `leadership_withdraw`
+422 `project_archived`; running sessions keep their project), sessions (`session_get`, `session_patch`, `session_create`
+with an optional `project`, `session_discard`, `session_restart`, `agent_restart`, `command_get`), project grants
+(`session_projects_grant` and `preset_projects_grant`: `POST /agent/v1/admin/{sessions/{slug},presets/{ref}}/projects`,
+body `{project, reason, client_key?}`, file a change proposal of kind `session_projects` or `preset_projects` that the
+user approves, 202; `session_projects_revoke` and `preset_projects_revoke`: `DELETE .../projects/{project}`, at once;
+a session with extra projects is a full member of each, live, no restart), `leadership_withdraw`
 (`POST /agent/v1/admin/sessions/{slug}/leadership/withdraw`, body `{request_id?}`: withdraw one or
 every pending handover request, never the orchestrator's `rollout` request, which is 409
 `rollout_request` by id; the orchestrator also lists it for every hive, whose leader may
@@ -163,7 +167,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.36.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.37.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

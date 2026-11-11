@@ -22,7 +22,8 @@ _LABEL_RULE = (
     "Labels are trimmed and lowercased by the server and must then match ^[a-z0-9-_.:]{1,40}$."
 )
 _PROJECT_RULE = (
-    "Project slug; see project_list. Agents work in their own project only; "
+    "Project slug; see project_list. Agents work in their own projects only (home plus any "
+    "extra projects granted to the session); "
     "a superleader may use any project."
 )
 SPEC_PARAM = {
@@ -135,7 +136,7 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
                     "project": {
                         "type": "string",
                         "description": _PROJECT_RULE
-                        + " Omitted: your own project (a superleader: default).",
+                        + " Omitted: your home project (a superleader: default).",
                     },
                     "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"},
                     "title": {"type": "string", "minLength": 1, "maxLength": 200},

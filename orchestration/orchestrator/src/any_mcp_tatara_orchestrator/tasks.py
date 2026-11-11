@@ -65,7 +65,8 @@ _ANSWER = (
     "task, then read it with task_get."
 )
 _PROJECT_RULE = (
-    "Project slug; see project_list. Agents work in their own project only; "
+    "Project slug; see project_list. Agents work in their own projects only (home plus any "
+    "extra projects granted to the session); "
     "a superleader may use any project."
 )
 _SPEC_RULE = "Spec key such as S-3 (see spec_get)."
@@ -227,7 +228,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                     "project": {
                         "type": "string",
                         "description": _PROJECT_RULE
-                        + " Omitted: your own project (a superleader: default).",
+                        + " Omitted: your home project (a superleader: default).",
                     },
                     "spec": {
                         "type": "string",
