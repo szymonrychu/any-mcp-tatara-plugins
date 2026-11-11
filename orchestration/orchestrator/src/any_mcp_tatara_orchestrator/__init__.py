@@ -26,6 +26,7 @@ from .admin import ADMIN_TOOLS, HISTORY_SEARCH_LIMIT, summarize_presets
 from .common import HANDLED
 from .fit import fit_task, summarize_tasks
 from .memory import memory_tools
+from .plan import plan_tools
 from .project_chat import PROJECT_CHAT_READ_LIMIT, project_chat_tools
 from .projects import project_tools
 from .secrets_local import (
@@ -144,9 +145,12 @@ class OrchestratorPlugin(Plugin):
             return self._fit_tasks(call.spec.name, await self._read_whole(call))
         if call.spec.name == "project_chat_read":
             call = call.with_arguments({"limit": PROJECT_CHAT_READ_LIMIT, **call.arguments})
-        if call.spec.name == "task_get":
+        if call.spec.name in ("task_get", "plan_step_get"):
             view, call = self._task_get_window(call)
             return self._fit_tasks(call.spec.name, await self._read_whole(call), view)
+        if call.spec.name == "plan_step_next":
+            call = call.with_arguments({"claim": False, **call.arguments})
+            return self._next_step(await super().call(call))
         if call.spec.name in ACKS:
             return self._ack(call.spec.name, await self._read_whole(call))
         if call.spec.name not in CREDENTIAL_TOOLS:
@@ -225,6 +229,13 @@ class OrchestratorPlugin(Plugin):
         else:
             return raw
         return raw if shaped is value else RawResponse.from_value(shaped)
+
+    @staticmethod
+    def _next_step(raw: RawResponse) -> RawResponse:
+        """204 means no step is ready: answer a value instead of an empty body."""
+        if raw.status == 204:
+            return RawResponse.from_value({"step": None, "message": "no ready step"})
+        return raw
 
     @staticmethod
     def _ack(name: str, raw: RawResponse) -> RawResponse:
@@ -496,6 +507,7 @@ class OrchestratorPlugin(Plugin):
             *project_tools(base),
             *memory_tools(base),
             *spec_tools(base),
+            *plan_tools(base),
             *local_spec_specs(base),
             *project_chat_tools(base),
             spec("me", "GET", "/me", _schema({})),

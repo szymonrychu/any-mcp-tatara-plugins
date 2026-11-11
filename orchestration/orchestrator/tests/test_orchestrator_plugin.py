@@ -63,6 +63,20 @@ SPEC_TOOLS = {
     "orchestrator_spec_pull",
     "orchestrator_spec_push",
 }
+PLAN_TOOLS = {
+    "orchestrator_plan_get",
+    "orchestrator_plan_set",
+    "orchestrator_plan_steps",
+    "orchestrator_plan_step_get",
+    "orchestrator_plan_step_add",
+    "orchestrator_plan_step_edit",
+    "orchestrator_plan_step_deps",
+    "orchestrator_plan_steps_order",
+    "orchestrator_plan_step_next",
+    "orchestrator_plan_step_update",
+    "orchestrator_plan_gate",
+    "orchestrator_spec_section",
+}
 TASK_TOOLS = {
     "orchestrator_task_create",
     "orchestrator_task_update",
@@ -96,7 +110,13 @@ async def descriptions(**overrides: Any) -> dict[str, str]:
 
 
 async def test_lists_all_tools() -> None:
-    every = ALL_TOOLS | TASK_TOOLS | SPEC_TOOLS | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS}
+    every = (
+        ALL_TOOLS
+        | TASK_TOOLS
+        | SPEC_TOOLS
+        | PLAN_TOOLS
+        | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS}
+    )
     assert set(await descriptions()) == every
     assert set(await descriptions(hive=False)) == every
 
@@ -670,7 +690,9 @@ async def test_no_io_at_load() -> None:
     )
     await plugin.setup()
     specs = await plugin.load_tools()
-    assert len(specs) == len(ALL_TOOLS) + len(TASK_TOOLS) + len(SPEC_TOOLS) + len(ADMIN_TOOLS)
+    assert len(specs) == (
+        len(ALL_TOOLS) + len(TASK_TOOLS) + len(SPEC_TOOLS) + len(PLAN_TOOLS) + len(ADMIN_TOOLS)
+    )
 
 
 async def test_scale_and_init_tools_match_contracts() -> None:
