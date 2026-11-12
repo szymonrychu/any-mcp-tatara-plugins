@@ -1117,3 +1117,59 @@ async def test_session_labels_set_tool_path_method_and_annotations() -> None:
         result = await h.call("orchestrator_session_labels_set", {"labels": ["A "]})
     assert not result.is_error, result.text
     assert seen == [("PUT", "/agent/v1/session/labels", {"labels": ["A "]})]
+
+
+async def test_chat_send_files_schema() -> None:
+    async with harness(ok) as h:
+        tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_chat_send")
+    schema = tool["inputSchema"]
+    files = schema["properties"]["files"]
+    assert files["type"] == "array"
+    assert files["maxItems"] == 4
+    assert files["items"] == {"type": "string", "minLength": 1, "maxLength": 512}
+    assert "text" not in schema.get("required", [])
+
+
+async def test_chat_send_forwards_files() -> None:
+    seen: list[Any] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(202, json={"id": "s1"})
+
+    async with harness(handler) as h:
+        await h.call("orchestrator_chat_send", {"files": ["out/a.png"], "room": "!r:hs"})
+    assert seen == [("/agent/v1/chat/messages", {"files": ["out/a.png"], "room": "!r:hs"})]
+
+
+async def test_chat_send_description_mentions_files() -> None:
+    on = await descriptions()
+    send = on["orchestrator_chat_send"]
+    for word in (
+        "files_not_allowed",
+        ".attachments/",
+        "8 MB",
+        "25 MB",
+        "files_not_relayable",
+        "invalid_file_path",
+        "Agents may send files",
+        "off by default",
+        "web UI",
+        "agents_may_send_files",
+        "working directory",
+    ):
+        assert word in send, word
+    assert "text or files" in send
+
+
+async def test_chat_status_description_mentions_files() -> None:
+    on = await descriptions()
+    status = on["orchestrator_chat_status"]
+    assert "files" in status
+    assert "mime" in status
+    assert "size" in status
+
+
+async def test_chat_rooms_description_mentions_agents_may_send_files() -> None:
+    on = await descriptions()
+    assert "agents_may_send_files" in on["orchestrator_chat_rooms"]

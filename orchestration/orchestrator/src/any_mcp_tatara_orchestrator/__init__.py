@@ -458,8 +458,9 @@ class OrchestratorPlugin(Plugin):
                 "List the chat rooms you may post to. A session talks in at most one chat room, "
                 "its bound room: while you are bound the list holds that room only (bound true); "
                 "while you are bound to none it holds every unbound room whose user flagged it "
-                "agents_may_initiate. Each entry has room_id, name, kind, bound and "
-                "agents_may_initiate. Leader only."
+                "agents_may_initiate. Each entry has room_id, name, kind, bound, "
+                "agents_may_initiate and agents_may_send_files (whether you may send files "
+                "there with orchestrator_chat_send files). Leader only."
             ),
             "chat_send": (
                 "Send a message to the user's chat. Leader only. The final answer of a turn "
@@ -484,7 +485,21 @@ class OrchestratorPlugin(Plugin):
                 "room_bound, and a second room while you are bound with session_bound. Text is "
                 "1 to 16000 characters. Never ask the user a question here: ask it with "
                 "orchestrator_decision_ask; a link to the task is fine. The user's reply arrives "
-                "as a new turn framed <chat ...>."
+                "as a new turn framed <chat ...>. "
+                "Optional files (at most 4) are paths relative to your working directory; "
+                "text or files is required, so a message may be files only. Each file is sent "
+                "after the text as a separate Messenger message: images up to 8 MB, any other "
+                "file up to 25 MB. Only paths are passed, the bytes never go through this "
+                "call. The room's 'Agents may send files' switch is off by default and only "
+                "the user sets it, in the web UI (the room's agents_may_send_files, listed by "
+                "orchestrator_chat_rooms); until then a send with files is refused with 403 "
+                "files_not_allowed, and a switch turned off after queueing refuses the send "
+                "(status refused, reason files_not_allowed). A file you received can be "
+                "forwarded by its .attachments/... path. Dotfiles, .env and key files "
+                "(*.pem, *.key, id_rsa*, id_ed25519*, credentials*) are refused with 422 "
+                "invalid_file_path, as are paths with .. or an absolute path; a missing file "
+                "is 404 file_not_found and an oversize one 413 file_too_large. A room held by "
+                "another session (the relayed case) answers 409 files_not_relayable."
             ),
             "chat_react": (
                 "React to a chat message with an emoji. Leader only. to takes the m<n> shown on a "
@@ -498,8 +513,9 @@ class OrchestratorPlugin(Plugin):
                 "Read the delivery status of a chat send by its id s<n> (from "
                 "orchestrator_chat_send or orchestrator_chat_react). Leader only. Answers id, "
                 "kind (message or reaction), status (queued, sending, sent, failed or refused), "
-                "reason, room_id, created_at and sent_at. Only your own session's sends are "
-                "known."
+                "reason, room_id, created_at and sent_at. A send with files also answers "
+                "files, a list of {name, mime, size, status} per file. Only your own "
+                "session's sends are known."
             ),
             "self_close": (
                 "Close this session for good once your work is done and reported. Leader only. "
@@ -639,14 +655,26 @@ class OrchestratorPlugin(Plugin):
                 "/chat/messages",
                 _schema(
                     {
-                        "text": {"type": "string"},
+                        "text": {
+                            "type": "string",
+                            "description": "Message text; text or files is required.",
+                        },
+                        "files": {
+                            "type": "array",
+                            "items": {"type": "string", "minLength": 1, "maxLength": 512},
+                            "maxItems": 4,
+                            "description": (
+                                "Paths relative to your working directory (at most 4); "
+                                "the room must allow agent files."
+                            ),
+                        },
                         "room": {"type": "string", "description": "A room_id from chat_rooms."},
                         "reply_to": {
                             "type": "string",
                             "description": "Message to quote: m<n> from a chat turn or s<n>.",
                         },
                     },
-                    ["text"],
+                    [],
                 ),
                 "*",
             ),
