@@ -18,6 +18,7 @@ __all__ = [
     "ADMIN_TOOLS",
     "AdminRow",
     "SESSION_EVENTS_LIMIT",
+    "fit_events",
     "fit_sessions",
     "schema",
     "summarize_presets",
@@ -96,6 +97,32 @@ def fit_sessions(sessions: list[Any], budget: int) -> Any:
     if measure(sessions) <= budget:
         return sessions
     lo, hi = 0, len(sessions)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if measure(shaped(mid)) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    return shaped(lo)
+
+
+def fit_events(page: Any, budget: int) -> Any:
+    """``page`` (an events page ``{events, has_more_before, next_after_id}``, ascending ids) when
+    its text fits ``budget``, else the same page with the NEWEST events that fit and
+    ``omitted``, the count of older events dropped. any-mcp keeps the head of an over-budget
+    text, which would lose the newest events; the dropped ones are still reachable with
+    before_id set to the lowest id kept."""
+    if not isinstance(page, dict) or not isinstance(page.get("events"), list):
+        return page
+    events = page["events"]
+
+    def shaped(keep: int) -> dict[str, Any]:
+        rest = {k: v for k, v in page.items() if k != "events"}
+        return {"omitted": len(events) - keep, **rest, "events": events[len(events) - keep :]}
+
+    if measure(page) <= budget:
+        return page
+    lo, hi = 0, len(events)
     while lo < hi:
         mid = (lo + hi + 1) // 2
         if measure(shaped(mid)) <= budget:
@@ -244,7 +271,7 @@ _HISTORY_MATCH = (
     "q (3 to 500 characters) is a case-insensitive substring match, or with regex true a "
     "Postgres regex."
 )
-SESSION_EVENTS_LIMIT = 50  # default page of session_events
+SESSION_EVENTS_LIMIT = 20  # default page of session_events (events carry raw tool data)
 HISTORY_SEARCH_LIMIT = 20  # default page: 20 hits stay well inside the 40000 char tool budget
 _HISTORY_Q = {"type": "string", "minLength": 3, "maxLength": 500}
 _HISTORY_REGEX = {"type": "boolean", "description": "Treat q as a Postgres regex."}
@@ -1076,14 +1103,20 @@ _ROWS: tuple[AdminRow, ...] = (
         "Superleader only: list every session of every project, manageable or not, as a "
         "summary (slug, preset_name, project, extra_projects, status, desired, labels, hive, "
         "superleader, created_at); session_get shows one in full. Filter by label, project, "
-        "session_slug or superleaders (include: also list superleader sessions). When the list "
+        "session_slug or superleaders (include, with project: also list its superleader sessions; "
+        "without project every session is listed). When the list "
         "outgrows the output budget the answer is {omitted, sessions} with the first sessions "
         "that fit and the count left out: narrow it with a filter.",
         schema(
             {
                 "label": _str("Only sessions with this label."),
-                "project": _str("Only sessions of this project (home or extra)."),
-                "superleaders": _str("include: also list superleader sessions."),
+                "project": _str("Only sessions whose home project is this one."),
+                "superleaders": {
+                    "type": "string",
+                    "enum": ["include"],
+                    "description": "include: also list the superleader sessions of the project "
+                    "(only with project; without it every session is listed).",
+                },
                 "session_slug": _str("Only the session with this slug."),
             }
         ),
@@ -1107,8 +1140,10 @@ _ROWS: tuple[AdminRow, ...] = (
         "GET",
         f"{_A}/sessions/{{slug}}/events",
         "Superleader only: a page of the stored events of any session (chat, tool calls, "
-        "hooks), newest first, manageable or not; redacted like the web UI. Not a stream. "
-        "Default limit 50. Page back with before_id (the lowest id seen) or forward with "
+        "hooks), manageable or not; redacted like the web UI. Not a stream. A page is in "
+        "ascending id order and, without a cursor, is the newest events. Default limit 20. "
+        "When a page outgrows the output budget the oldest events are dropped and omitted "
+        "says how many. Page back with before_id (the lowest id seen) or forward with "
         "after_id; agent_id and types (comma-separated kinds) filter.",
         schema(
             {
@@ -1159,8 +1194,10 @@ _ROWS: tuple[AdminRow, ...] = (
         "meta_get",
         "GET",
         f"{_A}/meta",
-        "Superleader only: deploy metadata of the orchestrator (version, build and settings "
-        "that are not secret).",
+        "Superleader only: deploy metadata of the orchestrator that is not secret: defaults "
+        "(model, effort, resources, ...), agent images, models, efforts, caps, cache, "
+        "kube/docker availability, hook events, permission modes, usage and inactivity "
+        "settings.",
     ),
     AdminRow(
         "archives_list",
@@ -1207,7 +1244,11 @@ _ROWS: tuple[AdminRow, ...] = (
                 "from": _str("Start, ISO 8601."),
                 "to": _str("End, ISO 8601."),
                 "metric": _str("Usage window: five_hour or seven_day."),
-                "max_points": {"type": "integer", "minimum": 1, "description": "Most points."},
+                "max_points": {
+                    "type": "integer",
+                    "minimum": 10,
+                    "description": "Most points (at least 10).",
+                },
             }
         ),
         None,

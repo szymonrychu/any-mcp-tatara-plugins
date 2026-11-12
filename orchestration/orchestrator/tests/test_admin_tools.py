@@ -15,7 +15,12 @@ from any_mcp.context import PluginContext
 from any_mcp.response import DEFAULT_BUDGET_CHARS
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
-from any_mcp_tatara_orchestrator.admin import ADMIN_TOOLS, fit_sessions, summarize_sessions
+from any_mcp_tatara_orchestrator.admin import (
+    ADMIN_TOOLS,
+    fit_events,
+    fit_sessions,
+    summarize_sessions,
+)
 from any_mcp_tatara_orchestrator.fit import measure
 
 OPENAPI = json.loads((Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text())
@@ -991,8 +996,56 @@ async def test_session_events_default_limit() -> None:
     async with harness(handler) as h:
         await h.call("session_events", {"slug": "s"})
         await h.call("session_events", {"slug": "s", "limit": 7})
-    assert queries == ["limit=50", "limit=7"]
-    assert rows_by_name()["session_events"].schema["properties"]["limit"]["default"] == 50
+    assert queries == ["limit=20", "limit=7"]
+    assert rows_by_name()["session_events"].schema["properties"]["limit"]["default"] == 20
+
+
+def _event(i: int) -> dict[str, Any]:
+    return {"id": 100 + i, "type": "tool_result", "data": {"output": "o" * 15000}}
+
+
+async def test_session_events_over_budget_keeps_the_newest_and_reports_the_omitted() -> None:
+    # 3 events of 15000 chars: over the 40000 budget together, two newest fit.
+    page = {"events": [_event(i) for i in range(3)], "has_more_before": True, "next_after_id": None}
+    assert measure(page) > DEFAULT_BUDGET_CHARS
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=page)
+
+    async with harness(handler) as h:
+        res = await h.call("session_events", {"slug": "s"})
+    assert not res.is_error and "[truncated:" not in res.text
+    assert len(res.text) <= DEFAULT_BUDGET_CHARS
+    body = res.structured
+    assert body["omitted"] == 1 and body["has_more_before"] is True
+    assert [e["id"] for e in body["events"]] == [101, 102]
+    desc = rows_by_name()["session_events"].description
+    assert "ascending" in desc and "newest first" not in desc and "omitted" in desc
+
+
+async def test_session_events_within_budget_is_untouched() -> None:
+    page = {"events": [{"id": 1, "type": "chat", "data": {}}], "has_more_before": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=page)
+
+    async with harness(handler) as h:
+        res = await h.call("session_events", {"slug": "s"})
+    assert res.structured == page
+
+
+def test_fit_events_ignores_a_page_of_another_shape() -> None:
+    assert fit_events([1, 2], 10) == [1, 2]
+    assert fit_events({"events": "x"}, 1) == {"events": "x"}
+
+
+def test_superleader_read_filter_texts_match_the_upstream() -> None:
+    rows = rows_by_name()
+    props = rows["sessions_admin_list"].schema["properties"]
+    assert "home" in props["project"]["description"]
+    assert props["superleaders"]["enum"] == ["include"]
+    assert rows["usage_history"].schema["properties"]["max_points"]["minimum"] == 10
+    assert "build" not in rows["meta_get"].description
 
 
 def _session(i: int, labels: list[str] | None = None) -> dict[str, Any]:

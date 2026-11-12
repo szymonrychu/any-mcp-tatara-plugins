@@ -99,7 +99,7 @@ tool), and change proposals (`proposals_list`, `proposal_get`: your own, or ever
 a superleader; `proposal_withdraw`). Superleader reads (T-120 slice 2): `sessions_admin_list`
 (`GET /agent/v1/admin/sessions`, a compact summary per session; filters `label`, `project`,
 `superleaders`, `session_slug`; over the output budget it answers `{omitted, sessions}`),
-`session_activity`, `session_events` (default `limit` 50), `session_messages`, `session_locks`,
+`session_activity`, `session_events` (default `limit` 20; an over-budget page keeps the newest events and reports `omitted`), `session_messages`, `session_locks`,
 `session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `meta_get`, `archives_list`,
 `archives_settings_get`, `archives_cleanup_preview` (no archive download) and `usage_history`,
 `usage_sessions`. Reads cover manageable and unmanageable targets alike; a write on an

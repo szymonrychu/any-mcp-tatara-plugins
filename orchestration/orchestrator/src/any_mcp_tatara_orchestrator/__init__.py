@@ -26,6 +26,7 @@ from .admin import (
     ADMIN_TOOLS,
     HISTORY_SEARCH_LIMIT,
     SESSION_EVENTS_LIMIT,
+    fit_events,
     fit_sessions,
     summarize_presets,
     summarize_sessions,
@@ -159,6 +160,7 @@ class OrchestratorPlugin(Plugin):
             return self._compact_sessions(await self._read_whole(call))
         if call.spec.name == "session_events":
             call = call.with_arguments({"limit": SESSION_EVENTS_LIMIT, **call.arguments})
+            return self._compact_events(await self._read_whole(call))
         if call.spec.name == "task_list":
             call = call.with_arguments({"limit": TASK_LIST_LIMIT, **call.arguments})
             return self._fit_tasks(call.spec.name, await self._read_whole(call))
@@ -288,6 +290,15 @@ class OrchestratorPlugin(Plugin):
             return raw
         shaped = fit_sessions(summarize_sessions(sessions), self.ctx.response_budget_chars)
         return RawResponse.from_value(shaped)
+
+    def _compact_events(self, raw: RawResponse) -> RawResponse:
+        """Keep the newest events of a page inside the output budget."""
+        try:
+            page = raw.json()
+        except ValueError:
+            return raw
+        shaped = fit_events(page, self.ctx.response_budget_chars)
+        return raw if shaped is page else RawResponse.from_value(shaped)
 
     @staticmethod
     def _with_cursor(raw: RawResponse) -> RawResponse:
