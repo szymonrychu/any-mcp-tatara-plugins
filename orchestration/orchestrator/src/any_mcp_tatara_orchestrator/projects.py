@@ -30,7 +30,8 @@ def project_tools(base_url: str) -> list[ToolSpec]:
                 "List the projects you can use: your home project, then any extra projects "
                 "granted to your session, in which you have the same access as their own "
                 "members (archived or not); a superleader session gets every project, archived "
-                "ones too. Each entry has slug, name, description and archived. The slug is the "
+                "ones too (project_update renames or archives one). Each entry has slug, name, "
+                "description and archived. The slug is the "
                 "project parameter of task_create, task_update and task_list."
             ),
             input_schema={"type": "object", "properties": {}, "additionalProperties": False},

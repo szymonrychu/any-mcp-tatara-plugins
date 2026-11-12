@@ -3,8 +3,8 @@ board, relayed by the orchestrator under ``/agent/v1/specs...``.
 
 Document bodies never pass through these rows: they move through the local ``spec_pull`` and
 ``spec_push`` tools (``specs_local.py``), which read and write files in the working copy so a body
-is never in the model's context. Accept and dismiss of a suggestion, and deleting a spec, are for
-the user in the web UI and have no tool.
+is never in the model's context. Deleting a spec and dismissing a suggestion are superleader admin
+tools (``spec_delete``, ``spec_suggestion_dismiss``); accept is the user's in the web UI.
 """
 
 from __future__ import annotations
