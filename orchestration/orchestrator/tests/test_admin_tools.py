@@ -248,6 +248,13 @@ def test_session_texts_name_extra_projects() -> None:
     assert "session_projects" in rows["proposals_list"].description
 
 
+def test_sessions_admin_list_names_the_slice3_writes() -> None:
+    desc = rows_by_name()["sessions_admin_list"].description
+    names = ("session_labels_update", "session_scale", "session_lock_reassign")
+    for name in (*names, "session_message_cancel"):
+        assert name in desc, name
+
+
 async def test_preset_rows_take_a_project_to_move_a_preset() -> None:
     rows = rows_by_name()
     for name, method in (("preset_patch", "PATCH"), ("preset_replace", "PUT")):

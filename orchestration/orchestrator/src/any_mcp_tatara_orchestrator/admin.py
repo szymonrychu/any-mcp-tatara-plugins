@@ -429,7 +429,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "web UI or with project_update, so pick the slug with care. 409 project_exists means "
         "the slug is taken. "
         "Answers 201 with slug, name, description, archived, created_at, updated_at, "
-        "presets and sessions. project_update renames, archives or unarchives one.",
+        "presets and sessions.",
         schema(
             {
                 "slug": {
@@ -1220,7 +1220,9 @@ _ROWS: tuple[AdminRow, ...] = (
         f"{_A}/sessions",
         "Superleader only: list every session of every project, manageable or not, as a "
         "summary (slug, preset_name, project, extra_projects, status, desired, labels, hive, "
-        "superleader, created_at); session_get shows one in full. Filter by label, project, "
+        "superleader, created_at); session_get shows one in full. On the listed sessions a "
+        "superleader can write with session_labels_update, session_scale, session_lock_reassign "
+        "and session_message_cancel. Filter by label, project, "
         "session_slug or superleaders (include, with project: also list its superleader sessions; "
         "without project every session is listed). When the list "
         "outgrows the output budget the answer is {omitted, sessions} with the first sessions "
