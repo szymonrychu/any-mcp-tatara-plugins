@@ -252,7 +252,9 @@ _ALIASES = {
     "description": (
         "Names people use to call the agent in this room, matched as whole words, "
         "case-insensitive, optional leading @. Omit to keep, [] to clear. The bot's own tag "
-        "and replies to it always count."
+        "and replies to it always count. Unlike agent_aliases, preset_id and trigger are "
+        "replaced on every call (omitted or null clears them): to change only aliases, read "
+        "the room with chat_admin_room first and resend its preset_id and trigger."
     ),
 }
 _AUTH = {
@@ -932,7 +934,9 @@ _ROWS: tuple[AdminRow, ...] = (
         f"{_A}/chats/rooms/{{room_id}}/settings",
         "Set a chat room's settings: trigger (all or mention), the preset that serves it and "
         "whether agents may start a chat there. agent_aliases: names that wake the agent in a "
-        "mention room besides a tag of the bot or a reply to it.",
+        "mention room besides a tag of the bot or a reply to it. preset_id and trigger are "
+        "replaced on every call (omitted or null clears them): to change only aliases, read "
+        "the room with chat_admin_room first and resend its preset_id and trigger.",
         schema(
             {
                 "room_id": _ROOM_ID,
@@ -967,7 +971,10 @@ _ROWS: tuple[AdminRow, ...] = (
         "POST",
         f"{_A}/chats/rooms/{{room_id}}/allow",
         "Allow a chat room and configure it (preset_id, trigger, agents_may_initiate). Also "
-        "accepts a Messenger message request; an invited room is joined on the next sync.",
+        "accepts a Messenger message request; an invited room is joined on the next sync. "
+        "preset_id and trigger are replaced on every call (omitted or null clears them): to "
+        "change only aliases, read the room with chat_admin_room first and resend its "
+        "preset_id and trigger.",
         schema(
             {
                 "room_id": _ROOM_ID,

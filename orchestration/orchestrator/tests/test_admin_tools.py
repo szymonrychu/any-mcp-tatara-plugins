@@ -1193,3 +1193,14 @@ def test_superleader_read_texts() -> None:
     for name in ("proposals_list", "proposal_get"):
         assert "every proposal" in rows[name].description, name
     assert "any command" in rows["command_get"].description
+
+
+@pytest.mark.parametrize("name", ["chat_room_settings", "chat_room_allow"])
+def test_room_tools_say_preset_and_trigger_are_replaced_on_every_call(name: str) -> None:
+    row = next(r for r in ADMIN_TOOLS if r.name == name)
+    text = " ".join([row.description, row.schema["properties"]["agent_aliases"]["description"]])
+    assert "replaced on every call" in row.description
+    assert "omitted or null clears them" in row.description
+    assert "chat_admin_room" in row.description
+    assert "resend its preset_id and trigger" in row.description
+    assert "Omit to keep, [] to clear" in text
