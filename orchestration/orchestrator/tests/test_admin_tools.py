@@ -391,6 +391,21 @@ async def test_rows_call_their_routes() -> None:
             ("PUT", "/agent/v1/admin/chats/rooms/!r:x/settings", "", {"trigger": "mention"}),
         ),
         (
+            "chat_room_settings",
+            {"room_id": "!r:x", "agent_aliases": ["bot", "Agent"]},
+            (
+                "PUT",
+                "/agent/v1/admin/chats/rooms/!r:x/settings",
+                "",
+                {"agent_aliases": ["bot", "Agent"]},
+            ),
+        ),
+        (
+            "chat_room_settings",
+            {"room_id": "!r:x", "agent_aliases": []},
+            ("PUT", "/agent/v1/admin/chats/rooms/!r:x/settings", "", {"agent_aliases": []}),
+        ),
+        (
             "chat_rule_delete",
             {"rule_id": "3"},
             ("DELETE", "/agent/v1/admin/chats/rules/3", "", None),
@@ -455,6 +470,22 @@ async def test_rows_call_their_routes() -> None:
             res = await h.call(name, args)
             assert not res.is_error, (name, res.text)
             assert seen == [want], name
+
+
+async def test_chat_room_settings_rejects_too_many_aliases() -> None:
+    seen: list[Any] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    async with harness(handler) as h:
+        res = await h.call(
+            "chat_room_settings",
+            {"room_id": "!r:x", "agent_aliases": [f"a{i}" for i in range(11)]},
+        )
+        assert res.is_error
+    assert seen == []
 
 
 async def test_unknown_field_is_rejected() -> None:
@@ -837,6 +868,16 @@ async def test_chat_admin_rows_call_their_routes() -> None:
             "chat_room_allow",
             {"room_id": "!a:x", "preset_id": "p", "trigger": "mention"},
             ("POST", f"{base}/rooms/!a:x/allow", "", {"preset_id": "p", "trigger": "mention"}),
+        ),
+        (
+            "chat_room_allow",
+            {"room_id": "!a:x", "trigger": "mention", "agent_aliases": ["bot"]},
+            (
+                "POST",
+                f"{base}/rooms/!a:x/allow",
+                "",
+                {"trigger": "mention", "agent_aliases": ["bot"]},
+            ),
         ),
         (
             "chat_open",

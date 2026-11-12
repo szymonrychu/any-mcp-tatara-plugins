@@ -91,7 +91,7 @@ call it on its own slug), webhooks (`webhooks_list`,
 `webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
 `webhook_template_preview`), schedules (`schedules_list`, `schedule_get`, `schedule_create`,
 `schedule_update`, `schedule_delete`, `schedule_run`, `schedule_runs`, `schedule_runs_all`,
-`schedule_run_get`, `schedule_preview`), projects (`project_create`: `POST /agent/v1/admin/projects`, body `{slug, name, description?}`; projects are never deleted, 409 `project_exists` = slug taken), chats (`chat_admin_rooms`, `chat_admin_room`, `chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`,
+`schedule_run_get`, `schedule_preview`), projects (`project_create`: `POST /agent/v1/admin/projects`, body `{slug, name, description?}`; projects are never deleted, 409 `project_exists` = slug taken), chats (`chat_admin_rooms`, `chat_admin_room`, `chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings` (`chat_room_settings` and `chat_room_allow` take `agent_aliases`: omit keeps, [] clears),
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`), `usage_get` (read-only: the account's `five_hour` and
 `seven_day` usage windows, `GET /agent/v1/admin/usage`) and the history of discarded sessions
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
