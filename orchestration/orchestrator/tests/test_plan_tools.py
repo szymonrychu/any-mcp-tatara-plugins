@@ -225,3 +225,10 @@ async def test_stale_plan_and_stale_steps_are_surfaced() -> None:
         )
     assert plan.is_error and "stale_version" in plan.text
     assert step.is_error and "stale_version" in step.text
+
+
+def test_plan_gate_description_names_approvable() -> None:
+    rows = {s.name: s for s in plan_tools("http://x")}
+    desc = rows["plan_gate"].description
+    assert "approvable" in desc
+    assert "open_decisions" in desc

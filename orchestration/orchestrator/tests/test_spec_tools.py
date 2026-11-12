@@ -73,9 +73,12 @@ def test_no_row_takes_a_document_body() -> None:
         assert "body" not in s.input_schema["properties"] or s.name == "spec_comment", s.name
 
 
-def test_spec_update_description_says_approved_is_user_only() -> None:
+def test_spec_update_description_says_when_agents_approve() -> None:
     rows = {s.name: s for s in spec_tools("http://x")}
-    assert "approved is set by the user only" in rows["spec_update"].description
+    desc = rows["spec_update"].description
+    for needle in ("approved", "plan_gate", "approvable", "409 decisions_open"):
+        assert needle in desc
+    assert "set by the user only" not in desc
     props = rows["spec_update"].input_schema["properties"]
     assert "approved" in props["status"]["enum"]
     assert list(rows["spec_update"].input_schema["required"]) == ["spec", "version"]
@@ -131,13 +134,20 @@ async def test_rows_call_their_routes() -> None:
     ]
 
 
-async def test_approved_is_sent_unchanged_and_the_403_is_surfaced() -> None:
+async def test_approved_is_sent_unchanged_and_the_409_is_surfaced() -> None:
     seen: list[Any] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(json.loads(request.content))
         return httpx.Response(
-            403, json={"error": {"code": "user_only", "message": "only the user approves"}}
+            409,
+            json={
+                "error": {
+                    "code": "decisions_open",
+                    "message": "open decisions on linked tasks",
+                    "decisions": [{"task": "T-5", "id": 9, "question": "Q?"}],
+                }
+            },
         )
 
     async with harness(handler) as h:
@@ -146,7 +156,8 @@ async def test_approved_is_sent_unchanged_and_the_403_is_surfaced() -> None:
         )
     assert seen == [{"version": 1, "status": "approved"}]
     assert res.is_error
-    assert "user_only" in res.text
+    assert "decisions_open" in res.text
+    assert "T-5" in res.text
 
 
 @pytest.mark.parametrize("name", ["task_create", "task_update", "task_list"])

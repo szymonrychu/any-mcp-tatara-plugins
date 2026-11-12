@@ -158,8 +158,11 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             "Edit a spec: title, status, labels, project, or assign it to your session with "
             "assignee_self. version is the version you last read (spec_get); a stale one is "
             "refused (HTTP 412 stale_version): read it again and retry. Status moves between "
-            "draft, review and archived; approved is set by the user only (a call asking for "
-            "it is refused 403 user_only). Document edits go through spec_push.",
+            "draft, review, approved and archived. An agent sets approved once plan_gate says "
+            "approvable (no open decision on the spec's open or in_progress tasks); otherwise it "
+            "is refused 409 decisions_open listing the open decisions (answer or withdraw them "
+            "first). A superleader and the user may always approve. Archive the spec after its "
+            "retro. Document edits go through spec_push.",
             _schema(
                 {
                     "spec": SPEC_PARAM,
