@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -42,6 +43,7 @@ ALL_TOOLS = {
     "orchestrator_self_close",
     "orchestrator_activity",
     "orchestrator_project_list",
+    "orchestrator_project_summary",
     "orchestrator_project_chat_send",
     "orchestrator_project_chat_read",
     "orchestrator_chat_notes_get",
@@ -842,6 +844,36 @@ async def test_project_list_maps_to_agent_projects() -> None:
     assert not res.is_error, res.text
     assert json.loads(res.text) == projects
     assert seen == [("GET", "/agent/v1/projects", "")]
+
+
+async def test_project_summary_tool() -> None:
+    seen: list[tuple[str, str, str]] = []
+    summary = [{"project": "default", "tasks": {"open": 2}, "specs": 1}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.url.query.decode()))
+        return httpx.Response(200, json=summary)
+
+    openapi = json.loads(
+        (Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text()
+    )
+    known = {(m.upper(), p) for p, ms in openapi["paths"].items() for m in ms}
+    assert ("GET", "/agent/v1/projects/summary") in known
+    async with harness(handler) as h:
+        tool = {t["name"]: t for t in await h.list_tools()}["orchestrator_project_summary"]
+        res = await h.call("orchestrator_project_summary")
+        await h.call("orchestrator_project_summary", {"project": "default"})
+    assert set(tool["inputSchema"]["properties"]) == {"project"}
+    assert tool["inputSchema"]["additionalProperties"] is False
+    assert "required" not in tool["inputSchema"]
+    assert tool["annotations"]["readOnlyHint"] is True
+    assert "project_list" in tool["inputSchema"]["properties"]["project"]["description"]
+    assert not res.is_error, res.text
+    assert json.loads(res.text) == summary
+    assert seen == [
+        ("GET", "/agent/v1/projects/summary", ""),
+        ("GET", "/agent/v1/projects/summary", "project=default"),
+    ]
 
 
 async def test_annotations_per_tool() -> None:

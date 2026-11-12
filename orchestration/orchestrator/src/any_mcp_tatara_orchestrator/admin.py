@@ -9,10 +9,20 @@ credentials are issued by the upstream and stored by the orchestrator (see ``sec
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
-__all__ = ["ADMIN_TOOLS", "AdminRow", "schema", "summarize_presets"]
+from .fit import measure
+
+__all__ = [
+    "ADMIN_TOOLS",
+    "AdminRow",
+    "SESSION_EVENTS_LIMIT",
+    "fit_sessions",
+    "schema",
+    "summarize_presets",
+    "summarize_sessions",
+]
 
 _A = "/admin"
 
@@ -42,6 +52,57 @@ def summarize_presets(presets: list[Any]) -> list[Any]:
             row["inactivity"] = spec["inactivity"]
         out.append(row)
     return out
+
+
+# Spec keys kept in the sessions_admin_list summary; "superleader" is spec.session_messaging.
+_SESSION_KEYS = (
+    "slug",
+    "preset_name",
+    "project",
+    "extra_projects",
+    "status",
+    "desired",
+    "labels",
+    "hive",
+)
+
+
+def summarize_sessions(sessions: list[Any]) -> list[Any]:
+    """Compact sessions_admin_list answer: a full session view (spec, vault, summary) is large
+    and the list covers every project, so each session keeps the identifying fields, its status,
+    labels, hive, whether it is a superleader (spec.session_messaging) and created_at;
+    session_get shows one in full."""
+    out: list[Any] = []
+    for session in sessions:
+        if not isinstance(session, dict):
+            out.append(session)
+            continue
+        spec = session.get("spec")
+        row = {k: session.get(k) for k in _SESSION_KEYS}
+        row["superleader"] = isinstance(spec, dict) and spec.get("session_messaging") is True
+        row["created_at"] = session.get("created_at")
+        out.append(row)
+    return out
+
+
+def fit_sessions(sessions: list[Any], budget: int) -> Any:
+    """``sessions`` when its text fits ``budget``, else ``{"omitted": n, "sessions": [...]}``
+    with the most leading sessions that fit: the list is not valid JSON once any-mcp cuts it, so
+    the plugin drops the tail itself and says how many it dropped."""
+
+    def shaped(keep: int) -> dict[str, Any]:
+        return {"omitted": len(sessions) - keep, "sessions": sessions[:keep]}
+
+    if measure(sessions) <= budget:
+        return sessions
+    lo, hi = 0, len(sessions)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if measure(shaped(mid)) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    return shaped(lo)
 
 
 def schema(properties: dict[str, Any], required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -79,7 +140,7 @@ _GRANT_TEXT = (
     "with the first proposal on a client_key replay). A grant is never revised: withdraw it "
     "with proposal_withdraw and grant again. At most 9 extra projects. Errors: own_project "
     "(already the home project), already_granted, unknown_project, project_archived, "
-    "too_many_projects; not_found for an unknown or unmanageable target."
+    "too_many_projects; not_found for an unknown target."
 )
 _GRANT_SCHEMA = {
     "project": _PROJECT,
@@ -91,6 +152,26 @@ _GRANT_SCHEMA = {
     },
     "client_key": {"type": "string", "maxLength": 200},
 }
+_NOT_MANAGEABLE = (
+    " A target that is not manageable (superleader_manageable false) answers 403 "
+    "not_manageable: the change needs the user's approval."
+)
+_READ_ANY = (
+    " Writes on a target that is not manageable (superleader_manageable false) answer 403 "
+    "not_manageable (needs the user's approval)."
+)
+# Rows that write to a preset, session, webhook endpoint or schedule: they get _NOT_MANAGEABLE.
+_WRITE_NAMES = frozenset(
+    {
+        "preset_replace", "preset_patch", "preset_delete", "preset_copy",
+        "preset_projects_grant", "preset_projects_revoke", "vault_attach", "vault_detach",
+        "session_patch", "session_discard", "session_restart", "agent_restart",
+        "session_projects_grant", "session_projects_revoke", "leadership_withdraw",
+        "webhook_create", "webhook_update", "webhook_clone", "webhook_rotate",
+        "webhook_delete", "webhook_filters_set", "schedule_create", "schedule_update",
+        "schedule_delete", "schedule_run",
+    }
+)  # fmt: skip
 _SLUG = _str("Session slug.")
 _POD = _str("Agent pod name.")
 _EP = _str("Webhook endpoint id.")
@@ -158,14 +239,12 @@ _SCHED_FIELDS = {
 }
 _ROOM_ID = _str("Chat room id.")
 _HISTORY_SESSION_ID = _str("Session id (uuid) of the discarded session.")
-_HISTORY_SCOPE = (
-    " Results only cover sessions on presets you may manage; history is read-only, a stored "
-    "session is deleted by the user in the web UI."
-)
+_HISTORY_SCOPE = " History is read-only: a stored session is deleted by the user in the web UI."
 _HISTORY_MATCH = (
     "q (3 to 500 characters) is a case-insensitive substring match, or with regex true a "
     "Postgres regex."
 )
+SESSION_EVENTS_LIMIT = 50  # default page of session_events
 HISTORY_SEARCH_LIMIT = 20  # default page: 20 hits stay well inside the 40000 char tool budget
 _HISTORY_Q = {"type": "string", "minLength": 3, "maxLength": 500}
 _HISTORY_REGEX = {"type": "boolean", "description": "Treat q as a Postgres regex."}
@@ -175,7 +254,7 @@ _HISTORY_BEFORE = {
     "description": "Return rows with an id below this one (the next_before_id of a page).",
 }
 
-ADMIN_TOOLS: tuple[AdminRow, ...] = (
+_ROWS: tuple[AdminRow, ...] = (
     # presets
     AdminRow(
         "presets_list",
@@ -187,7 +266,8 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "preset_get",
         "GET",
         f"{_A}/presets/{{ref}}",
-        "Show a preset by id or name. A secret value is never shown.",
+        "Show a preset by id or name, manageable or not. A secret value is never shown."
+        + _READ_ANY,
         schema({"ref": _REF}, ("ref",)),
     ),
     AdminRow(
@@ -309,8 +389,10 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "GET",
         f"{_A}/vault",
         "List vault entries (name, description, labels, env names, readable values, "
-        "attachments) and presets with env names to re-attach. Choose an entry by name and "
-        "description; protected values are never shown. Each attachment has privileged "
+        "attachments) and presets with env names to re-attach. Entries of other projects "
+        "show without values (names and ids only). Choose an entry by name and "
+        "description; protected values are never shown. Each attachment has manageable "
+        "(bool: whether its preset is superleader_manageable) and privileged "
         "(bool): true means the preset's sessions have cluster access or docker/dind and "
         "can read every Secret in the namespace, so the entry's values are exposed to them.",
         schema({"q": _str("Filter entries by name or description.")}),
@@ -383,11 +465,11 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "session_get",
         "GET",
         f"{_A}/sessions/{{slug}}",
-        "Show a session by slug, with its agents. A superleader reads its own or a manageable "
-        "session, any other leader its own. project is its home project, extra_projects the "
+        "Show a session by slug, with its agents. A superleader reads any session, manageable "
+        "or not, any other leader its own. project is its home project, extra_projects the "
         "other projects it fully belongs to. start_state (booting, ready, bootstrap_failed) and "
         "bootstrap_failures (pod, step, message, redacted log_tail) say why an agent failed to "
-        "start: read them and act without the user.",
+        "start: read them and act without the user." + _READ_ANY,
         schema({"slug": _SLUG}, ("slug",)),
     ),
     AdminRow(
@@ -505,7 +587,7 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "command_get",
         "GET",
         f"{_A}/commands/{{command_id}}",
-        "Show the status of a restart command you issued.",
+        "Show the status of any command (a superleader reads every command, see session_commands).",
         schema({"command_id": _str("Command id.")}, ("command_id",)),
     ),
     # usage
@@ -527,7 +609,8 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "proposals_list",
         "GET",
         f"{_A}/proposals",
-        "List your own change proposals, newest first, current revision only. status: active "
+        "List change proposals, newest first, current revision only: your own, or every proposal "
+        "when you are a superleader. status: active "
         "(default: open, rework, stale), open, closed or all. kind session_projects or "
         "preset_projects is a project grant (session_projects_grant, preset_projects_grant). "
         "Each shows its status, revision, "
@@ -578,8 +661,9 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         "proposal_get",
         "GET",
         f"{_A}/proposals/{{proposal_id}}",
-        "Read one of your change proposals with every revision: per item the before and after "
-        "values, the human's verdict (pending, approved, rework, denied) and note. "
+        "Read a change proposal (a superleader sees every proposal) with every revision: per "
+        "item the before and after values, the human's verdict (pending, approved, rework, "
+        "denied) and note. "
         "After a rework verdict or a stale notice, send a new revision with proposal_revise.",
         schema({"proposal_id": {"type": "integer"}}, ("proposal_id",)),
     ),
@@ -984,4 +1068,164 @@ ADMIN_TOOLS: tuple[AdminRow, ...] = (
         None,
         ("kind", "q", "regex", "before_id", "after_id", "limit"),
     ),
+    # superleader reads of any session's live work, the deploy and the cache archives
+    AdminRow(
+        "sessions_admin_list",
+        "GET",
+        f"{_A}/sessions",
+        "Superleader only: list every session of every project, manageable or not, as a "
+        "summary (slug, preset_name, project, extra_projects, status, desired, labels, hive, "
+        "superleader, created_at); session_get shows one in full. Filter by label, project, "
+        "session_slug or superleaders (include: also list superleader sessions). When the list "
+        "outgrows the output budget the answer is {omitted, sessions} with the first sessions "
+        "that fit and the count left out: narrow it with a filter.",
+        schema(
+            {
+                "label": _str("Only sessions with this label."),
+                "project": _str("Only sessions of this project (home or extra)."),
+                "superleaders": _str("include: also list superleader sessions."),
+                "session_slug": _str("Only the session with this slug."),
+            }
+        ),
+        None,
+        ("label", "project", "superleaders", "session_slug"),
+    ),
+    AdminRow(
+        "session_activity",
+        "GET",
+        f"{_A}/sessions/{{slug}}/activity",
+        "Superleader only: the recent activity of any session (what its agents did), "
+        "manageable or not; redacted like the web UI. Filter by agent (pod name).",
+        schema(
+            {"slug": _SLUG, "agent": _str("Pod name; omitted: all."), "limit": _LIMIT}, ("slug",)
+        ),
+        None,
+        ("agent", "limit"),
+    ),
+    AdminRow(
+        "session_events",
+        "GET",
+        f"{_A}/sessions/{{slug}}/events",
+        "Superleader only: a page of the stored events of any session (chat, tool calls, "
+        "hooks), newest first, manageable or not; redacted like the web UI. Not a stream. "
+        "Default limit 50. Page back with before_id (the lowest id seen) or forward with "
+        "after_id; agent_id and types (comma-separated kinds) filter.",
+        schema(
+            {
+                "slug": _SLUG,
+                "before_id": _HISTORY_BEFORE,
+                "after_id": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Return rows with an id above this one.",
+                },
+                "limit": {**_LIMIT, "default": SESSION_EVENTS_LIMIT},
+                "agent_id": _str("Only events of this agent id."),
+                "types": _str("Comma-separated event types."),
+            },
+            ("slug",),
+        ),
+        None,
+        ("before_id", "after_id", "limit", "agent_id", "types"),
+    ),
+    AdminRow(
+        "session_messages",
+        "GET",
+        f"{_A}/sessions/{{slug}}/messages",
+        "Superleader only: the message queue of any session (queued, delivered, failed), "
+        "manageable or not. Filter by status.",
+        schema({"slug": _SLUG, "status": _str("Message status."), "limit": _LIMIT}, ("slug",)),
+        None,
+        ("status", "limit"),
+    ),
+    AdminRow(
+        "session_locks",
+        "GET",
+        f"{_A}/sessions/{{slug}}/locks",
+        "Superleader only: the path locks held in any session, manageable or not.",
+        schema({"slug": _SLUG}, ("slug",)),
+    ),
+    AdminRow(
+        "session_commands",
+        "GET",
+        f"{_A}/sessions/{{slug}}/commands",
+        "Superleader only: the recent commands (restarts and so on) of any session, manageable "
+        "or not; read one with command_get.",
+        schema({"slug": _SLUG, "limit": _LIMIT}, ("slug",)),
+        None,
+        ("limit",),
+    ),
+    AdminRow(
+        "meta_get",
+        "GET",
+        f"{_A}/meta",
+        "Superleader only: deploy metadata of the orchestrator (version, build and settings "
+        "that are not secret).",
+    ),
+    AdminRow(
+        "archives_list",
+        "GET",
+        f"{_A}/archives",
+        "Superleader only: list the cache archives (object keys, sizes, times), one page at a "
+        "time. Filter by prefix; pass the cursor of the previous page to continue. There is no "
+        "download: an archive link carries a credential. 400 bad_request for a bad prefix or "
+        "cursor, 503 unavailable when archives are not configured.",
+        schema(
+            {
+                "prefix": _str("Only keys under this prefix."),
+                "cursor": _str("Cursor of the previous page."),
+                "limit": _LIMIT,
+            }
+        ),
+        None,
+        ("prefix", "cursor", "limit"),
+    ),
+    AdminRow(
+        "archives_settings_get",
+        "GET",
+        f"{_A}/archives/settings",
+        "Superleader only: the cache archive cleanup settings (retention and schedule). "
+        "503 unavailable when archives are not configured.",
+    ),
+    AdminRow(
+        "archives_cleanup_preview",
+        "GET",
+        f"{_A}/archives/cleanup/preview",
+        "Superleader only: what the next cache archive cleanup would delete, without deleting "
+        "anything. 503 unavailable when archives are not configured.",
+    ),
+    # usage history and the session start and end marks (relayed from agents-usage)
+    AdminRow(
+        "usage_history",
+        "GET",
+        f"{_A}/usage/history",
+        "Superleader only: the account's Claude usage over time (five_hour and seven_day "
+        "utilization points) between from and to (ISO 8601). metric picks the window; "
+        "max_points downsamples the series. usage_get shows the current reading.",
+        schema(
+            {
+                "from": _str("Start, ISO 8601."),
+                "to": _str("End, ISO 8601."),
+                "metric": _str("Usage window: five_hour or seven_day."),
+                "max_points": {"type": "integer", "minimum": 1, "description": "Most points."},
+            }
+        ),
+        None,
+        ("from", "to", "metric", "max_points"),
+    ),
+    AdminRow(
+        "usage_sessions",
+        "GET",
+        f"{_A}/usage/sessions",
+        "Superleader only: the session start and end marks recorded for usage, between from "
+        "and to (ISO 8601), to relate usage to sessions.",
+        schema({"from": _str("Start, ISO 8601."), "to": _str("End, ISO 8601."), "limit": _LIMIT}),
+        None,
+        ("from", "to", "limit"),
+    ),
+)
+
+ADMIN_TOOLS: tuple[AdminRow, ...] = tuple(
+    replace(r, description=r.description + _NOT_MANAGEABLE) if r.name in _WRITE_NAMES else r
+    for r in _ROWS
 )

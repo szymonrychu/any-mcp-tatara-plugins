@@ -31,7 +31,8 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_chat_send(text, room?, reply_to?)` | `POST /agent/v1/chat/messages` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_react(to, key)` | `POST /agent/v1/chat/reactions` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_status(id)` | `GET /agent/v1/chat/messages/{id}` (delivery status of a send `s<n>`) |
-| `orchestrator_project_list` | `GET /agent/v1/projects` (your own project; a superleader gets every active project) |
+| `orchestrator_project_list` | `GET /agent/v1/projects` (your own project; a superleader also gets archived ones) |
+| `orchestrator_project_summary(project?)` | `GET /agent/v1/projects/summary` (task and spec counts per project in your scope; every project for a superleader) |
 | `orchestrator_chat_notes_get` | `GET /agent/v1/chat/notes` (notes of the session's own chat room, leader only; room is never a parameter) |
 | `orchestrator_chat_notes_update(body, expected_version)` | `PUT /agent/v1/chat/notes` (replace the notes; 409 `version_conflict`, 413 `notes_too_large`) |
 | `orchestrator_chat_skills_list` | `GET /agent/v1/chat/skills` |
@@ -94,8 +95,15 @@ call it on its own slug), webhooks (`webhooks_list`,
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`), `usage_get` (read-only: the account's `five_hour` and
 `seven_day` usage windows, `GET /agent/v1/admin/usage`) and the history of discarded sessions
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
-tool), and the caller's own change proposals (`proposals_list`, `proposal_get`,
-`proposal_withdraw`). `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
+tool), and change proposals (`proposals_list`, `proposal_get`: your own, or every proposal for
+a superleader; `proposal_withdraw`). Superleader reads (T-120 slice 2): `sessions_admin_list`
+(`GET /agent/v1/admin/sessions`, a compact summary per session; filters `label`, `project`,
+`superleaders`, `session_slug`; over the output budget it answers `{omitted, sessions}`),
+`session_activity`, `session_events` (default `limit` 50), `session_messages`, `session_locks`,
+`session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `meta_get`, `archives_list`,
+`archives_settings_get`, `archives_cleanup_preview` (no archive download) and `usage_history`,
+`usage_sessions`. Reads cover manageable and unmanageable targets alike; a write on an
+unmanageable one is 403 `not_manageable` and needs the user's approval. `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
 the relay filters a page after paging, so a page can be short or empty while more sessions exist,
 and `next_before_id` (the relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id`
 of the next call. The cursor comes first because any-mcp cuts an over-budget tool text (40000

@@ -22,7 +22,14 @@ from any_mcp.http import execute_binding
 from any_mcp.plugin import Plugin
 from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSpec
 
-from .admin import ADMIN_TOOLS, HISTORY_SEARCH_LIMIT, summarize_presets
+from .admin import (
+    ADMIN_TOOLS,
+    HISTORY_SEARCH_LIMIT,
+    SESSION_EVENTS_LIMIT,
+    fit_sessions,
+    summarize_presets,
+    summarize_sessions,
+)
 from .common import HANDLED
 from .fit import fit_task, summarize_tasks
 from .memory import memory_tools
@@ -148,6 +155,10 @@ class OrchestratorPlugin(Plugin):
             return self._with_cursor(await super().call(call))
         if call.spec.name == "presets_list":
             return self._compact_presets(await self._read_whole(call))
+        if call.spec.name == "sessions_admin_list":
+            return self._compact_sessions(await self._read_whole(call))
+        if call.spec.name == "session_events":
+            call = call.with_arguments({"limit": SESSION_EVENTS_LIMIT, **call.arguments})
         if call.spec.name == "task_list":
             call = call.with_arguments({"limit": TASK_LIST_LIMIT, **call.arguments})
             return self._fit_tasks(call.spec.name, await self._read_whole(call))
@@ -266,6 +277,17 @@ class OrchestratorPlugin(Plugin):
         if not isinstance(presets, list):
             return raw
         return RawResponse.from_value(summarize_presets(presets))
+
+    def _compact_sessions(self, raw: RawResponse) -> RawResponse:
+        """Shrink the session list to summaries and keep it inside the output budget."""
+        try:
+            sessions = raw.json()
+        except ValueError:
+            return raw
+        if not isinstance(sessions, list):
+            return raw
+        shaped = fit_sessions(summarize_sessions(sessions), self.ctx.response_budget_chars)
+        return RawResponse.from_value(shaped)
 
     @staticmethod
     def _with_cursor(raw: RawResponse) -> RawResponse:
