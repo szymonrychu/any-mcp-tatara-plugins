@@ -2,7 +2,31 @@
  "paths": {
   "/agent/v1/activity": {
    "get": {
-    "operationId": "activity_agent_v1_activity_get"
+    "operationId": "activity_agent_v1_activity_get",
+    "query": [
+     "agent",
+     "limit"
+    ]
+   }
+  },
+  "/agent/v1/admin/archives": {
+   "get": {
+    "operationId": "list_archives_agent_v1_admin_archives_get",
+    "query": [
+     "cursor",
+     "limit",
+     "prefix"
+    ]
+   }
+  },
+  "/agent/v1/admin/archives/cleanup/preview": {
+   "get": {
+    "operationId": "archives_cleanup_preview_agent_v1_admin_archives_cleanup_preview_get"
+   }
+  },
+  "/agent/v1/admin/archives/settings": {
+   "get": {
+    "operationId": "archives_settings_agent_v1_admin_archives_settings_get"
    }
   },
   "/agent/v1/admin/chats/room-requests": {
@@ -78,6 +102,11 @@
     "operationId": "admin_history_get_sessions_session_id_records"
    }
   },
+  "/agent/v1/admin/meta": {
+   "get": {
+    "operationId": "get_meta_agent_v1_admin_meta_get"
+   }
+  },
   "/agent/v1/admin/presets": {
    "get": {
     "operationId": "list_presets_agent_v1_admin_presets_get"
@@ -117,7 +146,10 @@
   },
   "/agent/v1/admin/presets/{ref}/vault/{entry_id}": {
    "delete": {
-    "operationId": "detach_vault_agent_v1_admin_presets__ref__vault__entry_id__delete"
+    "operationId": "detach_vault_agent_v1_admin_presets__ref__vault__entry_id__delete",
+    "query": [
+     "env"
+    ]
    },
    "put": {
     "operationId": "attach_vault_agent_v1_admin_presets__ref__vault__entry_id__put"
@@ -130,7 +162,11 @@
   },
   "/agent/v1/admin/proposals": {
    "get": {
-    "operationId": "list_own_proposals_agent_v1_admin_proposals_get"
+    "operationId": "list_own_proposals_agent_v1_admin_proposals_get",
+    "query": [
+     "limit",
+     "status"
+    ]
    },
    "post": {
     "operationId": "create_proposal_agent_v1_admin_proposals_post"
@@ -196,13 +232,25 @@
    }
   },
   "/agent/v1/admin/sessions": {
+   "get": {
+    "operationId": "list_sessions_agent_v1_admin_sessions_get",
+    "query": [
+     "label",
+     "project",
+     "session_slug",
+     "superleaders"
+    ]
+   },
    "post": {
     "operationId": "create_session_agent_v1_admin_sessions_post"
    }
   },
   "/agent/v1/admin/sessions/{slug}": {
    "delete": {
-    "operationId": "discard_session_agent_v1_admin_sessions__slug__delete"
+    "operationId": "discard_session_agent_v1_admin_sessions__slug__delete",
+    "query": [
+     "force"
+    ]
    },
    "get": {
     "operationId": "get_session_agent_v1_admin_sessions__slug__get"
@@ -211,14 +259,57 @@
     "operationId": "patch_session_agent_v1_admin_sessions__slug__patch"
    }
   },
+  "/agent/v1/admin/sessions/{slug}/activity": {
+   "get": {
+    "operationId": "session_activity_agent_v1_admin_sessions__slug__activity_get",
+    "query": [
+     "agent",
+     "limit"
+    ]
+   }
+  },
   "/agent/v1/admin/sessions/{slug}/agents/{pod}/restart": {
    "post": {
     "operationId": "restart_agent_agent_v1_admin_sessions__slug__agents__pod__restart_post"
    }
   },
+  "/agent/v1/admin/sessions/{slug}/commands": {
+   "get": {
+    "operationId": "session_commands_agent_v1_admin_sessions__slug__commands_get",
+    "query": [
+     "limit"
+    ]
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}/events": {
+   "get": {
+    "operationId": "session_events_agent_v1_admin_sessions__slug__events_get",
+    "query": [
+     "after_id",
+     "agent_id",
+     "before_id",
+     "limit",
+     "types"
+    ]
+   }
+  },
   "/agent/v1/admin/sessions/{slug}/leadership/withdraw": {
    "post": {
     "operationId": "withdraw_handover_agent_v1_admin_sessions__slug__leadership_withdraw_post"
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}/locks": {
+   "get": {
+    "operationId": "session_locks_agent_v1_admin_sessions__slug__locks_get"
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}/messages": {
+   "get": {
+    "operationId": "session_messages_agent_v1_admin_sessions__slug__messages_get",
+    "query": [
+     "limit",
+     "status"
+    ]
    }
   },
   "/agent/v1/admin/sessions/{slug}/projects": {
@@ -241,9 +332,22 @@
     "operationId": "get_usage_agent_v1_admin_usage_get"
    }
   },
+  "/agent/v1/admin/usage/history": {
+   "get": {
+    "operationId": "admin_usage_get_history"
+   }
+  },
+  "/agent/v1/admin/usage/sessions": {
+   "get": {
+    "operationId": "admin_usage_get_sessions"
+   }
+  },
   "/agent/v1/admin/vault": {
    "get": {
-    "operationId": "admin_vault_list"
+    "operationId": "admin_vault_list",
+    "query": [
+     "q"
+    ]
    }
   },
   "/agent/v1/admin/webhooks/endpoints": {
@@ -391,7 +495,13 @@
   },
   "/agent/v1/project/messages": {
    "get": {
-    "operationId": "project_read_agent_v1_project_messages_get"
+    "operationId": "project_read_agent_v1_project_messages_get",
+    "query": [
+     "after_id",
+     "before_id",
+     "limit",
+     "project"
+    ]
    },
    "post": {
     "operationId": "project_post_agent_v1_project_messages_post"
@@ -400,6 +510,11 @@
   "/agent/v1/projects": {
    "get": {
     "operationId": "projects_agent_v1_projects_get"
+   }
+  },
+  "/agent/v1/projects/summary": {
+   "get": {
+    "operationId": "projects_summary_agent_v1_projects_summary_get"
    }
   },
   "/agent/v1/scale": {
