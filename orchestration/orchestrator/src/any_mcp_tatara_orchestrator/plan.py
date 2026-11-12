@@ -287,7 +287,9 @@ def plan_tools(base_url: str) -> list[ToolSpec]:
             "Read the gate of a spec: its status, the approved document versions, the gate task "
             "(the improvement's task linked to the spec) and its open and answered decisions, and "
             "gate: none, waiting (a decision is open) or open (every gate decision answered). "
-            "Ask the gate questions with plan_questions_ask.",
+            "approvable and open_decisions cover every open or in_progress task linked to the spec "
+            "(steps included): approvable is false while any decision is open, the same rule as "
+            "approving with spec_update. Ask the gate questions with plan_questions_ask.",
             _schema({"spec": SPEC_PARAM}, ("spec",)),
             _hints(read_only=True, idempotent=True),
         ),

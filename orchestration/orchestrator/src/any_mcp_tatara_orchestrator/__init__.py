@@ -342,6 +342,13 @@ class OrchestratorPlugin(Plugin):
                 fields = error.get("fields")
                 if isinstance(fields, list) and all(isinstance(f, str) for f in fields):
                     extra["fields"] = fields
+                decisions = error.get("decisions")
+                if isinstance(decisions, list) and all(isinstance(d, dict) for d in decisions):
+                    extra["decisions"] = decisions
+                    message += "".join(
+                        f" [{d.get('task')} decision {d.get('id')}: {d.get('question')}]"
+                        for d in decisions
+                    )
         except Exception:
             pass
         if not isinstance(code, str) or not code:
