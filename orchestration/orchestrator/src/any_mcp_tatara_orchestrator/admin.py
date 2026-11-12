@@ -245,6 +245,16 @@ _FILTERS = {
     "additionalProperties": False,
 }
 _NULL_STR = {"type": ["string", "null"]}
+_ALIASES = {
+    "type": ["array", "null"],
+    "items": {"type": "string", "minLength": 1, "maxLength": 64},
+    "maxItems": 10,
+    "description": (
+        "Names people use to call the agent in this room, matched as whole words, "
+        "case-insensitive, optional leading @. Omit to keep, [] to clear. The bot's own tag "
+        "and replies to it always count."
+    ),
+}
 _AUTH = {
     "auth_header": _NULL_STR,
     "hmac_algorithm": {"type": ["string", "null"], "enum": ["sha256", None]},
@@ -921,13 +931,15 @@ _ROWS: tuple[AdminRow, ...] = (
         "PUT",
         f"{_A}/chats/rooms/{{room_id}}/settings",
         "Set a chat room's settings: trigger (all or mention), the preset that serves it and "
-        "whether agents may start a chat there.",
+        "whether agents may start a chat there. agent_aliases: names that wake the agent in a "
+        "mention room besides a tag of the bot or a reply to it.",
         schema(
             {
                 "room_id": _ROOM_ID,
                 "trigger": {"type": ["string", "null"], "enum": ["all", "mention", None]},
                 "preset_id": _NULL_STR,
                 "agents_may_initiate": {"type": ["boolean", "null"]},
+                "agent_aliases": _ALIASES,
             },
             ("room_id",),
         ),
@@ -962,6 +974,7 @@ _ROWS: tuple[AdminRow, ...] = (
                 "preset_id": _NULL_STR,
                 "trigger": {"type": ["string", "null"], "enum": ["all", "mention", None]},
                 "agents_may_initiate": {"type": ["boolean", "null"]},
+                "agent_aliases": _ALIASES,
             },
             ("room_id",),
         ),
