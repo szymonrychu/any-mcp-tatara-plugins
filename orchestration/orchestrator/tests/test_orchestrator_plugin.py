@@ -65,6 +65,15 @@ SPEC_TOOLS = {
     "orchestrator_spec_pull",
     "orchestrator_spec_push",
 }
+MINDMAP_TOOLS = {
+    f"orchestrator_mindmap_{n}"
+    for n in (
+        "map_list", "map_get", "map_create", "map_update", "node_get", "node_history", "search",
+        "traverse", "node_create", "node_update", "note_put", "growth_area_update",
+        "edge_create", "edge_delete", "link", "task_nodes", "direction_list",
+        "direction_create", "direction_update",
+    )
+}  # fmt: skip
 PLAN_TOOLS = {
     "orchestrator_plan_get",
     "orchestrator_plan_set",
@@ -120,6 +129,7 @@ async def test_lists_all_tools() -> None:
         | TASK_TOOLS
         | SPEC_TOOLS
         | PLAN_TOOLS
+        | MINDMAP_TOOLS
         | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS}
     )
     assert set(await descriptions()) == every
@@ -696,7 +706,12 @@ async def test_no_io_at_load() -> None:
     await plugin.setup()
     specs = await plugin.load_tools()
     assert len(specs) == (
-        len(ALL_TOOLS) + len(TASK_TOOLS) + len(SPEC_TOOLS) + len(PLAN_TOOLS) + len(ADMIN_TOOLS)
+        len(ALL_TOOLS)
+        + len(TASK_TOOLS)
+        + len(SPEC_TOOLS)
+        + len(PLAN_TOOLS)
+        + len(MINDMAP_TOOLS)
+        + len(ADMIN_TOOLS)
     )
 
 

@@ -34,6 +34,8 @@ from .admin import (
 from .common import HANDLED
 from .fit import fit_task, summarize_tasks
 from .memory import memory_tools
+from .mindmap import mindmap_tools
+from .mindmap import route as mindmap_route
 from .plan import plan_tools
 from .plan_local import local_plan_specs, plan_export, plan_questions_ask, plan_steps_push
 from .project_chat import PROJECT_CHAT_READ_LIMIT, project_chat_tools
@@ -137,6 +139,7 @@ class OrchestratorPlugin(Plugin):
         }
 
     async def call(self, call: ToolCall) -> RawResponse:
+        call = mindmap_route(call)
         if call.spec.name == "spec_pull":
             return RawResponse.from_value(await spec_pull(self.ctx.http, self.cfg, call.arguments))
         local = {
@@ -552,6 +555,7 @@ class OrchestratorPlugin(Plugin):
             *local_plan_specs(base),
             *local_spec_specs(base),
             *project_chat_tools(base),
+            *mindmap_tools(base),
             spec("me", "GET", "/me", _schema({})),
             spec(
                 "activity",

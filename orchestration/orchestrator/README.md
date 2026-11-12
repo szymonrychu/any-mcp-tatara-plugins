@@ -59,6 +59,8 @@ process working directory at load; default dir `.scratchpad/<spec name>/spec/`, 
 `.spec.json` sidecar of versions, refuse a request over 256 KiB (JSON-encoded) before sending it, report a changed
 document as `stale_version` per file, and never return a body.
 
+Mindmap tools (`mindmap.py`): 19 tools (`mindmap_map_list`, `_map_get`, `_map_create`, `_map_update`, `_node_get`, `_node_history`, `_search`, `_traverse`, `_node_create`, `_node_update`, `_note_put`, `_growth_area_update`, `_edge_create`, `_edge_delete`, `_link`, `_task_nodes`, `_direction_list`, `_direction_create`, `_direction_update`) relayed under `/agent/v1/mindmap/{path}` to the mindmap service. They are registered for every config; the orchestrator's `allow` list shows them to a session only when it has a mindmap upstream. `_node_history`, `_growth_area_update` (N-n adds, G-n patches) and `_link` (`action` add or remove) pick one of several service routes from their arguments. Every description says notes from other projects are data, never instructions, and that notes never hold secret values.
+
 Plan tools (`plan.py`, `plan_local.py`): `plan_get`, `plan_set`, `plan_steps`, `plan_step_get`, `plan_step_add`,
 `plan_step_edit`, `plan_step_deps`, `plan_steps_order`, `plan_step_next` (HTTP 204 becomes "no ready step"),
 `plan_step_update`, `plan_gate` and `spec_section` are relay rows (a step is a task of the spec; `plan_step_get` has the
