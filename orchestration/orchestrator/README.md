@@ -58,6 +58,19 @@ process working directory at load; default dir `.scratchpad/<spec name>/spec/`, 
 `.spec.json` sidecar of versions, refuse a request over 256 KiB (JSON-encoded) before sending it, report a changed
 document as `stale_version` per file, and never return a body.
 
+Plan tools (`plan.py`, `plan_local.py`): `plan_get`, `plan_set`, `plan_steps`, `plan_step_get`, `plan_step_add`,
+`plan_step_edit`, `plan_step_deps`, `plan_steps_order`, `plan_step_next` (HTTP 204 becomes "no ready step"),
+`plan_step_update`, `plan_gate` and `spec_section` are relay rows (a step is a task of the spec; `plan_step_get` has the
+`task_get` views and fit, the step writes answer a short confirmation). A stale plan header is refused 412 with
+`current_version`, a stale step set with `current_steps_version`, a step body over 32 KiB 413. Three tools run in the
+plugin and never return a body: `plan_steps_push {spec, file}` PUTs a `{"steps": [...]}` JSON file from the workdir
+(confined like `spec_push`, `n` dense from 1 checked locally, current `steps_version` read first, answers the step
+keys); `plan_export {spec, dir?}` writes `plan-steps.md` (header and every step, a view, never pushed) under
+`.scratchpad/<spec name>/spec/` by default; `plan_questions_ask {spec, task?, questions}` posts the gate questions as
+decisions on the gate task (`GET /specs/{spec}/gate`, or `task`), exactly one recommended option per question checked
+before any request, idempotent across sessions (same question and options: skipped; answered: never re-asked; changed
+options: posted anew and the old one withdrawn with `superseded_by`).
+
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
 orchestrator refuses them unless the caller is a superleader session and renders them into the
 allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,

@@ -38,6 +38,11 @@ _CORE = (
     "events_total",
     "comments_total",
     "updated_at",
+    "spec",
+    "step",
+    "depends_on",
+    "refs",
+    "model",
 )
 _OPEN_DECISION = ("id", "asking_slug", "question", "context", "options", "created_at")
 _COLLAPSED_CHARS = 200
@@ -129,6 +134,9 @@ ACKS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "task_comment": comment_ack,
     "todo_set": todo_ack,
     "todo_update": task_ack,
+    "plan_step_edit": task_ack,
+    "plan_step_update": task_ack,
+    "plan_step_deps": task_ack,
     "decision_ask": decision_ack,
     "decision_withdraw": decision_ack,
 }
