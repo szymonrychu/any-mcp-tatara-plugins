@@ -410,7 +410,8 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "decision_withdraw",
             "POST",
             "/tasks/{key}/decisions/{decision_id}/withdraw",
-            "Withdraw a decision you asked while it is still open (HTTP 409 once answered). "
+            "Withdraw a decision you asked, or, as a superleader, any open decision, while it "
+            "is still open (HTTP 409 once answered). "
             "A withdrawal needs an outcome: reason plus exactly one of superseded_by (the id "
             "of the decision that replaces it) or answered_elsewhere (where the answer came "
             "from); HTTP 422 when reason is missing, both or neither outcome is given, or "

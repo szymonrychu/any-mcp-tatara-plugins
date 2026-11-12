@@ -93,7 +93,7 @@ call it on its own slug), webhooks (`webhooks_list`,
 `webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
 `webhook_template_preview`), schedules (`schedules_list`, `schedule_get`, `schedule_create`,
 `schedule_update`, `schedule_delete`, `schedule_run`, `schedule_runs`, `schedule_runs_all`,
-`schedule_run_get`, `schedule_preview`), projects (`project_create`: `POST /agent/v1/admin/projects`, body `{slug, name, description?}`; projects are never deleted, 409 `project_exists` = slug taken), chats (`chat_admin_rooms`, `chat_admin_room`, `chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`; `chat_room_settings` and `chat_room_allow` take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and `trigger` on every call, so resend them after `chat_admin_room`,
+`schedule_run_get`, `schedule_preview`), projects (`project_create`: `POST /agent/v1/admin/projects`, body `{slug, name, description?}`; projects are never deleted, 409 `project_exists` = slug taken; `project_update`: `PATCH /agent/v1/admin/projects/{slug}`, rename, describe, archive or unarchive), chats (`chat_admin_rooms`, `chat_admin_room`, `chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`; `chat_room_settings` and `chat_room_allow` take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and `trigger` on every call, so resend them after `chat_admin_room`,
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`), `usage_get` (read-only: the account's `five_hour` and
 `seven_day` usage windows, `GET /agent/v1/admin/usage`) and the history of discarded sessions
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
@@ -104,7 +104,7 @@ a superleader; `proposal_withdraw`). Superleader reads (T-120 slice 2): `session
 `session_activity`, `session_events` (default `limit` 20; an over-budget page keeps the newest events and reports `omitted`), `session_messages`, `session_locks`,
 `session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `meta_get`, `archives_list`,
 `archives_settings_get`, `archives_cleanup_preview` (no archive download) and `usage_history`,
-`usage_sessions`. Reads cover manageable and unmanageable targets alike; a write on an
+`usage_sessions`. Superleader writes (T-120 slice 3): `session_labels_update`, `session_scale`, `session_lock_reassign`, `session_message_cancel` (all below `/agent/v1/admin/sessions/{slug}`; scale and lock reassign answer 422 `own_session` for the caller's own session), `archives_settings_set` (replaces the whole cleanup policy; read it with `archives_settings_get` first), `spec_delete`, `spec_suggestion_dismiss`, and `preset_patch` takes `superleader_manageable: false`. Reads cover manageable and unmanageable targets alike; a write on an
 unmanageable one is 403 `not_manageable` and needs the user's approval. `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
 the relay filters a page after paging, so a page can be short or empty while more sessions exist,
 and `next_before_id` (the relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id`
@@ -196,7 +196,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.44.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.45.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

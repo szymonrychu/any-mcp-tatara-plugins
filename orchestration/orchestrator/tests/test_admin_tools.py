@@ -16,6 +16,7 @@ from any_mcp.response import DEFAULT_BUDGET_CHARS
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.admin import (
+    _NOT_MANAGEABLE,
     ADMIN_TOOLS,
     fit_events,
     fit_sessions,
@@ -51,6 +52,8 @@ EXPECTED = {
     "sessions_admin_list", "session_activity", "session_events", "session_messages",
     "session_locks", "session_commands", "meta_get", "archives_list", "archives_settings_get",
     "archives_cleanup_preview", "usage_history", "usage_sessions",
+    "session_labels_update", "session_scale", "session_lock_reassign", "session_message_cancel",
+    "project_update", "archives_settings_set", "spec_delete", "spec_suggestion_dismiss",
 }  # fmt: skip
 READ_ROWS = {
     "sessions_admin_list": (
@@ -1204,3 +1207,188 @@ def test_room_tools_say_preset_and_trigger_are_replaced_on_every_call(name: str)
     assert "chat_admin_room" in row.description
     assert "resend its preset_id and trigger" in row.description
     assert "Omit to keep, [] to clear" in text
+
+
+SLICE3 = [
+    "session_labels_update",
+    "session_scale",
+    "session_lock_reassign",
+    "session_message_cancel",
+    "project_update",
+    "archives_settings_set",
+    "spec_delete",
+    "spec_suggestion_dismiss",
+]
+SLICE3_ROUTES = {
+    "session_labels_update": ("PUT", "/agent/v1/admin/sessions/{}/labels"),
+    "session_scale": ("POST", "/agent/v1/admin/sessions/{}/scale"),
+    "session_lock_reassign": ("POST", "/agent/v1/admin/sessions/{}/locks/reassign"),
+    "session_message_cancel": ("DELETE", "/agent/v1/admin/sessions/{}/messages/{}"),
+    "project_update": ("PATCH", "/agent/v1/admin/projects/{}"),
+    "archives_settings_set": ("PUT", "/agent/v1/admin/archives/settings"),
+    "spec_delete": ("DELETE", "/agent/v1/admin/specs/{}"),
+    "spec_suggestion_dismiss": ("POST", "/agent/v1/admin/specs/{}/comments/{}/dismiss"),
+}
+POLICY_KEYS = [
+    "enabled",
+    "dry_run",
+    "retention_days",
+    "keep_newest",
+    "interval_seconds",
+    "grace_seconds",
+]
+
+
+@pytest.mark.parametrize("name", SLICE3)
+def test_slice3_write_rows_are_pinned_to_the_openapi(name: str) -> None:
+    known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
+    row = rows_by_name()[name]
+    route = (row.method, "/agent/v1" + norm(row.path))
+    assert route == SLICE3_ROUTES[name]
+    assert route in known
+
+
+async def test_slice3_write_rows_call_their_routes() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"ok": True})
+
+    policy = {
+        "enabled": True,
+        "dry_run": True,
+        "retention_days": 30,
+        "keep_newest": 5,
+        "interval_seconds": 3600,
+        "grace_seconds": 600,
+    }
+    calls = [
+        (
+            "session_labels_update",
+            {"slug": "s", "labels": ["a", "b"]},
+            ("PUT", "/agent/v1/admin/sessions/s/labels", {"labels": ["a", "b"]}),
+        ),
+        (
+            "session_scale",
+            {"slug": "s", "replicas": 3},
+            ("POST", "/agent/v1/admin/sessions/s/scale", {"replicas": 3}),
+        ),
+        (
+            "session_lock_reassign",
+            {"slug": "s", "path": "src/a.py", "to": "p-1"},
+            (
+                "POST",
+                "/agent/v1/admin/sessions/s/locks/reassign",
+                {"path": "src/a.py", "to": "p-1"},
+            ),
+        ),
+        (
+            "session_lock_reassign",
+            {"slug": "s", "path": "src/a.py", "to": None},
+            ("POST", "/agent/v1/admin/sessions/s/locks/reassign", {"path": "src/a.py", "to": None}),
+        ),
+        (
+            "session_message_cancel",
+            {"slug": "s", "message_id": 12},
+            ("DELETE", "/agent/v1/admin/sessions/s/messages/12", None),
+        ),
+        (
+            "project_update",
+            {"slug": "acme", "name": "Acme", "archived": True},
+            ("PATCH", "/agent/v1/admin/projects/acme", {"name": "Acme", "archived": True}),
+        ),
+        (
+            "archives_settings_set",
+            policy,
+            ("PUT", "/agent/v1/admin/archives/settings", policy),
+        ),
+        ("spec_delete", {"key": "S-4"}, ("DELETE", "/agent/v1/admin/specs/S-4", None)),
+        (
+            "spec_suggestion_dismiss",
+            {"key": "S-4", "comment_id": 9},
+            ("POST", "/agent/v1/admin/specs/S-4/comments/9/dismiss", None),
+        ),
+    ]
+    async with harness(handler) as h:
+        for name, args, want in calls:
+            seen.clear()
+            res = await h.call(name, args)
+            assert not res.is_error, (name, res.text)
+            assert seen == [want], name
+
+
+def test_slice3_session_writes_say_not_manageable() -> None:
+    rows = rows_by_name()
+    for name in (
+        "session_labels_update",
+        "session_scale",
+        "session_lock_reassign",
+        "session_message_cancel",
+    ):
+        assert rows[name].description.endswith(_NOT_MANAGEABLE), name
+
+
+def test_scale_and_lock_rows_name_own_session() -> None:
+    rows = rows_by_name()
+    for name, own_tool in (("session_scale", "scale"), ("session_lock_reassign", "lock_reassign")):
+        desc = rows[name].description
+        assert "own_session" in desc, name
+        assert own_tool in desc, name
+
+
+def test_archives_settings_set_requires_the_full_policy() -> None:
+    row = rows_by_name()["archives_settings_set"]
+    assert row.schema["required"] == POLICY_KEYS
+    props = row.schema["properties"]
+    assert set(props) == set(POLICY_KEYS)
+    bounds = {
+        "retention_days": (1, 3650),
+        "keep_newest": (1, 1000),
+        "interval_seconds": (60, 2592000),
+        "grace_seconds": (0, 604800),
+    }
+    for key, (low, high) in bounds.items():
+        assert (props[key]["type"], props[key]["minimum"], props[key]["maximum"]) == (
+            "integer",
+            low,
+            high,
+        ), key
+    assert props["enabled"]["type"] == props["dry_run"]["type"] == "boolean"
+    assert "archives_settings_get" in row.description
+    assert "dry_run" in row.description
+
+
+def test_preset_patch_takes_manageable_false_only() -> None:
+    prop = rows_by_name()["preset_patch"].schema["properties"]["superleader_manageable"]
+    assert prop["type"] == "boolean" and prop["enum"] == [False]
+    assert "open_proposals" in prop["description"]
+
+
+async def test_preset_patch_refuses_manageable_true_by_schema() -> None:
+    seen: list[Any] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.content)
+        return httpx.Response(200, json={})
+
+    async with harness(handler) as h:
+        bad = await h.call("preset_patch", {"ref": "web", "superleader_manageable": True})
+        good = await h.call("preset_patch", {"ref": "web", "superleader_manageable": False})
+    assert bad.is_error and len(seen) == 1
+    assert not good.is_error
+    assert json.loads(seen[0]) == {"superleader_manageable": False}
+
+
+async def test_decision_withdraw_text_names_superleader() -> None:
+    by_name = {s.name: s for s in await specs()}
+    desc = by_name["decision_withdraw"].description
+    assert "superleader" in desc and "any open decision" in desc
+
+
+def test_spec_admin_rows_are_superleader_only() -> None:
+    rows = rows_by_name()
+    for name in ("spec_delete", "spec_suggestion_dismiss"):
+        assert "superleader only" in rows[name].description.lower(), name
+        assert "accept" in rows[name].description, name

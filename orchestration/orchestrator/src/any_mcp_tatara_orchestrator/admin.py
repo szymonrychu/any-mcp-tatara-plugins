@@ -158,6 +158,10 @@ def _str(text: str) -> dict[str, Any]:
     return {"type": "string", "description": text}
 
 
+def _bounded_int(low: int, high: int, text: str) -> dict[str, Any]:
+    return {"type": "integer", "minimum": low, "maximum": high, "description": text}
+
+
 _OBJ = {"type": "object"}
 _REF = _str("Preset id or name.")
 _PROJECT = _str("Project slug of an existing project (see project_list).")
@@ -196,7 +200,8 @@ _WRITE_NAMES = frozenset(
         "session_projects_grant", "session_projects_revoke", "leadership_withdraw",
         "webhook_create", "webhook_update", "webhook_clone", "webhook_rotate",
         "webhook_delete", "webhook_filters_set", "schedule_create", "schedule_update",
-        "schedule_delete", "schedule_run",
+        "schedule_delete", "schedule_run", "session_labels_update", "session_scale",
+        "session_lock_reassign", "session_message_cancel",
     }
 )  # fmt: skip
 _SLUG = _str("Session slug.")
@@ -346,6 +351,14 @@ _ROWS: tuple[AdminRow, ...] = (
                 "name": {"type": "string"},
                 "labels": {"type": "array", "items": {"type": "string"}},
                 "project": _PROJECT,
+                "superleader_manageable": {
+                    "type": "boolean",
+                    "enum": [False],
+                    "description": "false only: the preset stops being manageable by "
+                    "superleaders (writes then need the user's approval); true needs the "
+                    "user's approval. 409 open_proposals while the preset has active change "
+                    "proposals.",
+                },
                 "spec": _PATCH_SPEC,
             },
             ("ref",),
@@ -390,14 +403,33 @@ _ROWS: tuple[AdminRow, ...] = (
     ),
     # projects
     AdminRow(
+        "project_update",
+        "PATCH",
+        f"{_A}/projects/{{slug}}",
+        "Superleader only: rename, describe, archive or unarchive a project. Archiving "
+        "`default` is 409 default_project. An archived project refuses new presets and "
+        "sessions; running sessions keep working; unarchive (archived false) is the undo.",
+        schema(
+            {
+                "slug": _str("Project slug (see project_list)."),
+                "name": {"type": "string", "minLength": 1, "maxLength": 80},
+                "description": {"type": "string", "maxLength": 4000},
+                "archived": {"type": "boolean"},
+            },
+            ("slug",),
+        ),
+        "*",
+    ),
+    AdminRow(
         "project_create",
         "POST",
         f"{_A}/projects",
         "Create a project (superleader only): a named bucket that presets, sessions, tasks "
         "and specs belong to. Projects are never deleted, only archived by the user in the "
-        "web UI, so pick the slug with care. 409 project_exists means the slug is taken. "
+        "web UI or with project_update, so pick the slug with care. 409 project_exists means "
+        "the slug is taken. "
         "Answers 201 with slug, name, description, archived, created_at, updated_at, "
-        "presets and sessions.",
+        "presets and sessions. project_update renames, archives or unarchives one.",
         schema(
             {
                 "slug": {
@@ -508,7 +540,9 @@ _ROWS: tuple[AdminRow, ...] = (
         "or not, any other leader its own. project is its home project, extra_projects the "
         "other projects it fully belongs to. start_state (booting, ready, bootstrap_failed) and "
         "bootstrap_failures (pod, step, message, redacted log_tail) say why an agent failed to "
-        "start: read them and act without the user." + _READ_ANY,
+        "start: read them and act without the user. Superleader writes on another session: "
+        "session_labels_update, session_scale, session_lock_reassign, session_message_cancel."
+        + _READ_ANY,
         schema({"slug": _SLUG}, ("slug",)),
     ),
     AdminRow(
@@ -523,6 +557,70 @@ _ROWS: tuple[AdminRow, ...] = (
         '{"slug": "my-hive", "spec": {"usage_quota": {"five_hour_pct": 50}}}.',
         schema({"slug": _SLUG, "spec": _PATCH_SPEC_SESSION}, ("slug", "spec")),
         "*",
+    ),
+    AdminRow(
+        "session_labels_update",
+        "PUT",
+        f"{_A}/sessions/{{slug}}/labels",
+        "Superleader only: replaces the labels of any session it may manage, its own included "
+        "(session_labels_set is the own-session tool for every session). Labels are normalised "
+        "server side.",
+        schema(
+            {
+                "slug": _SLUG,
+                "labels": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {"type": "string", "maxLength": 40},
+                    "description": "The new label set (replaces all labels).",
+                },
+            },
+            ("slug", "labels"),
+        ),
+        "*",
+    ),
+    AdminRow(
+        "session_scale",
+        "POST",
+        f"{_A}/sessions/{{slug}}/scale",
+        "Superleader only: sets the replica count of another manageable session. Answers 202 "
+        "with replicas, previous_replicas and max_replicas. Errors: usage_quota, static_session, "
+        "leader_would_leave, session_deleting, out_of_range; 422 own_session for the caller's "
+        "own session, which uses the leader-only scale tool.",
+        schema(
+            {"slug": _SLUG, "replicas": {"type": "integer", "minimum": 1}}, ("slug", "replicas")
+        ),
+        "*",
+    ),
+    AdminRow(
+        "session_lock_reassign",
+        "POST",
+        f"{_A}/sessions/{{slug}}/locks/reassign",
+        "Superleader only: moves a path lock of another manageable session to one of its agents "
+        "or releases it. path is relative to the target session's workdir or absolute under it; "
+        "to is a live agent pod of that session (see session_get or session_locks), null "
+        "releases the lock. Answers path, agent and previous. 422 own_session for the caller's "
+        "own session (use lock_reassign). There is no guard: whoever holds the lock now loses it.",
+        schema(
+            {
+                "slug": _SLUG,
+                "path": _str("Path relative to the session's workdir, or absolute under it."),
+                "to": {
+                    "type": ["string", "null"],
+                    "description": "Agent pod name that takes the lock; null releases it.",
+                },
+            },
+            ("slug", "path"),
+        ),
+        "*",
+    ),
+    AdminRow(
+        "session_message_cancel",
+        "DELETE",
+        f"{_A}/sessions/{{slug}}/messages/{{message_id}}",
+        "Superleader only: cancels a QUEUED message of that session (see session_messages). "
+        "404 not_found for an id of another session; 409 not_queued once it was delivered.",
+        schema({"slug": _SLUG, "message_id": {"type": "integer"}}, ("slug", "message_id")),
     ),
     AdminRow(
         "session_create",
@@ -1188,7 +1286,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "GET",
         f"{_A}/sessions/{{slug}}/messages",
         "Superleader only: the message queue of any session (queued, delivered, failed), "
-        "manageable or not. Filter by status.",
+        "manageable or not. Filter by status. session_message_cancel cancels a queued one.",
         schema({"slug": _SLUG, "status": _str("Message status."), "limit": _LIMIT}, ("slug",)),
         None,
         ("status", "limit"),
@@ -1197,7 +1295,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "session_locks",
         "GET",
         f"{_A}/sessions/{{slug}}/locks",
-        "Superleader only: the path locks held in any session, manageable or not.",
+        "Superleader only: the path locks held in any session, manageable or not "
+        "(session_lock_reassign moves or releases one).",
         schema({"slug": _SLUG}, ("slug",)),
     ),
     AdminRow(
@@ -1242,6 +1341,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "GET",
         f"{_A}/archives/settings",
         "Superleader only: the cache archive cleanup settings (retention and schedule). "
+        "archives_settings_set replaces them; read them here first. "
         "503 unavailable when archives are not configured.",
     ),
     AdminRow(
@@ -1250,6 +1350,57 @@ _ROWS: tuple[AdminRow, ...] = (
         f"{_A}/archives/cleanup/preview",
         "Superleader only: what the next cache archive cleanup would delete, without deleting "
         "anything. 503 unavailable when archives are not configured.",
+    ),
+    AdminRow(
+        "archives_settings_set",
+        "PUT",
+        f"{_A}/archives/settings",
+        "Superleader only: replaces the WHOLE cache archive cleanup policy; read the current one "
+        "with archives_settings_get first and send every field. dry_run false deletes archives "
+        "for real; archives_cleanup_preview shows what the next cleanup would delete. 422 for "
+        "an out-of-bounds value; 503 unavailable when archives are not configured.",
+        schema(
+            {
+                "enabled": {"type": "boolean", "description": "Run the cleanup on its schedule."},
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "true: only record what would be deleted; false: delete.",
+                },
+                "retention_days": _bounded_int(1, 3650, "Delete archives older than this."),
+                "keep_newest": _bounded_int(1, 1000, "Always keep this many newest archives."),
+                "interval_seconds": _bounded_int(60, 2592000, "Seconds between cleanup runs."),
+                "grace_seconds": _bounded_int(0, 604800, "Archives younger than this are kept."),
+            },
+            (
+                "enabled",
+                "dry_run",
+                "retention_days",
+                "keep_newest",
+                "interval_seconds",
+                "grace_seconds",
+            ),
+        ),
+        "*",
+    ),
+    # superleader spec admin on the task board (accept stays the user's)
+    AdminRow(
+        "spec_delete",
+        "DELETE",
+        f"{_A}/specs/{{key}}",
+        "Superleader only: deletes a spec on the task board (204). To accept a spec stays the "
+        "user's decision in the web UI.",
+        schema({"key": {"type": "string", "pattern": "^S-[0-9]+$"}}, ("key",)),
+    ),
+    AdminRow(
+        "spec_suggestion_dismiss",
+        "POST",
+        f"{_A}/specs/{{key}}/comments/{{comment_id}}/dismiss",
+        "Superleader only: dismisses a suggestion comment of a spec. To accept a suggestion "
+        "stays the user's decision in the web UI.",
+        schema(
+            {"key": {"type": "string", "pattern": "^S-[0-9]+$"}, "comment_id": {"type": "integer"}},
+            ("key", "comment_id"),
+        ),
     ),
     # usage history and the session start and end marks (relayed from agents-usage)
     AdminRow(

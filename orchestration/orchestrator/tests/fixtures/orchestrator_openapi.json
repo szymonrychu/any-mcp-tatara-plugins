@@ -27,6 +27,9 @@
   "/agent/v1/admin/archives/settings": {
    "get": {
     "operationId": "archives_settings_agent_v1_admin_archives_settings_get"
+   },
+   "put": {
+    "operationId": "put_archives_settings_agent_v1_admin_archives_settings_put"
    }
   },
   "/agent/v1/admin/chats/room-requests": {
@@ -158,6 +161,11 @@
   "/agent/v1/admin/projects": {
    "post": {
     "operationId": "create_project_agent_v1_admin_projects_post"
+   }
+  },
+  "/agent/v1/admin/projects/{slug}": {
+   "patch": {
+    "operationId": "update_project_agent_v1_admin_projects__slug__patch"
    }
   },
   "/agent/v1/admin/proposals": {
@@ -293,6 +301,11 @@
     ]
    }
   },
+  "/agent/v1/admin/sessions/{slug}/labels": {
+   "put": {
+    "operationId": "set_session_labels_agent_v1_admin_sessions__slug__labels_put"
+   }
+  },
   "/agent/v1/admin/sessions/{slug}/leadership/withdraw": {
    "post": {
     "operationId": "withdraw_handover_agent_v1_admin_sessions__slug__leadership_withdraw_post"
@@ -303,6 +316,11 @@
     "operationId": "session_locks_agent_v1_admin_sessions__slug__locks_get"
    }
   },
+  "/agent/v1/admin/sessions/{slug}/locks/reassign": {
+   "post": {
+    "operationId": "reassign_session_lock_agent_v1_admin_sessions__slug__locks_reassign_post"
+   }
+  },
   "/agent/v1/admin/sessions/{slug}/messages": {
    "get": {
     "operationId": "session_messages_agent_v1_admin_sessions__slug__messages_get",
@@ -310,6 +328,11 @@
      "limit",
      "status"
     ]
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}/messages/{message_id}": {
+   "delete": {
+    "operationId": "cancel_session_message_agent_v1_admin_sessions__slug__messages__message_id__delete"
    }
   },
   "/agent/v1/admin/sessions/{slug}/projects": {
@@ -325,6 +348,21 @@
   "/agent/v1/admin/sessions/{slug}/restart": {
    "post": {
     "operationId": "restart_session_agent_v1_admin_sessions__slug__restart_post"
+   }
+  },
+  "/agent/v1/admin/sessions/{slug}/scale": {
+   "post": {
+    "operationId": "scale_session_agent_v1_admin_sessions__slug__scale_post"
+   }
+  },
+  "/agent/v1/admin/specs/{key}": {
+   "delete": {
+    "operationId": "delete_spec_agent_v1_admin_specs__key__delete"
+   }
+  },
+  "/agent/v1/admin/specs/{key}/comments/{comment_id}/dismiss": {
+   "post": {
+    "operationId": "dismiss_suggestion_agent_v1_admin_specs__key__comments__comment_id__dismiss_post"
    }
   },
   "/agent/v1/admin/usage": {
