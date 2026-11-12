@@ -53,7 +53,7 @@ trimmed (oldest events, then oldest comments, long texts cut) and reports what i
 
 Spec tools (`specs.py`, `specs_local.py`): `spec_list`, `spec_get`, `spec_create`, `spec_update`, `spec_versions`,
 `spec_comment`, `spec_comments`, `spec_comment_resolve` are relay rows under `/agent/v1/specs` (no document bodies;
-`approved` is set by the user only and the server answers 403 `user_only`). `spec_pull` and `spec_push` run in the
+`approved` is set by the user, a superleader, or an agent once `plan_gate` says `approvable`; otherwise 409 `decisions_open` lists the open decisions). `spec_pull` and `spec_push` run in the
 plugin: they copy document bodies between the task board and files under the workdir (config `workdir`, default the
 process working directory at load; default dir `.scratchpad/<spec name>/spec/`, real paths, no `..`, no symlinks) with a
 `.spec.json` sidecar of versions, refuse a request over 256 KiB (JSON-encoded) before sending it, report a changed
@@ -196,7 +196,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.44.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.46.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081
