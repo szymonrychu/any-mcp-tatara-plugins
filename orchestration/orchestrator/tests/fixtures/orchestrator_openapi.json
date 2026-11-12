@@ -493,6 +493,20 @@
     "operationId": "me_agent_v1_me_get"
    }
   },
+  "/agent/v1/mindmap/{path}": {
+   "delete": {
+    "operationId": "item_agent_v1_mindmap__path__delete"
+   },
+   "get": {
+    "operationId": "item_agent_v1_mindmap__path__get"
+   },
+   "patch": {
+    "operationId": "item_agent_v1_mindmap__path__patch"
+   },
+   "post": {
+    "operationId": "item_agent_v1_mindmap__path__post"
+   }
+  },
   "/agent/v1/project/messages": {
    "get": {
     "operationId": "project_read_agent_v1_project_messages_get",
