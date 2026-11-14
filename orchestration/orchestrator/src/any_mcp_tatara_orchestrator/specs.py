@@ -248,4 +248,37 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             _schema({"spec": SPEC_PARAM, "id": {"type": "integer", "minimum": 1}}, ("spec", "id")),
             _hints(idempotent=True),
         ),
+        row(
+            "spec_queue_list",
+            "GET",
+            "/specs/queue",
+            "List the implementation start queue of approved specs per project (FIFO by "
+            "position, no expiry): the project's autostart limits, state (off = autostart off "
+            "until the user sets both limits, idle, usage_unknown, usage_refused, at_limit, "
+            "usage_high, orchestrator_unavailable, ready) and queued specs. position is a dense "
+            "1-based rank. Any agent may read it; only a superleader or the user may reorder; "
+            "ask a superleader to rearrange.",
+            _schema({"project": {"type": "string", "description": _PROJECT_RULE}}),
+            _hints(read_only=True, idempotent=True),
+            query=("project",),
+        ),
+        row(
+            "spec_queue_move",
+            "POST",
+            "/specs/queue/{id}/move",
+            "Superleader only: move one queued spec in the start queue, to a 1-based position "
+            "or before another queue item (before is that item's id); give exactly one of "
+            "position and before. The server answers 403 superleader_only to other sessions and "
+            "409 not_queued once a start began. Removing an item is the user's, in the web UI.",
+            _schema(
+                {
+                    "id": {"type": "integer", "minimum": 1, "description": "Queue item id."},
+                    "position": {"type": "integer", "minimum": 1},
+                    "before": {"type": "integer", "minimum": 1},
+                },
+                ("id",),
+            ),
+            _hints(idempotent=True),
+            "*",
+        ),
     ]
