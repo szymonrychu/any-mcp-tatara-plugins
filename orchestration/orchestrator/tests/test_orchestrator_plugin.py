@@ -507,6 +507,25 @@ async def test_handover_reason_schema() -> None:
     assert reason["maxLength"] == 2000
 
 
+async def test_leadership_handover_schema_has_extend() -> None:
+    async with harness(ok) as h:
+        tool = next(
+            t for t in await h.list_tools() if t["name"] == "orchestrator_leadership_handover"
+        )
+    schema = tool["inputSchema"]
+    assert schema["properties"]["extend"]["type"] == "boolean"
+    assert "extend" not in schema.get("required", [])
+    assert "reason" not in schema.get("required", [])
+    assert "epoch" not in schema.get("required", [])
+
+
+async def test_leadership_handover_description_mentions_extend_and_solo() -> None:
+    text = (await descriptions())["orchestrator_leadership_handover"]
+    assert "extend: true" in text
+    assert "solo" in text
+    assert "cleared" in text
+
+
 async def test_me_description_points_to_activity() -> None:
     text = (await descriptions())["orchestrator_me"]
     assert "forwards one line to the leader" in text
