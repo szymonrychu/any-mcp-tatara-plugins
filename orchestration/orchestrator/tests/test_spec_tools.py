@@ -31,6 +31,8 @@ ROWS = {
     "spec_comment": ("POST", "/agent/v1/specs/{spec}/comments"),
     "spec_comments": ("GET", "/agent/v1/specs/{spec}/comments"),
     "spec_comment_resolve": ("POST", "/agent/v1/specs/{spec}/comments/{id}/resolve"),
+    "spec_queue_list": ("GET", "/agent/v1/specs/queue"),
+    "spec_queue_move": ("POST", "/agent/v1/specs/queue/{id}/move"),
 }
 
 
@@ -192,3 +194,55 @@ async def test_task_tools_pass_spec() -> None:
         ("PATCH", "/agent/v1/tasks/T-5", "", {"version": 2, "spec": None}),
         ("GET", "/agent/v1/tasks", "spec=S-3&limit=10", None),
     ]
+
+
+async def test_spec_queue_move_sends_body() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"items": []})
+
+    async with harness(handler) as h:
+        res = await h.call("orchestrator_spec_queue_move", {"id": 7, "position": 1})
+        assert not res.is_error, res.text
+        res = await h.call("orchestrator_spec_queue_move", {"id": 7, "before": 3})
+        assert not res.is_error, res.text
+    assert seen == [
+        ("POST", "/agent/v1/specs/queue/7/move", {"position": 1}),
+        ("POST", "/agent/v1/specs/queue/7/move", {"before": 3}),
+    ]
+
+
+async def test_spec_queue_list_passes_project_query() -> None:
+    seen: list[tuple[str, str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.url.query.decode()))
+        return httpx.Response(200, json={"projects": []})
+
+    async with harness(handler) as h:
+        res = await h.call("orchestrator_spec_queue_list", {"project": "p"})
+        assert not res.is_error, res.text
+    assert seen == [("GET", "/agent/v1/specs/queue", "project=p")]
+
+
+def test_spec_queue_move_schema_and_descriptions() -> None:
+    rows = {s.name: s for s in spec_tools("http://x")}
+    move = rows["spec_queue_move"]
+    assert move.description.startswith("Superleader only:")
+    assert "403 superleader_only" in move.description and "409 not_queued" in move.description
+    assert list(move.input_schema["required"]) == ["id"]
+    assert move.input_schema["properties"]["position"]["minimum"] == 1
+    assert move.annotations["readOnlyHint"] is False and move.annotations["idempotentHint"] is True
+    lst = rows["spec_queue_list"]
+    for needle in ("off", "idle", "usage_refused", "orchestrator_unavailable", "at_limit"):
+        assert needle in lst.description
+
+
+def test_no_spec_queue_remove_tool() -> None:
+    names = {s.name for s in spec_tools("http://x")}
+    assert not {n for n in names if n.startswith("spec_queue")} - {
+        "spec_queue_list",
+        "spec_queue_move",
+    }

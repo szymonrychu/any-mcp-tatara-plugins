@@ -52,7 +52,7 @@ trimmed (oldest events, then oldest comments, long texts cut) and reports what i
 20) and `cursor`; they also take an optional `spec` key (`S-n`; `task_update` accepts null to unlink).
 
 Spec tools (`specs.py`, `specs_local.py`): `spec_list`, `spec_get`, `spec_create`, `spec_update`, `spec_versions`,
-`spec_comment`, `spec_comments`, `spec_comment_resolve` are relay rows under `/agent/v1/specs` (no document bodies;
+`spec_comment`, `spec_comments`, `spec_comment_resolve`, `spec_queue_list`, `spec_queue_move` are relay rows under `/agent/v1/specs` (no document bodies;
 `approved` is set by the user, a superleader, or an agent once `plan_gate` says `approvable`; otherwise 409 `decisions_open` lists the open decisions). `spec_pull` and `spec_push` run in the
 plugin: they copy document bodies between the task board and files under the workdir (config `workdir`, default the
 process working directory at load; default dir `.scratchpad/<spec name>/spec/`, real paths, no `..`, no symlinks) with a
