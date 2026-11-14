@@ -387,12 +387,25 @@ async def test_rows_call_their_routes() -> None:
         ),
         (
             "schedule_update",
-            {"schedule_id": "7", "name": "n", "cron": "* * * * *", "preset_id": "p", "prompt": "x"},
+            {
+                "schedule_id": "7",
+                "name": "n",
+                "cron": "* * * * *",
+                "preset_id": "p",
+                "prompt": "x",
+                "then_schedule_ids": [],
+            },
             (
                 "PUT",
                 "/agent/v1/admin/schedules/schedules/7",
                 "",
-                {"name": "n", "cron": "* * * * *", "preset_id": "p", "prompt": "x"},
+                {
+                    "name": "n",
+                    "cron": "* * * * *",
+                    "preset_id": "p",
+                    "prompt": "x",
+                    "then_schedule_ids": [],
+                },
             ),
         ),
         (
@@ -1399,3 +1412,92 @@ def test_spec_admin_rows_are_superleader_only() -> None:
     for name in ("spec_delete", "spec_suggestion_dismiss"):
         assert "superleader only" in rows[name].description.lower(), name
         assert "accept" in rows[name].description, name
+
+
+_CHAIN_IDS = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"]
+
+
+@pytest.mark.parametrize(
+    "name", ["schedule_create", "schedule_update", "webhook_create", "webhook_update"]
+)
+def test_chain_tools_take_then_schedule_ids(name: str) -> None:
+    prop = rows_by_name()[name].schema["properties"]["then_schedule_ids"]
+    assert prop["type"] == ("array" if name != "webhook_update" else ["array", "null"])
+    assert prop["items"] == {"type": "string"}
+    assert prop["maxItems"] == 10
+    assert "then_schedule_ids" not in rows_by_name()[name].schema.get("required", [])
+
+
+async def test_chain_ids_are_forwarded_in_the_body() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"ok": True})
+
+    sched = {"name": "n", "cron": "* * * * *", "preset_id": "p", "prompt": "x"}
+    async with harness(handler) as h:
+        for name, args in (
+            ("schedule_create", sched),
+            ("schedule_update", {"schedule_id": "7", **sched}),
+            ("webhook_create", {"type": "github", "preset_id": "p"}),
+            ("webhook_update", {"id": "e1"}),
+        ):
+            seen.clear()
+            res = await h.call(name, {**args, "then_schedule_ids": _CHAIN_IDS})
+            assert not res.is_error, (name, res.text)
+            assert seen[-1][2]["then_schedule_ids"] == _CHAIN_IDS, name
+            assert len(seen) == 1, name
+
+
+async def test_chain_ids_over_ten_are_rejected() -> None:
+    async with harness(ok) as h:
+        res = await h.call(
+            "webhook_update", {"id": "e1", "then_schedule_ids": [str(i) for i in range(11)]}
+        )
+        assert res.is_error
+
+
+async def test_schedule_update_without_chain_ids_keeps_the_current_links() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        if request.method == "GET":
+            return httpx.Response(200, json={"id": "7", "then_schedule_ids": _CHAIN_IDS})
+        return httpx.Response(200, json={"ok": True})
+
+    async with harness(handler) as h:
+        res = await h.call(
+            "schedule_update",
+            {"schedule_id": "7", "name": "n", "cron": "* * * * *", "preset_id": "p", "prompt": "x"},
+        )
+        assert not res.is_error, res.text
+        assert [s[:2] for s in seen] == [
+            ("GET", "/agent/v1/admin/schedules/schedules/7"),
+            ("PUT", "/agent/v1/admin/schedules/schedules/7"),
+        ]
+        assert seen[1][2]["then_schedule_ids"] == _CHAIN_IDS
+        seen.clear()
+        res = await h.call(
+            "schedule_update",
+            {
+                "schedule_id": "7",
+                "name": "n",
+                "cron": "* * * * *",
+                "preset_id": "p",
+                "prompt": "x",
+                "then_schedule_ids": [],
+            },
+        )
+        assert [s[0] for s in seen] == ["PUT"]
+        assert seen[0][2]["then_schedule_ids"] == []
+
+
+def test_chain_descriptions_say_what_omitting_does() -> None:
+    rows = rows_by_name()
+    assert "keeps" in rows["schedule_update"].description
+    chain = rows["webhook_update"].schema["properties"]["then_schedule_ids"]
+    assert "unchanged" in chain["description"]

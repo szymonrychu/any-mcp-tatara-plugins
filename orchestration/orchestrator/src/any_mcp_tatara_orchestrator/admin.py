@@ -273,6 +273,19 @@ _CRED = (
     " The upstream issues the credential once; it is stored in a Secret by the orchestrator "
     "and never shown: the answer names the Secret (password_secret, key)."
 )
+_CHAIN = {
+    "type": "array",
+    "items": {"type": "string"},
+    "maxItems": 10,
+    "description": (
+        "Schedule ids started (one run each) when a session started by this trigger finishes "
+        "after a handled run; [] clears."
+    ),
+}
+_CHAIN_PATCH = {
+    **_CHAIN,
+    "description": _CHAIN["description"] + " Omitted or null leaves the links unchanged.",
+}
 _SCHED_FIELDS = {
     "name": {"type": "string"},
     "cron": {"type": "string", "description": "Five-field cron expression."},
@@ -280,6 +293,11 @@ _SCHED_FIELDS = {
     "prompt": {"type": "string"},
     "enabled": {"type": "boolean"},
     "timezone": _NULL_STR,
+    "then_schedule_ids": {
+        **_CHAIN,
+        "description": _CHAIN["description"]
+        + " On schedule_update, omitting it keeps the current links (resent by the plugin).",
+    },
 }
 _ROOM_ID = _str("Chat room id.")
 _HISTORY_SESSION_ID = _str("Session id (uuid) of the discarded session.")
@@ -832,6 +850,7 @@ _ROWS: tuple[AdminRow, ...] = (
                 "filters": _FILTERS,
                 "prompt_template": _NULL_STR,
                 "suffix": _NULL_STR,
+                "then_schedule_ids": _CHAIN,
                 **_AUTH,
             },
             ("type", "preset_id"),
@@ -852,6 +871,7 @@ _ROWS: tuple[AdminRow, ...] = (
                 "filters": _FILTERS,
                 "prompt_template": _NULL_STR,
                 "suffix": _NULL_STR,
+                "then_schedule_ids": {**_CHAIN_PATCH, "type": ["array", "null"]},
                 **_AUTH,
             },
             ("id",),
@@ -952,7 +972,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "schedule_update",
         "PUT",
         f"{_A}/schedules/schedules/{{schedule_id}}",
-        "Replace a schedule (all required fields again).",
+        "Replace a schedule (all required fields again; then_schedule_ids omitted keeps the "
+        "current links).",
         schema(
             {"schedule_id": _SCHED, **_SCHED_FIELDS},
             ("schedule_id", "name", "cron", "preset_id", "prompt"),

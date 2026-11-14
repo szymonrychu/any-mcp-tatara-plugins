@@ -11,6 +11,7 @@ of a finished session ask the orchestrator to discard it once every agent is idl
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -151,6 +152,8 @@ class OrchestratorPlugin(Plugin):
             return RawResponse.from_value(await local(self.ctx.http, self.cfg, call.arguments))
         if call.spec.name == "spec_push":
             return RawResponse.from_value(await spec_push(self.ctx.http, self.cfg, call.arguments))
+        if call.spec.name == "schedule_update" and "then_schedule_ids" not in call.arguments:
+            call = await self._keep_chain(call)
         if call.spec.name == "session_discard" and not call.arguments.get("force"):
             # Send force only when set: a plain discard keeps the unchanged route.
             call = call.with_arguments({k: v for k, v in call.arguments.items() if k != "force"})
@@ -213,6 +216,24 @@ class OrchestratorPlugin(Plugin):
                 }
             body["to_file"] = written
         return RawResponse.from_value(body)
+
+    async def _keep_chain(self, call: ToolCall) -> ToolCall:
+        """The schedule PUT replaces every field: resend the stored chain links when omitted."""
+        binding = dataclasses.replace(call.spec.http, method="GET", body=None)
+        get = dataclasses.replace(
+            call,
+            spec=dataclasses.replace(call.spec, http=binding),
+            arguments={"schedule_id": call.arguments["schedule_id"]},
+        )
+        raw = await execute_binding(self.ctx.http, get, headers=await self.credentials(get))
+        try:
+            current = raw.json()
+        except ValueError:
+            return call
+        links = current.get("then_schedule_ids") if isinstance(current, dict) else None
+        if not isinstance(links, list):
+            return call
+        return call.with_arguments({**call.arguments, "then_schedule_ids": links})
 
     async def _read_whole(self, call: ToolCall) -> RawResponse:
         """Read an answer the plugin shrinks itself: the default read cap is the output budget
