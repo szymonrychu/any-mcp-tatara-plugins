@@ -246,3 +246,10 @@ def test_no_spec_queue_remove_tool() -> None:
         "spec_queue_list",
         "spec_queue_move",
     }
+
+
+def test_no_top_level_combinators_in_tool_schemas() -> None:
+    # The Anthropic API rejects tool input schemas with oneOf/anyOf/allOf at the top level.
+    for spec in spec_tools("http://x"):
+        for combinator in ("oneOf", "anyOf", "allOf"):
+            assert combinator not in spec.input_schema, (spec.name, combinator)

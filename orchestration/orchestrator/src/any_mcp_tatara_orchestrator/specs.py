@@ -270,17 +270,14 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             "or before another queue item (before is that item's id); give exactly one of "
             "position and before. The server answers 403 superleader_only to other sessions and "
             "409 not_queued once a start began. Removing an item is the user's, in the web UI.",
-            {
-                **_schema(
-                    {
-                        "id": {"type": "integer", "minimum": 1, "description": "Queue item id."},
-                        "position": {"type": "integer", "minimum": 1},
-                        "before": {"type": "integer", "minimum": 1},
-                    },
-                    ("id",),
-                ),
-                "oneOf": [{"required": ["position"]}, {"required": ["before"]}],
-            },
+            _schema(
+                {
+                    "id": {"type": "integer", "minimum": 1, "description": "Queue item id."},
+                    "position": {"type": "integer", "minimum": 1},
+                    "before": {"type": "integer", "minimum": 1},
+                },
+                ("id",),
+            ),
             _hints(idempotent=True),
             "*",
         ),
