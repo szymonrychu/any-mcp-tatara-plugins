@@ -27,6 +27,7 @@ CONFIG: dict[str, Any] = {
 ALL_TOOLS = {
     "orchestrator_me",
     "orchestrator_leadership_handover",
+    "orchestrator_handoff_submit",
     "orchestrator_lock_claim",
     "orchestrator_lock_release",
     "orchestrator_lock_list",
@@ -509,23 +510,89 @@ async def test_handover_reason_schema() -> None:
     assert reason["maxLength"] == 2000
 
 
-async def test_leadership_handover_schema_has_extend() -> None:
+async def test_leadership_handover_has_no_extend() -> None:
     async with harness(ok) as h:
         tool = next(
             t for t in await h.list_tools() if t["name"] == "orchestrator_leadership_handover"
         )
     schema = tool["inputSchema"]
-    assert schema["properties"]["extend"]["type"] == "boolean"
-    assert "extend" not in schema.get("required", [])
+    assert "extend" not in schema["properties"]
     assert "reason" not in schema.get("required", [])
-    assert "epoch" not in schema.get("required", [])
+    text = tool["description"]
+    for word in ("extend", "solo", "countdown"):
+        assert word not in text
+    assert "hive leader" in text
 
 
-async def test_leadership_handover_description_mentions_extend_and_solo() -> None:
-    text = (await descriptions())["orchestrator_leadership_handover"]
-    assert "extend: true" in text
-    assert "solo" in text
-    assert "cleared" in text
+async def test_handoff_submit_row_routes_to_post_handoff() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(202, json={"handoff_id": 1, "phase": "submitted"})
+
+    args = {
+        "doing": "wiring the tool",
+        "done": ["a"],
+        "abandon": [{"item": "/tmp/claude-x", "why": "scratch, not needed"}],
+        "handled": [3],
+        "to": None,
+        "epoch": 2,
+    }
+    async with harness(handler) as h:
+        res = await h.call("orchestrator_handoff_submit", args)
+    assert not res.is_error, res.text
+    assert seen == [("POST", "/agent/v1/handoff", args)]
+
+
+async def test_handoff_submit_schema_matches_openapi() -> None:
+    # Mirrors HandoffSubmitIn (agents-orchestrator api/schemas.py): extra forbidden, no required.
+    async with harness(ok) as h:
+        tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_handoff_submit")
+    schema = tool["inputSchema"]
+    props = schema["properties"]
+    assert set(props) == {
+        "doing", "done", "in_flight", "next", "open_requests", "results", "gotchas",
+        "abandon", "handled", "to", "epoch",
+    }  # fmt: skip
+    assert "required" not in schema
+    assert schema["additionalProperties"] is False
+    assert props["doing"]["type"] == "string"
+    assert props["doing"]["maxLength"] == 4000
+    for name in ("done", "in_flight", "next", "open_requests", "results", "gotchas"):
+        assert props[name]["type"] == "array"
+        assert props[name]["maxItems"] == 50
+        assert props[name]["items"]["type"] == "string"
+        assert props[name]["items"]["maxLength"] == 2000
+    abandon = props["abandon"]
+    assert abandon["maxItems"] == 50
+    assert abandon["items"]["required"] == ["item", "why"]
+    assert abandon["items"]["properties"]["why"]["minLength"] == 10
+    assert props["handled"]["items"]["type"] == "integer"
+    assert props["handled"]["maxItems"] == 50
+    assert props["to"]["type"] == ["string", "null"]
+    assert props["epoch"]["type"] == "integer"
+    openapi = json.loads(
+        (Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text()
+    )
+    assert "post" in openapi["paths"]["/agent/v1/handoff"]
+
+
+async def test_handoff_submit_description_mentions_shared_scratchpad() -> None:
+    text = (await descriptions())["orchestrator_handoff_submit"]
+    assert "/tmp/claude-*" in text
+    assert ".scratchpad/<name>/" in text
+    assert "abandon it with a reason" in text
+    assert "422" in text and "409 in_flight" in text
+    assert "never post the handoff to the room" in text
+
+
+async def test_descriptions_have_no_time_words() -> None:
+    found = await descriptions()
+    for name in ("orchestrator_handoff_submit", "orchestrator_leadership_handover"):
+        text = found[name].lower()
+        for word in ("minute", "second", "hour", "countdown", "in n "):
+            assert word not in text, (name, word)
 
 
 async def test_me_description_points_to_activity() -> None:

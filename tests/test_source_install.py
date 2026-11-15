@@ -55,6 +55,7 @@ ALL_TOOLS = sorted(
         "orchestrator_plan_questions_ask",
         "orchestrator_me",
         "orchestrator_leadership_handover",
+        "orchestrator_handoff_submit",
         "orchestrator_lock_claim",
         "orchestrator_lock_release",
         "orchestrator_lock_list",
