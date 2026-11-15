@@ -17,7 +17,8 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 |------|-------|
 | `orchestrator_me` | `GET /agent/v1/me` |
 | `orchestrator_activity(agent?, limit?)` | `GET /agent/v1/activity` (query `agent`, a pod name, and `limit` 1..200; what the session's agents did recently, newest last) |
-| `orchestrator_leadership_handover(reason, epoch, to?)` | `POST /agent/v1/leadership/handover` (`reason` 1..2000 characters, the state summary) |
+| `orchestrator_leadership_handover(reason, epoch, to?)` | `POST /agent/v1/leadership/handover` (hive leaders only; `reason` 1..2000 characters, the state summary) |
+| `orchestrator_handoff_submit(doing?, done?, in_flight?, next?, open_requests?, results?, gotchas?, abandon?, handled?, to?, epoch?)` | `POST /agent/v1/handoff` (the agent-submitted handoff of a hive leader or solo agent; the route validates per profile: 422 lists what is missing, 409 `in_flight` what is still running or unpushed) |
 | `orchestrator_lock_claim(paths)` | `POST /agent/v1/locks/claim` |
 | `orchestrator_lock_release(paths)` | `POST /agent/v1/locks/release` |
 | `orchestrator_lock_list` | `GET /agent/v1/locks` |
@@ -196,7 +197,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.50.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.51.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081
