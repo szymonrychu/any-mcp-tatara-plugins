@@ -128,7 +128,10 @@ def decision_ack(decision: dict[str, Any]) -> dict[str, Any]:
 
 
 def approval_ack(d: dict[str, Any]) -> dict[str, Any]:
-    return {k: d[k] for k in ("id", "task_key", "status", "url", "expires_at")}
+    ack = {k: d[k] for k in ("id", "task_key", "status", "url")}
+    if d.get("expires_at") is not None:
+        ack["expires_at"] = d["expires_at"]
+    return ack
 
 
 def approval_list_view(page: dict[str, Any]) -> dict[str, Any]:

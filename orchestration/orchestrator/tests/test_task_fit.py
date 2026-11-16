@@ -16,6 +16,7 @@ from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.fit import MIN_KEEP, fit_task, measure, summarize_tasks
 from any_mcp_tatara_orchestrator.views import (
     TASK_VIEWS,
+    approval_ack,
     approval_list_view,
     comment_ack,
     decision_ack,
@@ -732,3 +733,17 @@ def test_approval_list_view_is_compact() -> None:
             }
         ]
     }
+
+
+def test_approval_ack_omits_a_missing_expires_at() -> None:
+    from any_mcp_tatara_orchestrator.tasks import _APPROVAL_ACK_OUT
+
+    ack = approval_ack({"id": 7, "task_key": "T-19", "status": "open", "url": URL})
+    assert ack == {"id": 7, "task_key": "T-19", "status": "open", "url": URL}
+    jsonschema.validate(ack, _APPROVAL_ACK_OUT)
+
+
+def test_approval_list_schema_declares_only_emitted_keys() -> None:
+    from any_mcp_tatara_orchestrator.tasks import _APPROVAL_LIST_OUT
+
+    assert set(_APPROVAL_LIST_OUT["properties"]) == set(approval_list_view({}))
