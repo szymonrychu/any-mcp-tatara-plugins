@@ -62,6 +62,11 @@
     "operationId": "admin_connector_post_rooms_room_id_allow"
    }
   },
+  "/agent/v1/admin/chats/rooms/{room_id}/messages": {
+   "get": {
+    "operationId": "admin_connector_get_rooms_room_id_messages"
+   }
+  },
   "/agent/v1/admin/chats/rooms/{room_id}/settings": {
    "put": {
     "operationId": "admin_connector_put_rooms_room_id_settings"
@@ -437,6 +442,26 @@
   "/agent/v1/admin/webhooks/templates/preview": {
    "post": {
     "operationId": "admin_webhook_post_templates_preview"
+   }
+  },
+  "/agent/v1/approvals": {
+   "get": {
+    "operationId": "approvals_agent_v1_approvals_get"
+   }
+  },
+  "/agent/v1/chat/attachments": {
+   "post": {
+    "operationId": "attachment_fetch_agent_v1_chat_attachments_post"
+   }
+  },
+  "/agent/v1/chat/attachments/{request_id}": {
+   "get": {
+    "operationId": "attachment_status_agent_v1_chat_attachments__request_id__get"
+   }
+  },
+  "/agent/v1/chat/history": {
+   "get": {
+    "operationId": "history_agent_v1_chat_history_get"
    }
   },
   "/agent/v1/chat/messages": {

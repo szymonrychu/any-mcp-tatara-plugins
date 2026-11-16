@@ -102,6 +102,8 @@ TASK_TOOLS = {
     "orchestrator_task_comment",
     "orchestrator_decision_ask",
     "orchestrator_decision_withdraw",
+    "orchestrator_approval_ask",
+    "orchestrator_approval_list",
     "orchestrator_todo_set",
     "orchestrator_todo_update",
     "orchestrator_session_labels_set",
@@ -1261,3 +1263,59 @@ async def test_chat_status_description_mentions_files() -> None:
 async def test_chat_rooms_description_mentions_agents_may_send_files() -> None:
     on = await descriptions()
     assert "agents_may_send_files" in on["orchestrator_chat_rooms"]
+
+
+async def test_approval_tools_relay_paths() -> None:
+    seen: list[tuple[str, str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, request.url.query.decode(), body))
+        if request.method == "GET":
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(
+            201,
+            json={
+                "id": 7,
+                "task_key": "T-3",
+                "status": "open",
+                "url": "u",
+                "expires_at": "2026-11-18T00:00:00Z",
+                "context": "x" * 100000,
+            },
+        )
+
+    openapi = json.loads(
+        (Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text()
+    )
+    known = {(m.upper(), p) for p, ms in openapi["paths"].items() for m in ms}
+    assert ("GET", "/agent/v1/approvals") in known
+    async with harness(handler) as h:
+        ask = await h.call(
+            "orchestrator_approval_ask", {"key": "T-3", "title": "deploy?", "client_key": "k"}
+        )
+        await h.call("orchestrator_approval_list", {"status": "open"})
+    assert json.loads(ask.text) == {
+        "id": 7,
+        "task_key": "T-3",
+        "status": "open",
+        "url": "u",
+        "expires_at": "2026-11-18T00:00:00Z",
+    }
+    assert seen == [
+        ("POST", "/agent/v1/tasks/T-3/approvals", "", {"title": "deploy?", "client_key": "k"}),
+        ("GET", "/agent/v1/approvals", "status=open", None),
+    ]
+
+
+async def test_approval_texts_route_permissions() -> None:
+    tools = await tools_by_name()
+    ask = tools["orchestrator_approval_ask"]
+    assert ask["inputSchema"]["required"] == ["key", "title"]
+    assert ask["inputSchema"]["properties"]["expires_in_seconds"]["maximum"] == 604800
+    text = ask["description"].lower()
+    assert "never a numbered list in chat" in text and "task_get" in text and "expired" in text
+    assert "approval_ask instead" in tools["orchestrator_decision_ask"]["description"]
+    send = tools["orchestrator_chat_send"]["description"].lower()
+    assert "orchestrator_approval_ask" in send and "never list approvals" in send
+    assert tools["orchestrator_approval_list"]["annotations"]["readOnlyHint"] is True

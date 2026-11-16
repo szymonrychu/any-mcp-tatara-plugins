@@ -45,7 +45,11 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 Task tools (`tasks.py`, `views.py`): `decision_withdraw` takes `reason` and exactly one of `superseded_by` (decision id) or `answered_elsewhere` (text); `task_get` takes a `view` (`summary` default, `open_decisions`, `todo`,
 `events`, `comments`) and answers only that part; the write tools (`task_create`, `task_update`,
 `task_comment`, `todo_set`, `todo_update`, `decision_ask`, `decision_withdraw`) answer a short
-confirmation (key, version, url; `todo_set` also the new `[id, text]` items). A task answer over the
+confirmation (key, version, url; `todo_set` also the new `[id, text]` items). `approval_ask` (POST
+`/tasks/{key}/approvals`) asks a yes/no permission to act on a task and answers id, task_key,
+status, url and expires_at; `approval_list` (GET `/approvals`, `status` open by default) lists the
+agent's own approvals compactly (title, status, verdict, note, expires_at). The verdict arrives as
+a chat message; the task read with `task_get` is the authority. A task answer over the
 tool output budget (40000 chars) is
 trimmed (oldest events, then oldest comments, long texts cut) and reports what it left out in
 `omitted`; `task_create`, `task_update` and `task_list` take an optional `project` slug (see
@@ -197,7 +201,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.51.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.52.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

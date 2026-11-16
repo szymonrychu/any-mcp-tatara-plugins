@@ -26,6 +26,8 @@ UV = shutil.which("uv")
 assert UV, "uv is a pinned mise tool and must be on PATH"
 ALL_TOOLS = sorted(
     [
+        "orchestrator_approval_ask",
+        "orchestrator_approval_list",
         "orchestrator_spec_list",
         "orchestrator_spec_get",
         "orchestrator_spec_create",

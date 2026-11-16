@@ -111,6 +111,40 @@ _DECISION_ACK_OUT = {
     },
     "required": ["id", "task_key", "status", "url"],
 }
+_APPROVAL_ACK_OUT = {
+    "type": "object",
+    "description": "A short confirmation; the verdict arrives as a chat message.",
+    "properties": {
+        "id": {"type": ["integer", "string"]},
+        "task_key": {"type": "string"},
+        "status": {"type": "string", "description": "open, answered, withdrawn or expired."},
+        "url": {"type": "string", "description": "Absolute link to the task."},
+        "expires_at": {"type": "string", "description": "When the approval expires."},
+    },
+    "required": ["id", "task_key", "status", "url", "expires_at"],
+}
+_APPROVAL_LIST_OUT = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": ["integer", "string"]},
+                    "task_key": {"type": "string"},
+                    "title": {"type": "string"},
+                    "status": {"type": "string"},
+                    "verdict": {"type": ["string", "null"], "description": "Answer label."},
+                    "note": {"type": ["string", "null"]},
+                    "expires_at": {"type": ["string", "null"]},
+                    "url": {"type": "string"},
+                },
+            },
+        },
+        "url": {"type": "string"},
+    },
+}
 _LIST_OUT = {
     "type": "object",
     "properties": {
@@ -385,7 +419,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "decision also asks for the fix of that block, so one answer unblocks it. "
             "Not blocking: continue other work. " + _ANSWER + " The task counts "
             "as blocked while a decision is open. A repeated client_key returns the same "
-            "decision. " + _LIFECYCLE,
+            "decision. A yes/no permission to act goes through approval_ask instead. " + _LIFECYCLE,
             _schema(
                 {
                     "key": _KEY,
@@ -442,6 +476,67 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             _DECISION_ACK_OUT,
             _hints(idempotent=True),
             "*",
+        ),
+        spec(
+            "approval_ask",
+            "POST",
+            "/tasks/{key}/approvals",
+            "Ask the user a yes/no permission to act (merge, deploy, apply, delete) on your "
+            "task. Use this, never a numbered list in chat and never decision_ask, for a "
+            "permission; one approval per action. Not blocking: continue other work. The "
+            "verdict arrives as a chat message 'Approval D-<id> (T-<n>) GO|NO-GO|EXPIRED ...'. "
+            "EXPIRED or NO-GO means do not act. Before acting on GO, re-read the task with "
+            "task_get: the decision there is the authority, the message only a hint; a repeated "
+            "message is the same answer. Withdraw with decision_withdraw. A repeated client_key "
+            "returns the same approval." + _ACKED,
+            _schema(
+                {
+                    "key": _KEY,
+                    "title": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "description": "What you want to do, one line.",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Why, and what happens on Go (markdown).",
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Optional link or ref, e.g. the PR URL.",
+                    },
+                    "expires_in_seconds": {
+                        "type": "integer",
+                        "minimum": 60,
+                        "maximum": 604800,
+                        "description": "Default 259200 (72 hours), at most 604800 (7 days).",
+                    },
+                    "client_key": {"type": "string", "description": "Idempotency key."},
+                },
+                ("key", "title"),
+            ),
+            _APPROVAL_ACK_OUT,
+            _hints(),
+            "*",
+        ),
+        spec(
+            "approval_list",
+            "GET",
+            "/approvals",
+            "Your own approvals (status open by default): id, task_key, title, status, verdict "
+            "(the answer label, once answered), note, expires_at and a link to the task. "
+            "status all lists every state. To act on a GO, re-read the task with task_get.",
+            _schema(
+                {
+                    "status": {
+                        "type": "string",
+                        "enum": ["open", "answered", "withdrawn", "expired", "all"],
+                    }
+                }
+            ),
+            _APPROVAL_LIST_OUT,
+            _hints(read_only=True, idempotent=True),
+            query=("status",),
         ),
         spec(
             "todo_set",
