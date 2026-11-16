@@ -17,9 +17,12 @@ from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.admin import (
     _NOT_MANAGEABLE,
+    _PATCH_SPEC,
+    _PATCH_SPEC_SESSION,
     ADMIN_TOOLS,
     fit_events,
     fit_sessions,
+    summarize_presets,
     summarize_sessions,
 )
 from any_mcp_tatara_orchestrator.fit import measure
@@ -49,7 +52,7 @@ EXPECTED = {
     "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
     "leadership_withdraw", "vault_list", "vault_attach", "vault_detach", "proposal_create",
     "proposal_revise", "project_create", "session_projects_grant", "session_projects_revoke",
-    "preset_projects_grant", "preset_projects_revoke",
+    "preset_projects_grant", "preset_projects_revoke", "preset_manageable_request",
     "sessions_admin_list", "session_activity", "session_events", "session_messages",
     "session_locks", "session_commands", "meta_get", "archives_list", "archives_settings_get",
     "archives_cleanup_preview", "usage_history", "usage_sessions",
@@ -187,6 +190,35 @@ async def test_project_grant_rows_are_pinned_and_described() -> None:
         row = rows[name]
         assert row.schema["required"] == [target, "project"]
         assert row.body is None
+
+
+def test_preset_manageable_request_row() -> None:
+    rows = rows_by_name()
+    row = rows["preset_manageable_request"]
+    assert (row.method, row.path) == ("POST", "/admin/presets/{ref}/manageable")
+    assert row.schema["required"] == ["ref", "reason"]
+    assert set(row.schema["properties"]) == {"ref", "reason", "client_key"}
+    assert row.schema["properties"]["reason"]["maxLength"] == 4000
+    assert row.schema["properties"]["client_key"]["maxLength"] == 200
+    assert "preset_manageable" in row.description and "already_manageable" in row.description
+    assert "preset_patch" in row.description
+    manageable = rows["preset_patch"].schema["properties"]["superleader_manageable"]
+    assert "preset_manageable_request" in manageable["description"]
+    assert "preset_manageable" in rows["proposals_list"].description
+
+
+async def test_preset_manageable_request_calls_its_route() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(202, json={"id": 1, "kind": "preset_manageable"})
+
+    body = {"reason": "T-489", "client_key": "k"}
+    async with harness(handler) as h:
+        res = await h.call("preset_manageable_request", {"ref": "web", **body})
+    assert not res.is_error, res.text
+    assert seen == [("POST", "/agent/v1/admin/presets/web/manageable", body)]
 
 
 async def test_project_grant_rows_call_their_routes() -> None:
@@ -731,7 +763,8 @@ def _big_preset(i: int) -> dict[str, Any]:
             "init_scripts": ["echo " + "x" * 300 for _ in range(3)],
             "env": {f"VAR_{j}": {"value": "v" * 40} for j in range(8)},
             "start_prompt": "p" * 400,
-            **({"kube_access": True} if i % 3 == 0 else {}),
+            **({"kube_cluster_access": True} if i % 3 == 0 else {}),
+            **({"kube_namespace_access": {"ns1": ["read"]}} if i % 4 == 0 else {}),
             **({"docker": True} if i % 5 == 0 else {}),
             **({"session_messaging": True} if i % 7 == 0 else {}),
             **({"inactivity": {"reminder_seconds": 60, "close_seconds": 600}} if i == 4 else {}),
@@ -760,13 +793,14 @@ async def test_presets_list_is_a_compact_summary_within_the_output_budget() -> N
     for i, row in enumerate(rows):
         assert row["labels"] == ["team", f"n{i}"]
         assert row["superleader_manageable"] is (i % 2 == 0)
-        assert row["kube_access"] is (i % 3 == 0)
+        assert row["kube_cluster_access"] is (i % 3 == 0)
+        assert row["kube_namespace_access"] is (i % 4 == 0)
         assert row["docker"] is (i % 5 == 0)
         assert row["session_messaging"] is (i % 7 == 0)
         assert ("inactivity" in row) is (i == 4)
         assert set(row) - {"inactivity"} == {
-            "name", "labels", "superleader_manageable", "kube_access", "docker",
-            "session_messaging",
+            "name", "labels", "superleader_manageable", "kube_cluster_access",
+            "kube_namespace_access", "docker", "session_messaging",
         }  # fmt: skip
     assert rows[4]["inactivity"] == {"reminder_seconds": 60, "close_seconds": 600}
 
@@ -781,11 +815,39 @@ async def test_presets_list_omits_superleader_manageable_when_absent() -> None:
         {
             "name": "a",
             "labels": [],
-            "kube_access": False,
+            "kube_cluster_access": False,
+            "kube_namespace_access": False,
             "session_messaging": False,
             "docker": False,
         }
     ]
+
+
+def test_presets_list_summary_kube_flags() -> None:
+    def row(spec: dict[str, Any]) -> dict[str, Any]:
+        return summarize_presets([{"name": "a", "labels": [], "spec": spec}])[0]
+
+    both = row({"kube_cluster_access": True, "kube_namespace_access": {"ns1": ["read"]}})
+    assert both["kube_cluster_access"] is True
+    assert both["kube_namespace_access"] is True
+    empty = row({})
+    assert empty["kube_cluster_access"] is False
+    assert empty["kube_namespace_access"] is False
+    assert row({"kube_namespace_access": {}})["kube_namespace_access"] is False
+    assert row({"kube_cluster_access": "yes"})["kube_cluster_access"] is False
+    assert "kube_access" not in empty
+
+
+def test_patch_spec_descriptions() -> None:
+    plain = _PATCH_SPEC["description"]
+    assert "session_messaging" not in plain
+    assert "kube_access," not in plain
+    assert "kube_cluster_access" in plain and "kube_namespace_access" in plain
+    session = _PATCH_SPEC_SESSION["description"]
+    assert "kube_cluster_access" in session and "kube_namespace_access" in session
+    assert "kube_access," not in session
+    assert session.count("session_messaging") == 1
+    assert "a regular leader may not turn session_messaging on for its own session" in session
 
 
 async def test_presets_list_description_points_to_preset_get() -> None:

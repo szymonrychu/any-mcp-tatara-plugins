@@ -85,7 +85,7 @@ options: posted anew and the old one withdrawn with `superseded_by`).
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
 orchestrator refuses them unless the caller is a superleader session and renders them into the
 allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
-`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`; `preset_patch` and `preset_replace` take an optional `project` slug that
+`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`, `preset_manageable_request`; `preset_patch` and `preset_replace` take an optional `project` slug that
 moves the preset to another existing project: 422 `unknown_project`, 422 `vault_label_mismatch`,
 422 `project_archived`; running sessions keep their project), sessions (`session_get`, `session_patch`, `session_create`
 with an optional `project`, `session_discard`, `session_restart`, `agent_restart`, `command_get`), project grants

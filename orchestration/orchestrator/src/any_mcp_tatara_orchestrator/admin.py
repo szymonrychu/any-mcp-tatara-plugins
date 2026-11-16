@@ -32,9 +32,10 @@ __all__ = [
 _A = "/admin"
 
 
-# Spec keys kept in the presets_list summary; kube_access, session_messaging and docker are
+# Spec keys kept in the presets_list summary; the kube flags, session_messaging and docker are
 # privilege flags (absent means false), inactivity is shown only when set.
-_FLAGS = ("kube_access", "session_messaging", "docker")
+# kube_namespace_access is a map: it counts as true when non-empty.
+_FLAGS = ("kube_cluster_access", "kube_namespace_access", "session_messaging", "docker")
 
 
 def summarize_presets(presets: list[Any]) -> list[Any]:
@@ -52,7 +53,8 @@ def summarize_presets(presets: list[Any]) -> list[Any]:
         if "superleader_manageable" in preset:
             row["superleader_manageable"] = preset["superleader_manageable"]
         for flag in _FLAGS:
-            row[flag] = spec.get(flag) is True
+            value = spec.get(flag)
+            row[flag] = bool(value) if isinstance(value, dict | list) else value is True
         if spec.get("inactivity") is not None:
             row["inactivity"] = spec["inactivity"]
         out.append(row)
@@ -226,8 +228,8 @@ _PATCH_SPEC = {
     "type": "object",
     "description": "JSON merge patch (RFC 7396) of the stored spec: objects merge, null deletes "
     "a key, arrays replace. Keys you leave out are kept. Secret values do not belong here: "
-    "attach a vault entry with vault_attach. Human-only fields (kube_access, "
-    "session_messaging, docker, discard_hook_url, wrapper.permission_mode, "
+    "attach a vault entry with vault_attach. Human-only fields (kube_cluster_access, "
+    "kube_namespace_access, docker, discard_hook_url, wrapper.permission_mode, "
     "wrapper.permissions) may only move toward safe.",
 }
 _PATCH_SPEC_SESSION = {
@@ -236,8 +238,9 @@ _PATCH_SPEC_SESSION = {
     "null deletes a key, arrays replace. Keys you leave out are kept. Secret values do not "
     "belong here. A leader may only lower usage_quota and shorten inactivity limits on its own "
     "session; human-only fields "
-    "(kube_access, session_messaging, docker, discard_hook_url, wrapper.permission_mode, "
-    "wrapper.permissions) may only move toward safe.",
+    "(kube_cluster_access, kube_namespace_access, docker, discard_hook_url, "
+    "wrapper.permission_mode, wrapper.permissions) may only move toward safe; a regular "
+    "leader may not turn session_messaging on for its own session.",
 }
 _PROPOSAL_PATCH = {
     "type": "object",
@@ -390,9 +393,9 @@ _ROWS: tuple[AdminRow, ...] = (
                     "type": "boolean",
                     "enum": [False],
                     "description": "false only: the preset stops being manageable by "
-                    "superleaders (writes then need the user's approval); true needs the "
-                    "user's approval. 409 open_proposals while the preset has active change "
-                    "proposals.",
+                    "superleaders (writes then need the user's approval); true: ask with "
+                    "preset_manageable_request. 409 open_proposals while the preset has active "
+                    "change proposals.",
                 },
                 "spec": _PATCH_SPEC,
             },
@@ -425,6 +428,24 @@ _ROWS: tuple[AdminRow, ...] = (
         "from the preset also fully belongs to that project; running sessions keep theirs. "
         + _GRANT_TEXT,
         schema({"ref": _REF, **_GRANT_SCHEMA}, ("ref", "project", "reason")),
+        "*",
+    ),
+    AdminRow(
+        "preset_manageable_request",
+        "POST",
+        f"{_A}/presets/{{ref}}/manageable",
+        "Ask the user to make a preset manageable by superleaders (superleader_manageable "
+        "true): files a change proposal of kind preset_manageable that the user approves or "
+        "denies in the UI; answers the proposal. 409 already_manageable when it already is. "
+        "Setting it with preset_patch is refused.",
+        schema(
+            {
+                "ref": _REF,
+                "reason": _GRANT_SCHEMA["reason"],
+                "client_key": _GRANT_SCHEMA["client_key"],
+            },
+            ("ref", "reason"),
+        ),
         "*",
     ),
     AdminRow(
@@ -784,7 +805,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "List change proposals, newest first, current revision only: your own, or every proposal "
         "when you are a superleader. status: active "
         "(default: open, rework, stale), open, closed or all. kind session_projects or "
-        "preset_projects is a project grant (session_projects_grant, preset_projects_grant). "
+        "preset_projects is a project grant (session_projects_grant, preset_projects_grant); kind "
+        "preset_manageable asks to make a preset manageable (preset_manageable_request). "
         "Each shows its status, revision, "
         "stale flag and per-item verdicts; read one with proposal_get.",
         schema({"status": _str("active, open, closed or all."), "limit": _LIMIT}),

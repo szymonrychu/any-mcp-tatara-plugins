@@ -142,6 +142,11 @@
     "operationId": "copy_preset_agent_v1_admin_presets__ref__copy_post"
    }
   },
+  "/agent/v1/admin/presets/{ref}/manageable": {
+   "post": {
+    "operationId": "request_preset_manageable_agent_v1_admin_presets__ref__manageable_post"
+   }
+  },
   "/agent/v1/admin/presets/{ref}/projects": {
    "post": {
     "operationId": "grant_preset_project_agent_v1_admin_presets__ref__projects_post"
