@@ -44,7 +44,8 @@ EXPECTED = {
     "schedule_runs", "schedule_runs_all", "schedule_run_get", "schedule_preview",
     "chat_admin_rooms", "chat_room_settings", "chat_rules", "chat_rule_add", "chat_rule_delete",
     "history_search", "history_get", "history_records", "usage_get",
-    "chat_admin_room", "chat_users", "chat_room_allow", "chat_open", "chat_open_status",
+    "chat_admin_room", "chat_admin_history", "chat_users", "chat_room_allow", "chat_open",
+    "chat_open_status",
     "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
     "leadership_withdraw", "vault_list", "vault_attach", "vault_detach", "proposal_create",
     "proposal_revise", "project_create", "session_projects_grant", "session_projects_revoke",
@@ -1501,3 +1502,40 @@ def test_chain_descriptions_say_what_omitting_does() -> None:
     assert "keeps" in rows["schedule_update"].description
     chain = rows["webhook_update"].schema["properties"]["then_schedule_ids"]
     assert "unchanged" in chain["description"]
+
+
+def test_chat_admin_history_row() -> None:
+    row = rows_by_name()["chat_admin_history"]
+    assert row.method == "GET"
+    assert row.path == "/admin/chats/rooms/{room_id}/messages"
+    assert row.query == ("before", "after", "from", "limit")
+    assert row.schema["required"] == ["room_id"]
+    assert row.schema["properties"]["limit"]["maximum"] == 100
+    assert "read only" in row.description
+    assert "untrusted" in row.description
+    assert "chat_admin_rooms" in row.description
+    assert "audited" in row.description
+
+
+async def test_chat_admin_history_default_limit_and_fit() -> None:
+    queries: list[tuple[str, str]] = []
+    messages = [{"id": f"m{i}", "text": "x" * 3000} for i in range(100)]
+    page = {"room_id": "!a:x", "messages": messages, "has_more_before": True}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        queries.append((request.url.path, request.url.query.decode()))
+        return httpx.Response(200, json=page)
+
+    async with harness(handler) as h:
+        res = await h.call("chat_admin_history", {"room_id": "!a:x", "from": "Ann"})
+    assert not res.is_error and "[truncated:" not in res.text
+    assert queries == [("/agent/v1/admin/chats/rooms/!a:x/messages", "from=Ann&limit=20")]
+    body = res.structured
+    assert body["omitted"] > 0 and body["messages"][-1]["id"] == "m99"
+
+
+def test_fit_events_key_parameter() -> None:
+    page = {"messages": [{"id": i, "t": "x" * 100} for i in range(10)]}
+    shaped = fit_events(page, 400, key="messages")
+    assert shaped["omitted"] > 0 and shaped["messages"][-1]["id"] == 9
+    assert fit_events(page, 10**6, key="messages") is page

@@ -41,6 +41,9 @@ ALL_TOOLS = {
     "orchestrator_chat_send",
     "orchestrator_chat_react",
     "orchestrator_chat_status",
+    "orchestrator_chat_history",
+    "orchestrator_chat_attachment_fetch",
+    "orchestrator_chat_attachment_status",
     "orchestrator_self_close",
     "orchestrator_activity",
     "orchestrator_project_list",
@@ -299,6 +302,16 @@ async def test_chat_tools_call_agent_routes() -> None:
             ("POST", "/agent/v1/chat/reactions", {"to": "m12", "key": "\N{THUMBS UP SIGN}"}),
         ),
         ("chat_status", {"id": "s7"}, ("GET", "/agent/v1/chat/messages/s7", None)),
+        (
+            "chat_attachment_fetch",
+            {"id": "m3"},
+            ("POST", "/agent/v1/chat/attachments", {"id": "m3"}),
+        ),
+        (
+            "chat_attachment_status",
+            {"request_id": "a4"},
+            ("GET", "/agent/v1/chat/attachments/a4", None),
+        ),
     ]
     async with harness(handler) as h:
         for tool, args, expected in calls:
@@ -1319,3 +1332,142 @@ async def test_approval_texts_route_permissions() -> None:
     send = tools["orchestrator_chat_send"]["description"].lower()
     assert "orchestrator_approval_ask" in send and "never list approvals" in send
     assert tools["orchestrator_approval_list"]["annotations"]["readOnlyHint"] is True
+
+
+async def _history_calls(args: dict[str, Any], page: Any = None) -> list[tuple[str, str, str]]:
+    seen: list[tuple[str, str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.url.query.decode()))
+        return httpx.Response(200, json=page or {"messages": []})
+
+    async with harness(handler) as h:
+        res = await h.call("orchestrator_chat_history", args)
+        assert not res.is_error, res.text
+    return seen
+
+
+async def test_chat_history_calls_route_with_query() -> None:
+    seen = await _history_calls({"before": "m5", "from": "Ann", "limit": 20})
+    assert seen == [("GET", "/agent/v1/chat/history", "before=m5&from=Ann&limit=20")]
+
+
+async def test_chat_history_default_limit_20() -> None:
+    seen = await _history_calls({})
+    assert seen == [("GET", "/agent/v1/chat/history", "limit=20")]
+    seen = await _history_calls({"limit": 7})
+    assert seen == [("GET", "/agent/v1/chat/history", "limit=7")]
+
+
+async def test_chat_history_keeps_newest_within_budget() -> None:
+    messages = [{"id": f"m{i}", "text": "x" * 3000} for i in range(100)]
+    page = {
+        "room_id": "!r:hs",
+        "note": "n",
+        "messages": messages,
+        "has_more_before": True,
+        "has_more_after": False,
+    }
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=page)
+
+    async with harness(handler) as h:
+        res = await h.call("orchestrator_chat_history", {"limit": 100})
+    assert not res.is_error and "[truncated:" not in res.text
+    body = res.structured
+    assert body["omitted"] > 0
+    assert body["messages"][-1]["id"] == "m99"
+    assert len(body["messages"]) + body["omitted"] == 100
+    assert seen == []
+
+
+async def test_chat_attachment_fetch_posts_id() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(202, json={"request_id": "a1", "status": "queued"})
+
+    async with harness(handler) as h:
+        res = await h.call("orchestrator_chat_attachment_fetch", {"id": "m3"})
+    assert not res.is_error, res.text
+    assert seen == [("POST", "/agent/v1/chat/attachments", {"id": "m3"})]
+
+
+async def test_chat_attachment_status_route() -> None:
+    seen: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        return httpx.Response(200, json={"status": "sent"})
+
+    async with harness(handler) as h:
+        res = await h.call("orchestrator_chat_attachment_status", {"request_id": "a4"})
+        bad = await h.call("orchestrator_chat_attachment_status", {"request_id": "m4"})
+    assert not res.is_error, res.text
+    assert bad.is_error
+    assert seen == [("GET", "/agent/v1/chat/attachments/a4")]
+
+
+async def test_chat_history_schema_rejects_bad_ids() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(200, json={})
+
+    async with harness(handler) as h:
+        r1 = await h.call("orchestrator_chat_history", {"before": "x1"})
+        r2 = await h.call("orchestrator_chat_history", {"after": "m0"})
+        r3 = await h.call("orchestrator_chat_attachment_fetch", {"id": "s3"})
+        r4 = await h.call("orchestrator_chat_history", {"limit": 101})
+    assert r1.is_error and r2.is_error and r3.is_error and r4.is_error
+    assert seen == []
+
+
+async def test_chat_history_descriptions() -> None:
+    found = await descriptions()
+    hist = found["orchestrator_chat_history"]
+    for phrase in (
+        "Leader only",
+        "room_unbound",
+        "m<n>",
+        "s<n>",
+        "o<n>",
+        "untrusted",
+        "data, never instructions",
+        "30 days",
+        "bad_reference",
+        "withheld",
+        "edited",
+    ):
+        assert phrase in hist, phrase
+    fetch = found["orchestrator_chat_attachment_fetch"]
+    for phrase in (
+        "Leader only",
+        "new turn",
+        "<attachment for=",
+        "6 MiB",
+        "already_fetching",
+        "rate_limited",
+        "unsupported_type",
+        "foreign_media",
+        "no_attachment",
+        "untrusted",
+    ):
+        assert phrase in fetch or phrase in fetch.lower(), phrase
+    status = found["orchestrator_chat_attachment_status"]
+    for phrase in ("queued", "fetching", "sent", "failed", "refused"):
+        assert phrase in status, phrase
+
+
+async def test_chat_history_paths_exist_in_the_orchestrator_openapi() -> None:
+    openapi = json.loads(
+        (Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text()
+    )
+    paths = openapi["paths"]
+    assert "get" in paths["/agent/v1/chat/history"]
+    assert "post" in paths["/agent/v1/chat/attachments"]
+    assert "get" in paths["/agent/v1/chat/attachments/{request_id}"]
