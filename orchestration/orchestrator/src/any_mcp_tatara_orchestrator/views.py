@@ -127,6 +127,30 @@ def decision_ack(decision: dict[str, Any]) -> dict[str, Any]:
     return {k: decision[k] for k in ("id", "task_key", "status", "url")}
 
 
+def approval_ack(d: dict[str, Any]) -> dict[str, Any]:
+    return {k: d[k] for k in ("id", "task_key", "status", "url", "expires_at")}
+
+
+def approval_list_view(page: dict[str, Any]) -> dict[str, Any]:
+    """One compact row per approval: the question as title, the verdict as the answer label."""
+    items = []
+    for d in page.get("items", []):
+        answer = d.get("answer")
+        items.append(
+            {
+                "id": d["id"],
+                "task_key": d["task_key"],
+                "title": d["question"],
+                "status": d["status"],
+                "verdict": answer.get("label") if isinstance(answer, dict) else None,
+                "note": d.get("note"),
+                "expires_at": d.get("expires_at"),
+                "url": d.get("url"),
+            }
+        )
+    return {"items": items}
+
+
 # Write tools and the short confirmation each answers instead of the whole task.
 ACKS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "task_create": task_ack,
@@ -139,4 +163,6 @@ ACKS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "plan_step_deps": task_ack,
     "decision_ask": decision_ack,
     "decision_withdraw": decision_ack,
+    "approval_ask": approval_ack,
+    "approval_list": approval_list_view,
 }

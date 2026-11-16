@@ -439,6 +439,11 @@
     "operationId": "admin_webhook_post_templates_preview"
    }
   },
+  "/agent/v1/approvals": {
+   "get": {
+    "operationId": "approvals_agent_v1_approvals_get"
+   }
+  },
   "/agent/v1/chat/messages": {
    "post": {
     "operationId": "send_message_agent_v1_chat_messages_post"

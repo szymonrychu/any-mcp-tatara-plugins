@@ -16,6 +16,7 @@ from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.fit import MIN_KEEP, fit_task, measure, summarize_tasks
 from any_mcp_tatara_orchestrator.views import (
     TASK_VIEWS,
+    approval_list_view,
     comment_ack,
     decision_ack,
     task_ack,
@@ -699,3 +700,35 @@ async def test_unknown_view_is_rejected() -> None:
     assert res.is_error
     with pytest.raises(ValueError, match="bogus"):
         task_view(rich(), "bogus")
+
+
+def test_approval_list_view_is_compact() -> None:
+    page = {
+        "items": [
+            dict(
+                decision(
+                    7, status="answered", context=100_000, answer={"choice": 0, "label": "Go"}
+                ),
+                kind="approval",
+                task_key="T-19",
+                url=URL,
+                expires_at="2026-11-18T00:00:00Z",
+                question="deploy?",
+                note="ok",
+            )
+        ]
+    }
+    assert approval_list_view(page) == {
+        "items": [
+            {
+                "id": 7,
+                "task_key": "T-19",
+                "title": "deploy?",
+                "status": "answered",
+                "verdict": "Go",
+                "note": "ok",
+                "expires_at": "2026-11-18T00:00:00Z",
+                "url": URL,
+            }
+        ]
+    }
