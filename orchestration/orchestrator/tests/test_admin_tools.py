@@ -52,7 +52,7 @@ EXPECTED = {
     "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
     "leadership_withdraw", "vault_list", "vault_attach", "vault_detach", "proposal_create",
     "proposal_revise", "project_create", "session_projects_grant", "session_projects_revoke",
-    "preset_projects_grant", "preset_projects_revoke",
+    "preset_projects_grant", "preset_projects_revoke", "preset_manageable_request",
     "sessions_admin_list", "session_activity", "session_events", "session_messages",
     "session_locks", "session_commands", "meta_get", "archives_list", "archives_settings_get",
     "archives_cleanup_preview", "usage_history", "usage_sessions",
@@ -190,6 +190,35 @@ async def test_project_grant_rows_are_pinned_and_described() -> None:
         row = rows[name]
         assert row.schema["required"] == [target, "project"]
         assert row.body is None
+
+
+def test_preset_manageable_request_row() -> None:
+    rows = rows_by_name()
+    row = rows["preset_manageable_request"]
+    assert (row.method, row.path) == ("POST", "/admin/presets/{ref}/manageable")
+    assert row.schema["required"] == ["ref", "reason"]
+    assert set(row.schema["properties"]) == {"ref", "reason", "client_key"}
+    assert row.schema["properties"]["reason"]["maxLength"] == 4000
+    assert row.schema["properties"]["client_key"]["maxLength"] == 200
+    assert "preset_manageable" in row.description and "already_manageable" in row.description
+    assert "preset_patch" in row.description
+    manageable = rows["preset_patch"].schema["properties"]["superleader_manageable"]
+    assert "preset_manageable_request" in manageable["description"]
+    assert "preset_manageable" in rows["proposals_list"].description
+
+
+async def test_preset_manageable_request_calls_its_route() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(202, json={"id": 1, "kind": "preset_manageable"})
+
+    body = {"reason": "T-489", "client_key": "k"}
+    async with harness(handler) as h:
+        res = await h.call("preset_manageable_request", {"ref": "web", **body})
+    assert not res.is_error, res.text
+    assert seen == [("POST", "/agent/v1/admin/presets/web/manageable", body)]
 
 
 async def test_project_grant_rows_call_their_routes() -> None:

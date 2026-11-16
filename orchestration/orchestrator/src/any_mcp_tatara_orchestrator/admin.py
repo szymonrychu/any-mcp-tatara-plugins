@@ -393,9 +393,9 @@ _ROWS: tuple[AdminRow, ...] = (
                     "type": "boolean",
                     "enum": [False],
                     "description": "false only: the preset stops being manageable by "
-                    "superleaders (writes then need the user's approval); true needs the "
-                    "user's approval. 409 open_proposals while the preset has active change "
-                    "proposals.",
+                    "superleaders (writes then need the user's approval); true: ask with "
+                    "preset_manageable_request. 409 open_proposals while the preset has active "
+                    "change proposals.",
                 },
                 "spec": _PATCH_SPEC,
             },
@@ -428,6 +428,24 @@ _ROWS: tuple[AdminRow, ...] = (
         "from the preset also fully belongs to that project; running sessions keep theirs. "
         + _GRANT_TEXT,
         schema({"ref": _REF, **_GRANT_SCHEMA}, ("ref", "project", "reason")),
+        "*",
+    ),
+    AdminRow(
+        "preset_manageable_request",
+        "POST",
+        f"{_A}/presets/{{ref}}/manageable",
+        "Ask the user to make a preset manageable by superleaders (superleader_manageable "
+        "true): files a change proposal of kind preset_manageable that the user approves or "
+        "denies in the UI; answers the proposal. 409 already_manageable when it already is. "
+        "Setting it with preset_patch is refused.",
+        schema(
+            {
+                "ref": _REF,
+                "reason": _GRANT_SCHEMA["reason"],
+                "client_key": _GRANT_SCHEMA["client_key"],
+            },
+            ("ref", "reason"),
+        ),
         "*",
     ),
     AdminRow(
@@ -787,7 +805,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "List change proposals, newest first, current revision only: your own, or every proposal "
         "when you are a superleader. status: active "
         "(default: open, rework, stale), open, closed or all. kind session_projects or "
-        "preset_projects is a project grant (session_projects_grant, preset_projects_grant). "
+        "preset_projects is a project grant (session_projects_grant, preset_projects_grant); kind "
+        "preset_manageable asks to make a preset manageable (preset_manageable_request). "
         "Each shows its status, revision, "
         "stale flag and per-item verdicts; read one with proposal_get.",
         schema({"status": _str("active, open, closed or all."), "limit": _LIMIT}),
