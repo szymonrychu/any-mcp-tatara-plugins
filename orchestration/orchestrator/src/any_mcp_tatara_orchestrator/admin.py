@@ -1115,6 +1115,38 @@ _ROWS: tuple[AdminRow, ...] = (
         schema({"room_id": _ROOM_ID}, ("room_id",)),
     ),
     AdminRow(
+        "chat_admin_notes_get",
+        "GET",
+        f"{_A}/chats/rooms/{{room_id}}/notes",
+        "Superleader only: read the notes of any chat room by room_id: body, version, chars, "
+        "max_chars and rule (the standing instructions for room notes). version 0 means no "
+        "notes yet.",
+        schema({"room_id": _ROOM_ID}, ("room_id",)),
+    ),
+    AdminRow(
+        "chat_admin_notes_update",
+        "PUT",
+        f"{_A}/chats/rooms/{{room_id}}/notes",
+        "Superleader only: replace the notes of a chat room with body (the whole new text, "
+        "not a delta); the same item as chat_notes_update. expected_version is the version "
+        "from chat_admin_notes_get (0 to create); 409 version_conflict: re-read, merge and "
+        "retry. At most max_chars characters (413 notes_too_large). Rules files in the notes "
+        "apply from the next session of the room, not the running one. Never store secrets.",
+        schema(
+            {
+                "room_id": _ROOM_ID,
+                "body": {"type": "string"},
+                "expected_version": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The version you last read; 0 to create.",
+                },
+            },
+            ("room_id", "body", "expected_version"),
+        ),
+        "*",
+    ),
+    AdminRow(
         "chat_admin_history",
         "GET",
         f"{_A}/chats/rooms/{{room_id}}/messages",
@@ -1300,7 +1332,7 @@ _ROWS: tuple[AdminRow, ...] = (
         None,
         ("kind", "q", "regex", "before_id", "after_id", "limit"),
     ),
-    # superleader reads of any session's live work, the deploy and the cache archives
+    # superleader reads of any session's live work, the deploy and the backups
     AdminRow(
         "sessions_admin_list",
         "GET",
@@ -1408,46 +1440,124 @@ _ROWS: tuple[AdminRow, ...] = (
         "settings.",
     ),
     AdminRow(
-        "archives_list",
-        "GET",
-        f"{_A}/archives",
-        "Superleader only: list the cache archives (object keys, sizes, times), one page at a "
-        "time. Filter by prefix; pass the cursor of the previous page to continue. There is no "
-        "download: an archive link carries a credential. 400 bad_request for a bad prefix or "
-        "cursor, 503 unavailable when archives are not configured.",
+        "backup_save",
+        "POST",
+        "/backup/save",
+        "Save a directory of this session as a new version of its backup entry now: call after "
+        "writing a skill, rule or script so other sessions of the project get it. root is "
+        "workspace or claude, path the entry path inside that root; it must match an entry of "
+        "the session's backup list. The new version becomes current, the earlier one stays as "
+        "a version (no merge). Answers the save status; backup_status shows the entries. "
+        "404 until the orchestrator carries the backup routes.",
         schema(
             {
-                "prefix": _str("Only keys under this prefix."),
-                "cursor": _str("Cursor of the previous page."),
+                "root": {
+                    "type": "string",
+                    "enum": ["workspace", "claude"],
+                    "description": "Which root holds the path.",
+                },
+                "path": _str("Entry path inside the root."),
+            },
+            ("root", "path"),
+        ),
+        "*",
+    ),
+    AdminRow(
+        "backup_status",
+        "GET",
+        "/backup",
+        "The backup entries of this session (root, path, mode, name, live, after_init) with the "
+        "last restore and save result of each and its warnings.",
+    ),
+    AdminRow(
+        "backups_list",
+        "GET",
+        f"{_A}/backups",
+        "Superleader only: list the named backups (name, current version, sizes, times), one "
+        "page at a time. Filter by q (substring of the name); pass the cursor of the previous "
+        "page to continue. There is no download: an archive link carries a credential. 400 "
+        "bad_request for a bad cursor, 503 unavailable when backups are not configured.",
+        schema(
+            {
+                "q": _str("Only names containing this text."),
                 "limit": _LIMIT,
+                "cursor": _str("Cursor of the previous page."),
             }
         ),
         None,
-        ("prefix", "cursor", "limit"),
+        ("q", "limit", "cursor"),
     ),
     AdminRow(
-        "archives_settings_get",
+        "backup_versions",
         "GET",
-        f"{_A}/archives/settings",
-        "Superleader only: the cache archive cleanup settings (retention and schedule). "
-        "archives_settings_set replaces them; read them here first. "
-        "503 unavailable when archives are not configured.",
+        f"{_A}/backups/{{name}}/versions",
+        "Superleader only: the versions of one backup, newest first (version id, actor, size, "
+        "time, which one is current), one page at a time. 404 backup_not_found.",
+        schema(
+            {
+                "name": _str("Backup name (from backups_list)."),
+                "limit": _LIMIT,
+                "cursor": _str("Cursor of the previous page."),
+            },
+            ("name",),
+        ),
+        None,
+        ("limit", "cursor"),
     ),
     AdminRow(
-        "archives_cleanup_preview",
+        "backup_manifest",
         "GET",
-        f"{_A}/archives/cleanup/preview",
-        "Superleader only: what the next cache archive cleanup would delete, without deleting "
-        "anything. 503 unavailable when archives are not configured.",
+        f"{_A}/backups/{{name}}/versions/{{version}}/manifest",
+        "Superleader only: the file list (paths, sizes) of one backup version, without any "
+        "file content. 404 backup_not_found or version_not_found.",
+        schema(
+            {
+                "name": _str("Backup name."),
+                "version": _str("Version id (from backup_versions)."),
+            },
+            ("name", "version"),
+        ),
     ),
     AdminRow(
-        "archives_settings_set",
+        "backups_copy",
+        "POST",
+        f"{_A}/backups/copy",
+        "Superleader only: copy a backup version to a target backup name. The copy becomes the "
+        "target's current version; the target's earlier versions stay. source_version omitted "
+        "copies the current version of the source. There is no merge. 404 backup_not_found.",
+        schema(
+            {
+                "source": _str("Source backup name."),
+                "source_version": _str("Source version id; omit for the current one."),
+                "target": _str("Target backup name."),
+            },
+            ("source", "target"),
+        ),
+        "*",
+    ),
+    AdminRow(
+        "backups_cleanup_get",
+        "GET",
+        f"{_A}/backups/cleanup/settings",
+        "Superleader only: the backup cleanup settings (retention and schedule). "
+        "backups_cleanup_set replaces them; read them here first. "
+        "503 unavailable when backups are not configured.",
+    ),
+    AdminRow(
+        "backups_cleanup_preview",
+        "GET",
+        f"{_A}/backups/cleanup/preview",
+        "Superleader only: what the next backup cleanup would delete, without deleting "
+        "anything. 503 unavailable when backups are not configured.",
+    ),
+    AdminRow(
+        "backups_cleanup_set",
         "PUT",
-        f"{_A}/archives/settings",
-        "Superleader only: replaces the WHOLE cache archive cleanup policy; read the current one "
-        "with archives_settings_get first and send every field. dry_run false deletes archives "
-        "for real; archives_cleanup_preview shows what the next cleanup would delete. 422 for "
-        "an out-of-bounds value; 503 unavailable when archives are not configured.",
+        f"{_A}/backups/cleanup/settings",
+        "Superleader only: replaces the WHOLE backup cleanup policy; read the current one "
+        "with backups_cleanup_get first and send every field. dry_run false deletes backup "
+        "versions for real; backups_cleanup_preview shows what the next cleanup would delete. "
+        "422 for an out-of-bounds value; 503 unavailable when backups are not configured.",
         schema(
             {
                 "enabled": {"type": "boolean", "description": "Run the cleanup on its schedule."},
@@ -1455,10 +1565,10 @@ _ROWS: tuple[AdminRow, ...] = (
                     "type": "boolean",
                     "description": "true: only record what would be deleted; false: delete.",
                 },
-                "retention_days": _bounded_int(1, 3650, "Delete archives older than this."),
-                "keep_newest": _bounded_int(1, 1000, "Always keep this many newest archives."),
+                "retention_days": _bounded_int(1, 3650, "Delete backup versions older than this."),
+                "keep_newest": _bounded_int(1, 1000, "Always keep this many newest versions."),
                 "interval_seconds": _bounded_int(60, 2592000, "Seconds between cleanup runs."),
-                "grace_seconds": _bounded_int(0, 604800, "Archives younger than this are kept."),
+                "grace_seconds": _bounded_int(0, 604800, "Versions younger than this are kept."),
             },
             (
                 "enabled",
@@ -1470,6 +1580,34 @@ _ROWS: tuple[AdminRow, ...] = (
             ),
         ),
         "*",
+    ),
+    AdminRow(
+        "handoffs_list",
+        "GET",
+        f"{_A}/handoffs",
+        "Superleader only: the handoff history of sessions, newest first (id, session, "
+        "created_at, a short head), paged by before_id. Filter by session (id or slug); "
+        "read one in full with handoff_get.",
+        schema(
+            {
+                "session": _str("Only handoffs of this session (id or slug)."),
+                "limit": _LIMIT,
+                "before_id": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Only handoffs older than this id.",
+                },
+            }
+        ),
+        None,
+        ("session", "limit", "before_id"),
+    ),
+    AdminRow(
+        "handoff_get",
+        "GET",
+        f"{_A}/handoffs/{{id}}",
+        "Superleader only: one handoff in full by id (from handoffs_list). 404 handoff_not_found.",
+        schema({"id": {"type": "integer", "minimum": 1, "description": "Handoff id."}}, ("id",)),
     ),
     # superleader spec admin on the task board (accept stays the user's)
     AdminRow(

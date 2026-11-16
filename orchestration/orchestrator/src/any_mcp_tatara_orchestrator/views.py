@@ -58,7 +58,9 @@ def _answer(decision: dict[str, Any]) -> str:
     if not isinstance(answer, dict):
         return ""
     label = answer.get("label")
-    return label if isinstance(label, str) else _text(str(answer.get("text", "")), _COLLAPSED_CHARS)
+    # Whole text: an answer is the user's decision. fit.fit_task cuts it, with the dropped length
+    # marked, only when the whole task would not fit the output budget.
+    return label if isinstance(label, str) else str(answer.get("text", ""))
 
 
 def _decision(decision: dict[str, Any]) -> dict[str, Any]:

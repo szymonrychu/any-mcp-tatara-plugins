@@ -6,7 +6,9 @@ which a session leader reaches the user's chat, and six room memory tools (``cha
 ``chat_notes_update``, ``chat_skills_list``, ``chat_skills_get``, ``chat_skills_save``,
 ``chat_skills_delete``) for the notes and skills of its room. A chat room and a session are bound
 one to one: a session talks in at most one room, its bound room. ``self_close`` lets the leader
-of a finished session ask the orchestrator to discard it once every agent is idle.
+of a finished session ask the orchestrator to discard it once every agent is idle. The backup
+tools (``backup_save``, ``backup_status`` and the superleader ``backups_*``, ``handoff*`` and
+``chat_admin_notes_*`` rows) are declared in ``admin.py``.
 """
 
 from __future__ import annotations
