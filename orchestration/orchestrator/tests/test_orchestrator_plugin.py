@@ -901,7 +901,9 @@ async def test_schemas_strict_and_enums() -> None:
         schema = tools[name]["inputSchema"]
         assert schema["type"] == "object" and schema["additionalProperties"] is False, name
         out = tools[name]["outputSchema"]
-        assert out["type"] == "object" and "url" in out["properties"], name
+        assert out["type"] == "object", name
+        if name != "orchestrator_approval_list":  # rows carry their own url; no top-level one
+            assert "url" in out["properties"], name
     statuses = ["idea", "open", "in_progress", "done", "dropped"]
     update = tools["orchestrator_task_update"]["inputSchema"]["properties"]
     assert update["status"]["enum"] == statuses

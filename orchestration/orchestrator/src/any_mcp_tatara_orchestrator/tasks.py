@@ -121,7 +121,7 @@ _APPROVAL_ACK_OUT = {
         "url": {"type": "string", "description": "Absolute link to the task."},
         "expires_at": {"type": "string", "description": "When the approval expires."},
     },
-    "required": ["id", "task_key", "status", "url", "expires_at"],
+    "required": ["id", "task_key", "status", "url"],
 }
 _APPROVAL_LIST_OUT = {
     "type": "object",
@@ -142,7 +142,6 @@ _APPROVAL_LIST_OUT = {
                 },
             },
         },
-        "url": {"type": "string"},
     },
 }
 _LIST_OUT = {
