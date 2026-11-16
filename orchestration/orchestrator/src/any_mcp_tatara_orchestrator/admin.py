@@ -32,9 +32,10 @@ __all__ = [
 _A = "/admin"
 
 
-# Spec keys kept in the presets_list summary; kube_access, session_messaging and docker are
+# Spec keys kept in the presets_list summary; the kube flags, session_messaging and docker are
 # privilege flags (absent means false), inactivity is shown only when set.
-_FLAGS = ("kube_access", "session_messaging", "docker")
+# kube_namespace_access is a map: it counts as true when non-empty.
+_FLAGS = ("kube_cluster_access", "kube_namespace_access", "session_messaging", "docker")
 
 
 def summarize_presets(presets: list[Any]) -> list[Any]:
@@ -52,7 +53,8 @@ def summarize_presets(presets: list[Any]) -> list[Any]:
         if "superleader_manageable" in preset:
             row["superleader_manageable"] = preset["superleader_manageable"]
         for flag in _FLAGS:
-            row[flag] = spec.get(flag) is True
+            value = spec.get(flag)
+            row[flag] = bool(value) if isinstance(value, dict | list) else value is True
         if spec.get("inactivity") is not None:
             row["inactivity"] = spec["inactivity"]
         out.append(row)
@@ -226,8 +228,8 @@ _PATCH_SPEC = {
     "type": "object",
     "description": "JSON merge patch (RFC 7396) of the stored spec: objects merge, null deletes "
     "a key, arrays replace. Keys you leave out are kept. Secret values do not belong here: "
-    "attach a vault entry with vault_attach. Human-only fields (kube_access, "
-    "session_messaging, docker, discard_hook_url, wrapper.permission_mode, "
+    "attach a vault entry with vault_attach. Human-only fields (kube_cluster_access, "
+    "kube_namespace_access, docker, discard_hook_url, wrapper.permission_mode, "
     "wrapper.permissions) may only move toward safe.",
 }
 _PATCH_SPEC_SESSION = {
@@ -236,8 +238,9 @@ _PATCH_SPEC_SESSION = {
     "null deletes a key, arrays replace. Keys you leave out are kept. Secret values do not "
     "belong here. A leader may only lower usage_quota and shorten inactivity limits on its own "
     "session; human-only fields "
-    "(kube_access, session_messaging, docker, discard_hook_url, wrapper.permission_mode, "
-    "wrapper.permissions) may only move toward safe.",
+    "(kube_cluster_access, kube_namespace_access, docker, discard_hook_url, "
+    "wrapper.permission_mode, wrapper.permissions) may only move toward safe; a regular "
+    "leader may not turn session_messaging on for its own session.",
 }
 _PROPOSAL_PATCH = {
     "type": "object",

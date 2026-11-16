@@ -17,9 +17,12 @@ from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.admin import (
     _NOT_MANAGEABLE,
+    _PATCH_SPEC,
+    _PATCH_SPEC_SESSION,
     ADMIN_TOOLS,
     fit_events,
     fit_sessions,
+    summarize_presets,
     summarize_sessions,
 )
 from any_mcp_tatara_orchestrator.fit import measure
@@ -731,7 +734,8 @@ def _big_preset(i: int) -> dict[str, Any]:
             "init_scripts": ["echo " + "x" * 300 for _ in range(3)],
             "env": {f"VAR_{j}": {"value": "v" * 40} for j in range(8)},
             "start_prompt": "p" * 400,
-            **({"kube_access": True} if i % 3 == 0 else {}),
+            **({"kube_cluster_access": True} if i % 3 == 0 else {}),
+            **({"kube_namespace_access": {"ns1": ["read"]}} if i % 4 == 0 else {}),
             **({"docker": True} if i % 5 == 0 else {}),
             **({"session_messaging": True} if i % 7 == 0 else {}),
             **({"inactivity": {"reminder_seconds": 60, "close_seconds": 600}} if i == 4 else {}),
@@ -760,13 +764,14 @@ async def test_presets_list_is_a_compact_summary_within_the_output_budget() -> N
     for i, row in enumerate(rows):
         assert row["labels"] == ["team", f"n{i}"]
         assert row["superleader_manageable"] is (i % 2 == 0)
-        assert row["kube_access"] is (i % 3 == 0)
+        assert row["kube_cluster_access"] is (i % 3 == 0)
+        assert row["kube_namespace_access"] is (i % 4 == 0)
         assert row["docker"] is (i % 5 == 0)
         assert row["session_messaging"] is (i % 7 == 0)
         assert ("inactivity" in row) is (i == 4)
         assert set(row) - {"inactivity"} == {
-            "name", "labels", "superleader_manageable", "kube_access", "docker",
-            "session_messaging",
+            "name", "labels", "superleader_manageable", "kube_cluster_access",
+            "kube_namespace_access", "docker", "session_messaging",
         }  # fmt: skip
     assert rows[4]["inactivity"] == {"reminder_seconds": 60, "close_seconds": 600}
 
@@ -781,11 +786,39 @@ async def test_presets_list_omits_superleader_manageable_when_absent() -> None:
         {
             "name": "a",
             "labels": [],
-            "kube_access": False,
+            "kube_cluster_access": False,
+            "kube_namespace_access": False,
             "session_messaging": False,
             "docker": False,
         }
     ]
+
+
+def test_presets_list_summary_kube_flags() -> None:
+    def row(spec: dict[str, Any]) -> dict[str, Any]:
+        return summarize_presets([{"name": "a", "labels": [], "spec": spec}])[0]
+
+    both = row({"kube_cluster_access": True, "kube_namespace_access": {"ns1": ["read"]}})
+    assert both["kube_cluster_access"] is True
+    assert both["kube_namespace_access"] is True
+    empty = row({})
+    assert empty["kube_cluster_access"] is False
+    assert empty["kube_namespace_access"] is False
+    assert row({"kube_namespace_access": {}})["kube_namespace_access"] is False
+    assert row({"kube_cluster_access": "yes"})["kube_cluster_access"] is False
+    assert "kube_access" not in empty
+
+
+def test_patch_spec_descriptions() -> None:
+    plain = _PATCH_SPEC["description"]
+    assert "session_messaging" not in plain
+    assert "kube_access," not in plain
+    assert "kube_cluster_access" in plain and "kube_namespace_access" in plain
+    session = _PATCH_SPEC_SESSION["description"]
+    assert "kube_cluster_access" in session and "kube_namespace_access" in session
+    assert "kube_access," not in session
+    assert session.count("session_messaging") == 1
+    assert "a regular leader may not turn session_messaging on for its own session" in session
 
 
 async def test_presets_list_description_points_to_preset_get() -> None:
