@@ -62,6 +62,11 @@
     "operationId": "admin_connector_post_rooms_room_id_allow"
    }
   },
+  "/agent/v1/admin/chats/rooms/{room_id}/messages": {
+   "get": {
+    "operationId": "admin_connector_get_rooms_room_id_messages"
+   }
+  },
   "/agent/v1/admin/chats/rooms/{room_id}/settings": {
    "put": {
     "operationId": "admin_connector_put_rooms_room_id_settings"
@@ -444,6 +449,21 @@
     "operationId": "approvals_agent_v1_approvals_get"
    }
   },
+  "/agent/v1/chat/attachments": {
+   "post": {
+    "operationId": "attachment_fetch_agent_v1_chat_attachments_post"
+   }
+  },
+  "/agent/v1/chat/attachments/{request_id}": {
+   "get": {
+    "operationId": "attachment_status_agent_v1_chat_attachments__request_id__get"
+   }
+  },
+  "/agent/v1/chat/history": {
+   "get": {
+    "operationId": "history_agent_v1_chat_history_get"
+   }
+  },
   "/agent/v1/chat/messages": {
    "post": {
     "operationId": "send_message_agent_v1_chat_messages_post"
@@ -491,11 +511,6 @@
   "/agent/v1/close": {
    "post": {
     "operationId": "close_agent_v1_close_post"
-   }
-  },
-  "/agent/v1/handoff": {
-   "post": {
-    "operationId": "handoff_submit_agent_v1_handoff_post"
    }
   },
   "/agent/v1/init-scripts": {
