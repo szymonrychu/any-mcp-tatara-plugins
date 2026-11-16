@@ -32,7 +32,7 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_chat_send(text?, files?, room?, reply_to?)` | `POST /agent/v1/chat/messages` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_react(to, key)` | `POST /agent/v1/chat/reactions` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_status(id)` | `GET /agent/v1/chat/messages/{id}` (delivery status of a send `s<n>`) |
-| `orchestrator_chat_history(before, after, from, limit)` | `GET /agent/v1/chat/history` (leader; the bound room's messages `m<n>`, `s<n>`, `o<n>`, newest fitting the output budget; default limit 20) |
+| `orchestrator_chat_history(before?, after?, from?, limit?)` | `GET /agent/v1/chat/history` (leader; the bound room's messages `m<n>`, `s<n>`, `o<n>`, newest fitting the output budget; default limit 20) |
 | `orchestrator_chat_attachment_fetch(id)` | `POST /agent/v1/chat/attachments` (leader; queues the download of the attachment of `m<n>`, the file arrives later as a new turn) |
 | `orchestrator_chat_attachment_status(request_id)` | `GET /agent/v1/chat/attachments/{request_id}` (status of a fetch `a<n>`) |
 | `orchestrator_project_list` | `GET /agent/v1/projects` (your own project; a superleader also gets archived ones) |
@@ -204,7 +204,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.52.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.53.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

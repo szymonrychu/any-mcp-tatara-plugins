@@ -17,7 +17,10 @@ from .fit import measure
 __all__ = [
     "ADMIN_TOOLS",
     "AdminRow",
+    "CHAT_FROM",
     "CHAT_HISTORY_LIMIT",
+    "CHAT_LIMIT",
+    "CHAT_MSO_ID",
     "SESSION_EVENTS_LIMIT",
     "fit_events",
     "fit_sessions",
@@ -120,7 +123,10 @@ def fit_events(page: Any, budget: int, key: str = "events") -> Any:
 
     def shaped(keep: int) -> dict[str, Any]:
         rest = {k: v for k, v in page.items() if k != key}
-        return {"omitted": len(events) - keep, **rest, key: events[len(events) - keep :]}
+        dropped = len(events) - keep
+        if dropped:
+            rest["has_more_before"] = True  # dropped older items are reachable with before
+        return {"omitted": dropped, **rest, key: events[len(events) - keep :]}
 
     if measure(page) <= budget:
         return page
@@ -302,8 +308,8 @@ _SCHED_FIELDS = {
     },
 }
 _ROOM_ID = _str("Chat room id.")
-_MSO_ID = {"type": "string", "pattern": "^[mso][1-9][0-9]*$"}
-_CHAT_FROM = {
+CHAT_MSO_ID = {"type": "string", "pattern": "^[mso][1-9][0-9]*$"}
+CHAT_FROM = {
     "type": "string",
     "minLength": 1,
     "maxLength": 200,
@@ -315,6 +321,7 @@ _HISTORY_MATCH = (
     "q (3 to 500 characters) is a case-insensitive substring match, or with regex true a "
     "Postgres regex."
 )
+CHAT_LIMIT = {"type": "integer", "minimum": 1, "maximum": 100}
 CHAT_HISTORY_LIMIT = 20  # default page of chat_history and chat_admin_history
 SESSION_EVENTS_LIMIT = 20  # default page of session_events (events carry raw tool data)
 HISTORY_SEARCH_LIMIT = 20  # default page: 20 hits stay well inside the 40000 char tool budget
@@ -1102,10 +1109,10 @@ _ROWS: tuple[AdminRow, ...] = (
         schema(
             {
                 "room_id": _ROOM_ID,
-                "before": _MSO_ID,
-                "after": _MSO_ID,
-                "from": _CHAT_FROM,
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "before": CHAT_MSO_ID,
+                "after": CHAT_MSO_ID,
+                "from": CHAT_FROM,
+                "limit": CHAT_LIMIT,
             },
             ("room_id",),
         ),

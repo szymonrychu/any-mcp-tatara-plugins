@@ -25,7 +25,10 @@ from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSp
 
 from .admin import (
     ADMIN_TOOLS,
+    CHAT_FROM,
     CHAT_HISTORY_LIMIT,
+    CHAT_LIMIT,
+    CHAT_MSO_ID,
     HISTORY_SEARCH_LIMIT,
     SESSION_EVENTS_LIMIT,
     fit_events,
@@ -124,7 +127,6 @@ def _with_to_file(schema: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_ID_MSO = {"type": "string", "pattern": "^[mso][1-9][0-9]*$"}
 _PATHS = {"type": "array", "items": {"type": "string"}, "description": "File paths in the workdir."}
 
 
@@ -605,7 +607,9 @@ class OrchestratorPlugin(Plugin):
                 "Read the status of an attachment fetch by its id a<n> (from "
                 "orchestrator_chat_attachment_fetch). Leader only. Status is queued, fetching, "
                 "sent (the file was delivered as a new turn), failed or refused; a refusal or "
-                "failure carries a fixed reason."
+                "failure carries a fixed reason. Answers {id, message (the m<n> it belongs to), "
+                "status, reason (null unless failed or refused), created_at, done_at (null "
+                "until finished)}. An unknown id, or one of another session, is 404 not_found."
             ),
             "self_close": (
                 "Close this session for good once your work is done and reported. Leader only. "
@@ -828,15 +832,10 @@ class OrchestratorPlugin(Plugin):
                 "/chat/history",
                 _schema(
                     {
-                        "before": _ID_MSO,
-                        "after": _ID_MSO,
-                        "from": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 200,
-                            "description": "Display name, or the pseudonym in an anonymized room.",
-                        },
-                        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                        "before": CHAT_MSO_ID,
+                        "after": CHAT_MSO_ID,
+                        "from": CHAT_FROM,
+                        "limit": CHAT_LIMIT,
                     }
                 ),
                 query=("before", "after", "from", "limit"),

@@ -1539,3 +1539,13 @@ def test_fit_events_key_parameter() -> None:
     shaped = fit_events(page, 400, key="messages")
     assert shaped["omitted"] > 0 and shaped["messages"][-1]["id"] == 9
     assert fit_events(page, 10**6, key="messages") is page
+
+
+def test_fit_events_dropping_older_items_sets_has_more_before() -> None:
+    for key in ("messages", "events"):
+        page = {key: [{"id": i, "t": "x" * 100} for i in range(10)], "has_more_before": False}
+        shaped = fit_events(page, 400, key=key)
+        assert shaped["omitted"] > 0 and shaped["has_more_before"] is True
+        assert page["has_more_before"] is False
+        whole = fit_events(page, 10**6, key=key)
+        assert whole is page and whole["has_more_before"] is False
