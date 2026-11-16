@@ -32,6 +32,9 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_chat_send(text?, files?, room?, reply_to?)` | `POST /agent/v1/chat/messages` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_react(to, key)` | `POST /agent/v1/chat/reactions` (asynchronous, answers an id `s<n>`) |
 | `orchestrator_chat_status(id)` | `GET /agent/v1/chat/messages/{id}` (delivery status of a send `s<n>`) |
+| `orchestrator_chat_history(before?, after?, from?, limit?)` | `GET /agent/v1/chat/history` (leader; the bound room's messages `m<n>`, `s<n>`, `o<n>`, newest fitting the output budget; default limit 20) |
+| `orchestrator_chat_attachment_fetch(id)` | `POST /agent/v1/chat/attachments` (leader; queues the download of the attachment of `m<n>`, the file arrives later as a new turn) |
+| `orchestrator_chat_attachment_status(request_id)` | `GET /agent/v1/chat/attachments/{request_id}` (status of a fetch `a<n>`) |
 | `orchestrator_project_list` | `GET /agent/v1/projects` (your own project; a superleader also gets archived ones) |
 | `orchestrator_project_summary(project?)` | `GET /agent/v1/projects/summary` (task and spec counts per project in your scope; every project for a superleader) |
 | `orchestrator_chat_notes_get` | `GET /agent/v1/chat/notes` (notes of the session's own chat room, leader only; room is never a parameter) |
@@ -98,7 +101,7 @@ call it on its own slug), webhooks (`webhooks_list`,
 `webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
 `webhook_template_preview`), schedules (`schedules_list`, `schedule_get`, `schedule_create`,
 `schedule_update`, `schedule_delete`, `schedule_run`, `schedule_runs`, `schedule_runs_all`,
-`schedule_run_get`, `schedule_preview`), projects (`project_create`: `POST /agent/v1/admin/projects`, body `{slug, name, description?}`; projects are never deleted, 409 `project_exists` = slug taken; `project_update`: `PATCH /agent/v1/admin/projects/{slug}`, rename, describe, archive or unarchive), chats (`chat_admin_rooms`, `chat_admin_room`, `chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`; `chat_room_settings` and `chat_room_allow` take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and `trigger` on every call, so resend them after `chat_admin_room`,
+`schedule_run_get`, `schedule_preview`), projects (`project_create`: `POST /agent/v1/admin/projects`, body `{slug, name, description?}`; projects are never deleted, 409 `project_exists` = slug taken; `project_update`: `PATCH /agent/v1/admin/projects/{slug}`, rename, describe, archive or unarchive), chats (`chat_admin_rooms`, `chat_admin_room`, `chat_admin_history` (read only, any room, `GET /agent/v1/admin/chats/rooms/{room_id}/messages`), `chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`; `chat_room_settings` and `chat_room_allow` take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and `trigger` on every call, so resend them after `chat_admin_room`,
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`), `usage_get` (read-only: the account's `five_hour` and
 `seven_day` usage windows, `GET /agent/v1/admin/usage`) and the history of discarded sessions
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
@@ -201,7 +204,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.52.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.53.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081
