@@ -54,10 +54,12 @@ EXPECTED = {
     "proposal_revise", "project_create", "session_projects_grant", "session_projects_revoke",
     "preset_projects_grant", "preset_projects_revoke", "preset_manageable_request",
     "sessions_admin_list", "session_activity", "session_events", "session_messages",
-    "session_locks", "session_commands", "meta_get", "archives_list", "archives_settings_get",
-    "archives_cleanup_preview", "usage_history", "usage_sessions",
+    "session_locks", "session_commands", "meta_get", "backups_list", "backups_cleanup_get",
+    "backups_cleanup_preview", "usage_history", "usage_sessions",
     "session_labels_update", "session_scale", "session_lock_reassign", "session_message_cancel",
-    "project_update", "archives_settings_set", "spec_delete", "spec_suggestion_dismiss",
+    "project_update", "backups_cleanup_set", "spec_delete", "spec_suggestion_dismiss",
+    "backup_save", "backup_status", "backup_versions", "backup_manifest", "backups_copy",
+    "handoffs_list", "handoff_get", "chat_admin_notes_get", "chat_admin_notes_update",
 }  # fmt: skip
 READ_ROWS = {
     "sessions_admin_list": (
@@ -75,9 +77,9 @@ READ_ROWS = {
     "session_locks": ("GET", "/agent/v1/admin/sessions/{}/locks", ()),
     "session_commands": ("GET", "/agent/v1/admin/sessions/{}/commands", ("limit",)),
     "meta_get": ("GET", "/agent/v1/admin/meta", ()),
-    "archives_list": ("GET", "/agent/v1/admin/archives", ("prefix", "cursor", "limit")),
-    "archives_settings_get": ("GET", "/agent/v1/admin/archives/settings", ()),
-    "archives_cleanup_preview": ("GET", "/agent/v1/admin/archives/cleanup/preview", ()),
+    "backups_list": ("GET", "/agent/v1/admin/backups", ("q", "limit", "cursor")),
+    "backups_cleanup_get": ("GET", "/agent/v1/admin/backups/cleanup/settings", ()),
+    "backups_cleanup_preview": ("GET", "/agent/v1/admin/backups/cleanup/preview", ()),
     "usage_history": (
         "GET",
         "/agent/v1/admin/usage/history",
@@ -1298,7 +1300,7 @@ SLICE3 = [
     "session_lock_reassign",
     "session_message_cancel",
     "project_update",
-    "archives_settings_set",
+    "backups_cleanup_set",
     "spec_delete",
     "spec_suggestion_dismiss",
 ]
@@ -1308,7 +1310,7 @@ SLICE3_ROUTES = {
     "session_lock_reassign": ("POST", "/agent/v1/admin/sessions/{}/locks/reassign"),
     "session_message_cancel": ("DELETE", "/agent/v1/admin/sessions/{}/messages/{}"),
     "project_update": ("PATCH", "/agent/v1/admin/projects/{}"),
-    "archives_settings_set": ("PUT", "/agent/v1/admin/archives/settings"),
+    "backups_cleanup_set": ("PUT", "/agent/v1/admin/backups/cleanup/settings"),
     "spec_delete": ("DELETE", "/agent/v1/admin/specs/{}"),
     "spec_suggestion_dismiss": ("POST", "/agent/v1/admin/specs/{}/comments/{}/dismiss"),
 }
@@ -1383,9 +1385,9 @@ async def test_slice3_write_rows_call_their_routes() -> None:
             ("PATCH", "/agent/v1/admin/projects/acme", {"name": "Acme", "archived": True}),
         ),
         (
-            "archives_settings_set",
+            "backups_cleanup_set",
             policy,
-            ("PUT", "/agent/v1/admin/archives/settings", policy),
+            ("PUT", "/agent/v1/admin/backups/cleanup/settings", policy),
         ),
         ("spec_delete", {"key": "S-4"}, ("DELETE", "/agent/v1/admin/specs/S-4", None)),
         (
@@ -1421,8 +1423,8 @@ def test_scale_and_lock_rows_name_own_session() -> None:
         assert own_tool in desc, name
 
 
-def test_archives_settings_set_requires_the_full_policy() -> None:
-    row = rows_by_name()["archives_settings_set"]
+def test_backups_cleanup_set_requires_the_full_policy() -> None:
+    row = rows_by_name()["backups_cleanup_set"]
     assert row.schema["required"] == POLICY_KEYS
     props = row.schema["properties"]
     assert set(props) == set(POLICY_KEYS)
@@ -1439,7 +1441,7 @@ def test_archives_settings_set_requires_the_full_policy() -> None:
             high,
         ), key
     assert props["enabled"]["type"] == props["dry_run"]["type"] == "boolean"
-    assert "archives_settings_get" in row.description
+    assert "backups_cleanup_get" in row.description
     assert "dry_run" in row.description
 
 
@@ -1611,3 +1613,99 @@ def test_fit_events_dropping_older_items_sets_has_more_before() -> None:
         assert page["has_more_before"] is False
         whole = fit_events(page, 10**6, key=key)
         assert whole is page and whole["has_more_before"] is False
+
+
+BACKUP_ROUTES = [
+    ("backup_save", "POST", "/agent/v1/backup/save"),
+    ("backup_status", "GET", "/agent/v1/backup"),
+    ("backups_list", "GET", "/agent/v1/admin/backups"),
+    ("backup_versions", "GET", "/agent/v1/admin/backups/{}/versions"),
+    ("backup_manifest", "GET", "/agent/v1/admin/backups/{}/versions/{}/manifest"),
+    ("backups_copy", "POST", "/agent/v1/admin/backups/copy"),
+    ("backups_cleanup_get", "GET", "/agent/v1/admin/backups/cleanup/settings"),
+    ("backups_cleanup_preview", "GET", "/agent/v1/admin/backups/cleanup/preview"),
+    ("backups_cleanup_set", "PUT", "/agent/v1/admin/backups/cleanup/settings"),
+    ("handoffs_list", "GET", "/agent/v1/admin/handoffs"),
+    ("handoff_get", "GET", "/agent/v1/admin/handoffs/{}"),
+    ("chat_admin_notes_get", "GET", "/agent/v1/admin/chats/rooms/{}/notes"),
+    ("chat_admin_notes_update", "PUT", "/agent/v1/admin/chats/rooms/{}/notes"),
+]
+
+
+@pytest.mark.parametrize(("name", "method", "path"), BACKUP_ROUTES)
+def test_backup_tools_bind_routes(name: str, method: str, path: str) -> None:
+    row = rows_by_name()[name]
+    assert (row.method, "/agent/v1" + norm(row.path)) == (method, path)
+    assert method.lower() in OPENAPI["paths"].get(
+        next((p for p in OPENAPI["paths"] if norm(p) == path), ""), {}
+    )
+    assert row.schema["additionalProperties"] is False
+
+
+def test_archives_tools_gone() -> None:
+    assert not [r.name for r in ADMIN_TOOLS if r.name.startswith("archives_")]
+    assert not [r.path for r in ADMIN_TOOLS if "/archives" in r.path]
+
+
+def test_backups_copy_has_no_merge_arg() -> None:
+    props = rows_by_name()["backups_copy"].schema["properties"]
+    assert set(props) == {"source", "source_version", "target"}
+    assert rows_by_name()["backups_copy"].schema["required"] == ["source", "target"]
+
+
+def test_backup_arg_shapes() -> None:
+    rows = rows_by_name()
+    save = rows["backup_save"]
+    assert save.schema["properties"]["root"]["enum"] == ["workspace", "claude"]
+    assert save.schema["required"] == ["root", "path"]
+    assert "after writing a skill, rule or script so other sessions of the project get it" in (
+        save.description
+    )
+    assert rows["backups_list"].query == ("q", "limit", "cursor")
+    assert rows["backup_versions"].query == ("limit", "cursor")
+    assert rows["handoffs_list"].query == ("session", "limit", "before_id")
+    assert set(rows["chat_admin_notes_update"].schema["properties"]) == {
+        "room_id",
+        "body",
+        "expected_version",
+    }
+    assert "next session" in rows["chat_admin_notes_update"].description
+
+
+async def test_backup_tools_call_their_routes() -> None:
+    seen: list[tuple[str, str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, request.url.query.decode(), body))
+        return httpx.Response(200, json={"ok": True})
+
+    calls = [
+        ("backup_save", {"root": "claude", "path": "skills"}),
+        ("backups_copy", {"source": "a", "source_version": "v1", "target": "b"}),
+        ("backup_versions", {"name": "a", "limit": 5}),
+        ("backup_manifest", {"name": "a", "version": "v1"}),
+        ("handoffs_list", {"session": "mx-1", "limit": 3}),
+        ("chat_admin_notes_update", {"room_id": "r1", "body": "x", "expected_version": 1}),
+    ]
+    async with harness(handler) as h:
+        for name, args in calls:
+            assert not (await h.call(name, args)).is_error, name
+    assert seen == [
+        ("POST", "/agent/v1/backup/save", "", {"root": "claude", "path": "skills"}),
+        (
+            "POST",
+            "/agent/v1/admin/backups/copy",
+            "",
+            {"source": "a", "source_version": "v1", "target": "b"},
+        ),
+        ("GET", "/agent/v1/admin/backups/a/versions", "limit=5", None),
+        ("GET", "/agent/v1/admin/backups/a/versions/v1/manifest", "", None),
+        ("GET", "/agent/v1/admin/handoffs", "session=mx-1&limit=3", None),
+        (
+            "PUT",
+            "/agent/v1/admin/chats/rooms/r1/notes",
+            "",
+            {"body": "x", "expected_version": 1},
+        ),
+    ]

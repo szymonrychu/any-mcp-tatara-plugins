@@ -508,7 +508,7 @@ def test_summary_decisions_open_full_answered_collapsed() -> None:
     assert set(d_choice) == {"id", "question", "answer", "note"}
     assert d_choice["answer"] == "a"
     assert d_choice["note"] == "n" * 200 + "...[cut 100 chars]"
-    assert d_text["answer"] == "t" * 200 + "...[cut 100 chars]"
+    assert d_text["answer"] == "t" * 300
     assert "note" not in d_text
     assert d_plain == {"id": 4, "question": "q4?", "answer": "b"}
 
@@ -747,3 +747,22 @@ def test_approval_list_schema_declares_only_emitted_keys() -> None:
     from any_mcp_tatara_orchestrator.tasks import _APPROVAL_LIST_OUT
 
     assert set(_APPROVAL_LIST_OUT["properties"]) == set(approval_list_view({}))
+
+
+async def test_task_get_returns_600_char_answer_whole() -> None:
+    upstream = task(decisions=[decision(1, context=0, answer={"text": "w" * 600})])
+    async with harness(upstream) as h:
+        out = await call_checked(h, "task_get", {"key": "T-19"})
+    assert out["decisions"][0]["answer"] == "w" * 600
+    assert "omitted" not in out
+
+
+async def test_fit_task_marks_dropped_length() -> None:
+    size = DEFAULT_BUDGET_CHARS + 5000
+    upstream = task(decisions=[decision(1, context=0, answer={"text": "z" * size})])
+    async with harness(upstream) as h:
+        out = await call_checked(h, "task_get", {"key": "T-19"})
+    answer = out["decisions"][0]["answer"]
+    kept = len(answer.split("...[cut ")[0])
+    assert answer.endswith(f"...[cut {size - kept} chars]")
+    assert out["omitted"]["cut"] >= 1

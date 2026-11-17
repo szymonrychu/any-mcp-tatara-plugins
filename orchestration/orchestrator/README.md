@@ -110,9 +110,9 @@ a superleader; `proposal_withdraw`). Superleader reads (T-120 slice 2): `session
 (`GET /agent/v1/admin/sessions`, a compact summary per session; filters `label`, `project`,
 `superleaders`, `session_slug`; over the output budget it answers `{omitted, sessions}`),
 `session_activity`, `session_events` (default `limit` 20; an over-budget page keeps the newest events and reports `omitted`), `session_messages`, `session_locks`,
-`session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `meta_get`, `archives_list`,
-`archives_settings_get`, `archives_cleanup_preview` (no archive download) and `usage_history`,
-`usage_sessions`. Superleader writes (T-120 slice 3): `session_labels_update`, `session_scale`, `session_lock_reassign`, `session_message_cancel` (all below `/agent/v1/admin/sessions/{slug}`; scale and lock reassign answer 422 `own_session` for the caller's own session), `archives_settings_set` (replaces the whole cleanup policy; read it with `archives_settings_get` first), `spec_delete`, `spec_suggestion_dismiss`, and `preset_patch` takes `superleader_manageable: false`. Reads cover manageable and unmanageable targets alike; a write on an
+`session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `meta_get`, `backups_list`,
+`backup_versions`, `backup_manifest`, `backups_cleanup_get`, `backups_cleanup_preview` (no backup download), `handoffs_list`, `handoff_get`, `chat_admin_notes_get` and `usage_history`,
+`usage_sessions`. Superleader writes (T-120 slice 3): `session_labels_update`, `session_scale`, `session_lock_reassign`, `session_message_cancel` (all below `/agent/v1/admin/sessions/{slug}`; scale and lock reassign answer 422 `own_session` for the caller's own session), `backups_cleanup_set` (replaces the whole cleanup policy; read it with `backups_cleanup_get` first), `backups_copy` (no merge), `chat_admin_notes_update`, `spec_delete`, `spec_suggestion_dismiss`, and `preset_patch` takes `superleader_manageable: false`. Reads cover manageable and unmanageable targets alike; a write on an
 unmanageable one is 403 `not_manageable` and needs the user's approval. `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
 the relay filters a page after paging, so a page can be short or empty while more sessions exist,
 and `next_before_id` (the relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id`
@@ -223,3 +223,5 @@ the config file. The token is scoped to one session.
 
 From the repo root: `mise run install && mise run test && mise run lint`. The tests are in
 `tests/test_orchestrator_plugin.py` and run against the package through any-mcp's `PluginHarness`.
+
+Backups (S-68): `backup_save` (`POST /agent/v1/backup/save`, body `{root, path}`; call it after writing a skill, rule or script so other sessions of the project get it) and `backup_status` (`GET /agent/v1/backup`) are the session's own tools; the superleader tools are `backups_list`, `backup_versions`, `backup_manifest`, `backups_copy`, `backups_cleanup_*`, `handoffs_list`, `handoff_get`, `chat_admin_notes_get` and `chat_admin_notes_update` under `/agent/v1/admin`. The `archives_*` tools are gone. The routes answer 404 until the orchestrator release that carries them.

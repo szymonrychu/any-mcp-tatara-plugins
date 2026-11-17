@@ -9,27 +9,46 @@
     ]
    }
   },
-  "/agent/v1/admin/archives": {
+  "/agent/v1/admin/backups": {
    "get": {
-    "operationId": "list_archives_agent_v1_admin_archives_get",
+    "operationId": "list_backups",
     "query": [
      "cursor",
      "limit",
-     "prefix"
+     "q"
     ]
    }
   },
-  "/agent/v1/admin/archives/cleanup/preview": {
+  "/agent/v1/admin/backups/cleanup/preview": {
    "get": {
-    "operationId": "archives_cleanup_preview_agent_v1_admin_archives_cleanup_preview_get"
+    "operationId": "backups_cleanup_preview"
    }
   },
-  "/agent/v1/admin/archives/settings": {
+  "/agent/v1/admin/backups/cleanup/settings": {
    "get": {
-    "operationId": "archives_settings_agent_v1_admin_archives_settings_get"
+    "operationId": "backups_cleanup_get"
    },
    "put": {
-    "operationId": "put_archives_settings_agent_v1_admin_archives_settings_put"
+    "operationId": "backups_cleanup_set"
+   }
+  },
+  "/agent/v1/admin/backups/copy": {
+   "post": {
+    "operationId": "backups_copy"
+   }
+  },
+  "/agent/v1/admin/backups/{name}/versions": {
+   "get": {
+    "operationId": "backup_versions",
+    "query": [
+     "cursor",
+     "limit"
+    ]
+   }
+  },
+  "/agent/v1/admin/backups/{name}/versions/{version}/manifest": {
+   "get": {
+    "operationId": "backup_manifest"
    }
   },
   "/agent/v1/admin/chats/room-requests": {
@@ -67,6 +86,14 @@
     "operationId": "admin_connector_get_rooms_room_id_messages"
    }
   },
+  "/agent/v1/admin/chats/rooms/{room_id}/notes": {
+   "get": {
+    "operationId": "chat_admin_notes_get"
+   },
+   "put": {
+    "operationId": "chat_admin_notes_update"
+   }
+  },
   "/agent/v1/admin/chats/rooms/{room_id}/settings": {
    "put": {
     "operationId": "admin_connector_put_rooms_room_id_settings"
@@ -93,6 +120,21 @@
   "/agent/v1/admin/commands/{command_id}": {
    "get": {
     "operationId": "get_command_agent_v1_admin_commands__command_id__get"
+   }
+  },
+  "/agent/v1/admin/handoffs": {
+   "get": {
+    "operationId": "handoffs_list",
+    "query": [
+     "before_id",
+     "limit",
+     "session"
+    ]
+   }
+  },
+  "/agent/v1/admin/handoffs/{id}": {
+   "get": {
+    "operationId": "handoff_get"
    }
   },
   "/agent/v1/admin/history/sessions": {
@@ -452,6 +494,16 @@
   "/agent/v1/approvals": {
    "get": {
     "operationId": "approvals_agent_v1_approvals_get"
+   }
+  },
+  "/agent/v1/backup": {
+   "get": {
+    "operationId": "backup_status"
+   }
+  },
+  "/agent/v1/backup/save": {
+   "post": {
+    "operationId": "backup_save"
    }
   },
   "/agent/v1/chat/attachments": {
