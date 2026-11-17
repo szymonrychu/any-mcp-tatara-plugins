@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -38,9 +39,6 @@ ALL_TOOLS = {
     "orchestrator_sessions_list",
     "orchestrator_session_send",
     "orchestrator_chat_rooms",
-    "orchestrator_chat_send",
-    "orchestrator_chat_react",
-    "orchestrator_chat_status",
     "orchestrator_chat_history",
     "orchestrator_chat_attachment_fetch",
     "orchestrator_chat_attachment_status",
@@ -273,36 +271,6 @@ async def test_chat_tools_call_agent_routes() -> None:
     calls: list[tuple[str, dict[str, Any], tuple[str, str, Any]]] = [
         ("chat_rooms", {}, ("GET", "/agent/v1/chat/rooms", None)),
         (
-            "chat_send",
-            {"text": "hi"},
-            ("POST", "/agent/v1/chat/messages", {"text": "hi"}),
-        ),
-        (
-            "chat_send",
-            {"text": "hi", "room": "!r:hs"},
-            ("POST", "/agent/v1/chat/messages", {"text": "hi", "room": "!r:hs"}),
-        ),
-        (
-            "chat_send",
-            {"text": "hi", "room": "!r:hs", "reply_to": "m12"},
-            (
-                "POST",
-                "/agent/v1/chat/messages",
-                {"text": "hi", "room": "!r:hs", "reply_to": "m12"},
-            ),
-        ),
-        (
-            "chat_send",
-            {"text": "hi", "reply_to": "s3"},
-            ("POST", "/agent/v1/chat/messages", {"text": "hi", "reply_to": "s3"}),
-        ),
-        (
-            "chat_react",
-            {"to": "m12", "key": "\N{THUMBS UP SIGN}"},
-            ("POST", "/agent/v1/chat/reactions", {"to": "m12", "key": "\N{THUMBS UP SIGN}"}),
-        ),
-        ("chat_status", {"id": "s7"}, ("GET", "/agent/v1/chat/messages/s7", None)),
-        (
             "chat_attachment_fetch",
             {"id": "m3"},
             ("POST", "/agent/v1/chat/attachments", {"id": "m3"}),
@@ -322,38 +290,6 @@ async def test_chat_tools_call_agent_routes() -> None:
             assert seen[0][3]["authorization"] == f"Bearer {TOKEN}"
             assert seen[0][3]["x-orch-session"] == "s-1"
             assert json.loads(result.text) == {"echo": expected[1]}
-
-
-async def test_chat_errors_surface_code() -> None:
-    errors = {
-        "room_not_allowed": 403,
-        "room_not_authorised": 403,
-        "room_bound": 409,
-        "occupier_closing": 409,
-        "session_bound": 409,
-        "bad_reference": 422,
-        "rate_limited": 429,
-        "not_leader": 403,
-        "chat_unavailable": 503,
-    }
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        code = json.loads(request.content)["text"]
-        return httpx.Response(
-            errors[code], json={"error": {"code": code, "message": f"refused, token {TOKEN}"}}
-        )
-
-    async with harness(handler) as h:
-        for code, status in errors.items():
-            result = await h.call("orchestrator_chat_send", {"text": code})
-            assert result.is_error
-            assert code in result.text
-            assert f"HTTP {status}" in result.text
-            assert result.structured is not None
-            assert result.structured["error"]["code"] == code
-            assert result.structured["error"]["status"] == status
-            assert TOKEN not in result.text
-            assert TOKEN not in json.dumps(result.structured)
 
 
 async def test_self_close_calls_route() -> None:
@@ -411,37 +347,10 @@ async def test_self_close_schema_bounds() -> None:
 
 async def test_chat_descriptions() -> None:
     on = await descriptions()
-    send = on["orchestrator_chat_send"]
-    assert "only for chat-started turns" in send
-    assert "Asynchronous" in send
-    assert "s<n>" in send
-    assert "reply_to" in send
-    assert "m<n>" in send
-    assert "Leader only" in send
-    assert "at most one chat room" in send
-    assert "bound room" in send
-    assert "unbound" in send
-    assert "agents_may_initiate" in send
-    assert "room_bound" in send
-    assert "relayed" in send
-    assert "occupier_closing" in send
-    assert "via" in send
-    assert "without reply_to" in send
-    assert "session_bound" in send
-    assert "orchestrator_chat_status" in send
     rooms = on["orchestrator_chat_rooms"]
     assert "bound room" in rooms
     assert "unbound" in rooms
     assert "Leader only" in rooms
-    react = on["orchestrator_chat_react"]
-    assert "m<n>" in react
-    assert "s<n>" in react
-    assert "Leader only" in react
-    assert "bound room" in react
-    status = on["orchestrator_chat_status"]
-    assert "s<n>" in status
-    assert "queued" in status
-    assert "Leader only" in status
     for text in (await descriptions(hive=False)).values():
         assert "You are agent" not in text
 
@@ -1140,9 +1049,6 @@ async def test_decision_withdraw_schema_and_texts() -> None:
     ask = tools["orchestrator_decision_ask"]["description"].lower()
     assert "only channel" in ask and "never ask" in ask
     assert "blocked by a tool, permission or sandbox" in ask and "fix" in ask
-    send = tools["orchestrator_chat_send"]["description"].lower()
-    assert "never ask the user a question here" in send
-    assert "orchestrator_decision_ask" in send and "link to the task" in send
 
 
 async def test_409_maps_to_is_error() -> None:
@@ -1224,55 +1130,30 @@ async def test_session_labels_set_tool_path_method_and_annotations() -> None:
     assert seen == [("PUT", "/agent/v1/session/labels", {"labels": ["A "]})]
 
 
-async def test_chat_send_files_schema() -> None:
-    async with harness(ok) as h:
-        tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_chat_send")
-    schema = tool["inputSchema"]
-    files = schema["properties"]["files"]
-    assert files["type"] == "array"
-    assert files["maxItems"] == 4
-    assert files["items"] == {"type": "string", "minLength": 1, "maxLength": 512}
-    assert "text" not in schema.get("required", [])
+async def test_removed_chat_tools_are_gone() -> None:
+    names = set(await tools_by_name())
+    assert not names & {
+        "orchestrator_chat_send",
+        "orchestrator_chat_react",
+        "orchestrator_chat_status",
+    }
 
 
-async def test_chat_send_forwards_files() -> None:
-    seen: list[Any] = []
+def test_no_text_names_a_removed_chat_tool() -> None:
+    src = Path(__file__).resolve().parents[1] / "src" / "any_mcp_tatara_orchestrator"
+    pattern = re.compile(r"orchestrator_chat_(send|react|status)\b|\bchat_(send|react|status)\b")
+    hits = [
+        f"{p.name}:{i}"
+        for p in src.glob("*.py")
+        for i, line in enumerate(p.read_text().splitlines(), 1)
+        if pattern.search(line.replace("project_chat_send", ""))
+    ]
+    assert not hits, hits
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append((request.url.path, json.loads(request.content)))
-        return httpx.Response(202, json={"id": "s1"})
 
-    async with harness(handler) as h:
-        await h.call("orchestrator_chat_send", {"files": ["out/a.png"], "room": "!r:hs"})
-    assert seen == [("/agent/v1/chat/messages", {"files": ["out/a.png"], "room": "!r:hs"})]
-
-
-async def test_chat_send_description_mentions_files() -> None:
+async def test_chat_texts_point_to_envelopes() -> None:
     on = await descriptions()
-    send = on["orchestrator_chat_send"]
-    for word in (
-        "files_not_allowed",
-        ".attachments/",
-        "8 MB",
-        "25 MB",
-        "files_not_relayable",
-        "invalid_file_path",
-        "Agents may send files",
-        "off by default",
-        "web UI",
-        "agents_may_send_files",
-        "working directory",
-    ):
-        assert word in send, word
-    assert "text or files" in send
-
-
-async def test_chat_status_description_mentions_files() -> None:
-    on = await descriptions()
-    status = on["orchestrator_chat_status"]
-    assert "files" in status
-    assert "mime" in status
-    assert "size" in status
+    assert "<chat-send" in on["orchestrator_chat_rooms"]
 
 
 async def test_chat_rooms_description_mentions_agents_may_send_files() -> None:
@@ -1331,8 +1212,6 @@ async def test_approval_texts_route_permissions() -> None:
     text = ask["description"].lower()
     assert "never a numbered list in chat" in text and "task_get" in text and "expired" in text
     assert "approval_ask instead" in tools["orchestrator_decision_ask"]["description"]
-    send = tools["orchestrator_chat_send"]["description"].lower()
-    assert "orchestrator_approval_ask" in send and "never list approvals" in send
     assert tools["orchestrator_approval_list"]["annotations"]["readOnlyHint"] is True
 
 

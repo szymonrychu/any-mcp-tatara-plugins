@@ -29,9 +29,6 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_sessions_list` | `GET /agent/v1/sessions` |
 | `orchestrator_session_send(slug, text)` | `POST /agent/v1/sessions/{slug}/messages` (body `{"text"}`; asynchronous, answers a message id) |
 | `orchestrator_chat_rooms` | `GET /agent/v1/chat/rooms` |
-| `orchestrator_chat_send(text?, files?, room?, reply_to?)` | `POST /agent/v1/chat/messages` (asynchronous, answers an id `s<n>`) |
-| `orchestrator_chat_react(to, key)` | `POST /agent/v1/chat/reactions` (asynchronous, answers an id `s<n>`) |
-| `orchestrator_chat_status(id)` | `GET /agent/v1/chat/messages/{id}` (delivery status of a send `s<n>`) |
 | `orchestrator_chat_history(before?, after?, from?, limit?)` | `GET /agent/v1/chat/history` (leader; the bound room's messages `m<n>`, `s<n>`, `o<n>`, newest fitting the output budget; default limit 20) |
 | `orchestrator_chat_attachment_fetch(id)` | `POST /agent/v1/chat/attachments` (leader; queues the download of the attachment of `m<n>`, the file arrives later as a new turn) |
 | `orchestrator_chat_attachment_status(request_id)` | `GET /agent/v1/chat/attachments/{request_id}` (status of a fetch `a<n>`) |
@@ -163,9 +160,9 @@ its project and the superleader sessions (a send to another project is refused w
 `project_forbidden`, unless that session messaged it in the reply window). A message arrives at the target leader as a new turn framed
 `<session-message from="<slug>" ...>`; an answer is a send back to that slug. The chat tools
 reach the user's chat through the orchestrator, leader only. The final answer of a turn reaches the
-chat only for a chat-started turn; at any other time the leader calls `orchestrator_chat_send`. A
-send is asynchronous and answers an id `s<n>`; `reply_to` and `to` take the `m<n>` shown on a chat
-message or an `s<n>`; `orchestrator_chat_status` reads the delivery status. A chat room and a
+chat only for a chat-started turn; at any other time the leader reaches a room with a
+`<chat-send room="...">...</chat-send>` envelope at a line start of its answer, and reacts with
+`<chat-react to="m<n>" key="..."/>`. `to` takes the `m<n>` shown on a chat message. A chat room and a
 session are bound one to one, so a session talks in one room only, its bound room (one room per
 session): it starts a chat only in an unbound room flagged `agents_may_initiate` while it is bound
 to none, and otherwise the orchestrator refuses with `room_bound` or `session_bound`. Further chat
@@ -204,7 +201,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.55.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.56.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

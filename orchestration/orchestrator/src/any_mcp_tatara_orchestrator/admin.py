@@ -1212,7 +1212,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "(action invite, with room_id). It asks the user on the taskboard under task_key; "
         "when you get 'Task T-n was updated', call chat_open_confirm; then poll "
         "chat_open_status until done; chat_room_allow the new room; session_create + "
-        "session_send to start a session that posts there with chat_send. target is a "
+        "session_send to start a session that posts there with a <chat-send> envelope. target is a "
         "Facebook id, a profile.php?id= link or a name. When several people match, the "
         "answer has candidates: call again with the chosen Facebook id. A vanity link "
         "(facebook.com/some.name) cannot be resolved: pass the person's name instead.",
