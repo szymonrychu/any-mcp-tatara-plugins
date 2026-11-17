@@ -11,7 +11,7 @@
   },
   "/agent/v1/admin/backups": {
    "get": {
-    "operationId": "list_backups",
+    "operationId": "list_backups_agent_v1_admin_backups_get",
     "query": [
      "cursor",
      "limit",
@@ -21,34 +21,34 @@
   },
   "/agent/v1/admin/backups/cleanup/preview": {
    "get": {
-    "operationId": "backups_cleanup_preview"
+    "operationId": "backups_cleanup_preview_agent_v1_admin_backups_cleanup_preview_get"
    }
   },
   "/agent/v1/admin/backups/cleanup/settings": {
    "get": {
-    "operationId": "backups_cleanup_get"
+    "operationId": "backups_cleanup_settings_agent_v1_admin_backups_cleanup_settings_get"
    },
    "put": {
-    "operationId": "backups_cleanup_set"
+    "operationId": "put_backups_cleanup_settings_agent_v1_admin_backups_cleanup_settings_put"
    }
   },
   "/agent/v1/admin/backups/copy": {
    "post": {
-    "operationId": "backups_copy"
+    "operationId": "copy_backup_agent_v1_admin_backups_copy_post"
    }
   },
   "/agent/v1/admin/backups/{name}/versions": {
    "get": {
-    "operationId": "backup_versions",
+    "operationId": "backup_versions_agent_v1_admin_backups__name__versions_get",
     "query": [
      "cursor",
      "limit"
     ]
    }
   },
-  "/agent/v1/admin/backups/{name}/versions/{version}/manifest": {
+  "/agent/v1/admin/backups/{name}/versions/{version_id}/manifest": {
    "get": {
-    "operationId": "backup_manifest"
+    "operationId": "backup_manifest_agent_v1_admin_backups__name__versions__version_id__manifest_get"
    }
   },
   "/agent/v1/admin/chats/room-requests": {
@@ -88,10 +88,10 @@
   },
   "/agent/v1/admin/chats/rooms/{room_id}/notes": {
    "get": {
-    "operationId": "chat_admin_notes_get"
+    "operationId": "admin_connector_get_rooms_room_id_notes"
    },
    "put": {
-    "operationId": "chat_admin_notes_update"
+    "operationId": "admin_connector_put_rooms_room_id_notes"
    }
   },
   "/agent/v1/admin/chats/rooms/{room_id}/settings": {
@@ -124,7 +124,7 @@
   },
   "/agent/v1/admin/handoffs": {
    "get": {
-    "operationId": "handoffs_list",
+    "operationId": "list_handoffs_agent_v1_admin_handoffs_get",
     "query": [
      "before_id",
      "limit",
@@ -134,7 +134,7 @@
   },
   "/agent/v1/admin/handoffs/{id}": {
    "get": {
-    "operationId": "handoff_get"
+    "operationId": "get_handoff_agent_v1_admin_handoffs__id__get"
    }
   },
   "/agent/v1/admin/history/sessions": {
@@ -498,12 +498,12 @@
   },
   "/agent/v1/backup": {
    "get": {
-    "operationId": "backup_status"
+    "operationId": "backup_status_agent_v1_backup_get"
    }
   },
   "/agent/v1/backup/save": {
    "post": {
-    "operationId": "backup_save"
+    "operationId": "backup_save_agent_v1_backup_save_post"
    }
   },
   "/agent/v1/chat/attachments": {
