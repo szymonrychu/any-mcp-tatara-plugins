@@ -50,10 +50,6 @@ ALL_TOOLS = {
     "orchestrator_project_chat_read",
     "orchestrator_chat_notes_get",
     "orchestrator_chat_notes_update",
-    "orchestrator_chat_skills_list",
-    "orchestrator_chat_skills_get",
-    "orchestrator_chat_skills_save",
-    "orchestrator_chat_skills_delete",
 }
 SPEC_TOOLS = {
     "orchestrator_spec_list",
