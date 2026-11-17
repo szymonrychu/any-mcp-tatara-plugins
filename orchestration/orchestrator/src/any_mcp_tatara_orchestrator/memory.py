@@ -31,8 +31,8 @@ _GET_NOTES = (
     "gave, work in progress and repeatable workflows saved by earlier sessions of the room, plus "
     "rule, the standing instructions for room notes and skills. Leader only. Answers room_id, "
     "body, version, chars, max_chars and rule; version 0 means no notes yet. 409 room_unbound "
-    "when this session has no chat room yet (it gets one with its first orchestrator_chat_send "
-    "or the first chat message)."
+    'when this session has no chat room yet (it gets one with the first <chat-send room="..."> '
+    "envelope in its answer or the first chat message)."
 )
 _UPDATE_NOTES = (
     "Replace the notes of your chat room with body (the whole new text, not a delta). Pass "

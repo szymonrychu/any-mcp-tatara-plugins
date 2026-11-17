@@ -1,14 +1,14 @@
 """The orchestrator plugin: agents call the agents-orchestrator agent API ``/agent/v1``.
 
 Besides leadership, locks, scale, init scripts, session messaging and the activity pull, it
-offers four chat tools (``chat_rooms``, ``chat_send``, ``chat_react``, ``chat_status``) through
-which a session leader reaches the user's chat, and six room memory tools (``chat_notes_get``,
-``chat_notes_update``, ``chat_skills_list``, ``chat_skills_get``, ``chat_skills_save``,
-``chat_skills_delete``) for the notes and skills of its room. A chat room and a session are bound
-one to one: a session talks in at most one room, its bound room. ``self_close`` lets the leader
-of a finished session ask the orchestrator to discard it once every agent is idle. The backup
-tools (``backup_save``, ``backup_status`` and the superleader ``backups_*``, ``handoff*`` and
-``chat_admin_notes_*`` rows) are declared in ``admin.py``.
+offers the chat tool ``chat_rooms`` (a leader reaches a chat room with a ``<chat-send ...>``
+envelope at a line start of its answer, not with a tool), and six room memory tools
+(``chat_notes_get``, ``chat_notes_update``, ``chat_skills_list``, ``chat_skills_get``,
+``chat_skills_save``, ``chat_skills_delete``) for the notes and skills of its room. A chat room
+and a session are bound one to one: a session talks in at most one room, its bound room.
+``self_close`` lets the leader of a finished session ask the orchestrator to discard it once
+every agent is idle. The backup tools (``backup_save``, ``backup_status`` and the superleader
+``backups_*``, ``handoff*`` and ``chat_admin_notes_*`` rows) are declared in ``admin.py``.
 """
 
 from __future__ import annotations
@@ -520,63 +520,9 @@ class OrchestratorPlugin(Plugin):
                 "while you are bound to none it holds every unbound room whose user flagged it "
                 "agents_may_initiate. Each entry has room_id, name, kind, bound, "
                 "agents_may_initiate and agents_may_send_files (whether you may send files "
-                "there with orchestrator_chat_send files). Leader only."
-            ),
-            "chat_send": (
-                "Send a message to the user's chat. Leader only. The final answer of a turn "
-                "reaches the chat only for chat-started turns (a turn that began with a <chat> "
-                "message); in every other turn, and for follow-ups, call this tool, and do not "
-                "send in a chat-started turn what your final answer already says, or the user "
-                "gets it twice. Asynchronous: returns an id s<n> at once with status queued and "
-                "never waits for delivery; read the outcome with orchestrator_chat_status. "
-                "Optional room is a room_id from orchestrator_chat_rooms; omitted, the message "
-                "goes to your bound room (or to the room of reply_to). Optional reply_to quotes a "
-                "message and takes the m<n> shown on a <message> of a chat turn or an s<n> this "
-                "tool returned. A session talks in at most one chat room, its bound room, and "
-                "starts a chat only in an unbound room flagged agents_may_initiate while it is "
-                "bound to none. A room bound to another session that agents may start a chat in "
-                "is relayed: the text is posted there by that session's connection, prefixed "
-                "with your slug, and the answer is 202 {status: relayed, via, send_id, "
-                "message_id}. Its outcome is not readable with orchestrator_chat_status. "
-                "Follow-ups arrive as <session-message> turns from the via session. Answer them "
-                "with orchestrator_chat_send to the same room (relayed again) and without "
-                "reply_to (a relay never quotes). 409 occupier_closing means retry after "
-                "retry_after seconds. Other rooms bound to another session are refused with "
-                "room_bound, and a second room while you are bound with session_bound. Text is "
-                "1 to 16000 characters. Never ask the user a question here: ask it with "
-                "orchestrator_decision_ask (a permission to act: orchestrator_approval_ask); never "
-                "list approvals or relay an answer to one here; a link to the task is fine. "
-                "The user's reply arrives as a new turn framed <chat ...>. "
-                "Optional files (at most 4) are paths relative to your working directory; "
-                "text or files is required, so a message may be files only. Each file is sent "
-                "after the text as a separate Messenger message: images up to 8 MB, any other "
-                "file up to 25 MB. Only paths are passed, the bytes never go through this "
-                "call. The room's 'Agents may send files' switch is off by default and only "
-                "the user sets it, in the web UI (the room's agents_may_send_files, listed by "
-                "orchestrator_chat_rooms); until then a send with files is refused with 403 "
-                "files_not_allowed, and a switch turned off after queueing refuses the send "
-                "(status refused, reason files_not_allowed). A file you received can be "
-                "forwarded by its .attachments/... path. Dotfiles, .env and key files "
-                "(*.pem, *.key, id_rsa*, id_ed25519*, credentials*) are refused with 422 "
-                "invalid_file_path, as are paths with .. or an absolute path; a missing file "
-                "is 404 file_not_found and an oversize one 413 file_too_large. A room held by "
-                "another session (the relayed case) answers 409 files_not_relayable."
-            ),
-            "chat_react": (
-                "React to a chat message with an emoji. Leader only. to takes the m<n> shown on a "
-                "<message> of a chat turn or an s<n> from orchestrator_chat_send; key is the "
-                "emoji (1 to 16 characters, no spaces). The room is the one of the message, so "
-                "it must be your bound room, or an unbound room flagged agents_may_initiate "
-                "while you are bound to none. Asynchronous: returns an id s<n> at once; read the "
-                "outcome with orchestrator_chat_status."
-            ),
-            "chat_status": (
-                "Read the delivery status of a chat send by its id s<n> (from "
-                "orchestrator_chat_send or orchestrator_chat_react). Leader only. Answers id, "
-                "kind (message or reaction), status (queued, sending, sent, failed or refused), "
-                "reason, room_id, created_at and sent_at. A send with files also answers "
-                "files, a list of {name, mime, size, status} per file. Only your own "
-                "session's sends are known."
+                "there with files in a <chat-send> envelope). Leader only. Reach a room with a "
+                '<chat-send room="...">...</chat-send> envelope at a line start of your answer, '
+                'and react with <chat-react to="m<n>" key="..."/>.'
             ),
             "chat_history": (
                 "Read the history of your chat room. Leader only. The room is the session's "
@@ -615,10 +561,11 @@ class OrchestratorPlugin(Plugin):
             ),
             "self_close": (
                 "Close this session for good once your work is done and reported. Leader only. "
-                "Call it as the last action of your turn, after your final answer or "
-                "orchestrator_chat_send has delivered the result: the session is discarded about "
-                "30 seconds after every agent is idle and no message is queued, exactly like a "
-                "user discard (workspace cache and transcripts are saved by the session's cache "
+                "Call it as the last action of your turn, after your final answer "
+                "(with any <chat-send> envelope) has delivered the result: the session is "
+                "discarded about 30 seconds after every agent is idle and no message is queued, "
+                "exactly like a user discard (workspace cache and transcripts are saved by the "
+                "session's cache "
                 "rules; agents, workspace volume and chat history are deleted). A message that "
                 "arrives before then delays the close; the user can cancel it from the web UI. "
                 "reason (1 to 500 characters) tells the user why; it is shown with the pending "
@@ -777,57 +724,6 @@ class OrchestratorPlugin(Plugin):
                 "*",
             ),
             spec("chat_rooms", "GET", "/chat/rooms", _schema({})),
-            spec(
-                "chat_send",
-                "POST",
-                "/chat/messages",
-                _schema(
-                    {
-                        "text": {
-                            "type": "string",
-                            "description": "Message text; text or files is required.",
-                        },
-                        "files": {
-                            "type": "array",
-                            "items": {"type": "string", "minLength": 1, "maxLength": 512},
-                            "maxItems": 4,
-                            "description": (
-                                "Paths relative to your working directory (at most 4); "
-                                "the room must allow agent files."
-                            ),
-                        },
-                        "room": {"type": "string", "description": "A room_id from chat_rooms."},
-                        "reply_to": {
-                            "type": "string",
-                            "description": "Message to quote: m<n> from a chat turn or s<n>.",
-                        },
-                    },
-                    [],
-                ),
-                "*",
-            ),
-            spec(
-                "chat_react",
-                "POST",
-                "/chat/reactions",
-                _schema(
-                    {
-                        "to": {
-                            "type": "string",
-                            "description": "Message to react to: m<n> or s<n>.",
-                        },
-                        "key": {"type": "string", "description": "The emoji."},
-                    },
-                    ["to", "key"],
-                ),
-                "*",
-            ),
-            spec(
-                "chat_status",
-                "GET",
-                "/chat/messages/{id}",
-                _schema({"id": {"type": "string", "description": "The s<n> of a send."}}, ["id"]),
-            ),
             spec(
                 "chat_history",
                 "GET",

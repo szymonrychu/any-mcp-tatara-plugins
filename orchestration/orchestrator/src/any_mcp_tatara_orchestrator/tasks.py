@@ -413,7 +413,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "/tasks/{key}/decisions",
             "Ask the user a decision on a task, with 2 to 8 options, exactly one marked "
             "recommended. This is the only channel for a question to the user: never ask a "
-            "question in chat (orchestrator_chat_send) or in your final answer. When the action "
+            "question in chat (a <chat-send> envelope) or in your final answer. When the action "
             "the decision unblocks was blocked by a tool, permission or sandbox block, the same "
             "decision also asks for the fix of that block, so one answer unblocks it. "
             "Not blocking: continue other work. " + _ANSWER + " The task counts "

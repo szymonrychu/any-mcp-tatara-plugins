@@ -932,7 +932,7 @@ def test_chat_open_requires_target_and_task() -> None:
 def test_chat_open_description_mentions_confirm_flow() -> None:
     text = rows_by_name()["chat_open"].description
     for word in ("chat_open_confirm", "chat_open_status", "chat_room_allow", "session_create",
-                 "session_send", "chat_send", "candidates", "vanity"):  # fmt: skip
+                 "session_send", "chat-send", "candidates", "vanity"):  # fmt: skip
         assert word in text, word
 
 
