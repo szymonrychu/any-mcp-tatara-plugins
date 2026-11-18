@@ -2,9 +2,8 @@
 
 Besides leadership, locks, scale, init scripts, session messaging and the activity pull, it
 offers the chat tool ``chat_rooms`` (a leader reaches a chat room with a ``<chat-send ...>``
-envelope at a line start of its answer, not with a tool), and six room memory tools
-(``chat_notes_get``, ``chat_notes_update``, ``chat_skills_list``, ``chat_skills_get``,
-``chat_skills_save``, ``chat_skills_delete``) for the notes and skills of its room. A chat room
+envelope at a line start of its answer, not with a tool), and two room memory tools
+(``chat_notes_get``, ``chat_notes_update``) for the notes of its room. A chat room
 and a session are bound one to one: a session talks in at most one room, its bound room.
 ``self_close`` lets the leader of a finished session ask the orchestrator to discard it once
 every agent is idle. The backup tools (``backup_save``, ``backup_status`` and the superleader

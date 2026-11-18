@@ -36,10 +36,6 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_project_summary(project?)` | `GET /agent/v1/projects/summary` (task and spec counts per project in your scope; every project for a superleader) |
 | `orchestrator_chat_notes_get` | `GET /agent/v1/chat/notes` (notes of the session's own chat room, leader only; room is never a parameter) |
 | `orchestrator_chat_notes_update(body, expected_version)` | `PUT /agent/v1/chat/notes` (replace the notes; 409 `version_conflict`, 413 `notes_too_large`) |
-| `orchestrator_chat_skills_list` | `GET /agent/v1/chat/skills` |
-| `orchestrator_chat_skills_get(name)` | `GET /agent/v1/chat/skills/{name}` |
-| `orchestrator_chat_skills_save(name, description, body, expected_version)` | `PUT /agent/v1/chat/skills/{name}` (body without name; 409 `skill_limit`) |
-| `orchestrator_chat_skills_delete(name)` | `DELETE /agent/v1/chat/skills/{name}` |
 | `orchestrator_self_close(reason)` | `POST /agent/v1/close` (close the session once idle, leader only) |
 
 Task tools (`tasks.py`, `views.py`): `decision_withdraw` takes `reason` and exactly one of `superseded_by` (decision id) or `answered_elsewhere` (text); `task_get` takes a `view` (`summary` default, `open_decisions`, `todo`,

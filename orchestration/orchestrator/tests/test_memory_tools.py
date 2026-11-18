@@ -1,4 +1,4 @@
-"""T-124 P1: the six room memory tools (chat notes and skills)."""
+"""T-124 P1: the two room memory tools (chat notes; chat skills were removed)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 
+from any_mcp._fastmcp_adapter import ProtocolError
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.memory import memory_tools
@@ -26,12 +28,7 @@ CONFIG: dict[str, Any] = {
 NAMES = [
     "chat_notes_get",
     "chat_notes_update",
-    "chat_skills_list",
-    "chat_skills_get",
-    "chat_skills_save",
-    "chat_skills_delete",
 ]
-NAME_PATTERN = "^[a-z0-9][a-z0-9-]{0,63}$"
 
 
 def harness(handler: Any) -> PluginHarness:
@@ -70,31 +67,6 @@ async def test_chat_memory_tools_call_agent_routes() -> None:
                 {"body": "## Preferences\n- terse", "expected_version": 2},
             ),
         ),
-        ("chat_skills_list", {}, ("GET", "/agent/v1/chat/skills", None)),
-        (
-            "chat_skills_get",
-            {"name": "deck-tune"},
-            ("GET", "/agent/v1/chat/skills/deck-tune", None),
-        ),
-        (
-            "chat_skills_save",
-            {
-                "name": "deck-tune",
-                "description": "Tune a deck",
-                "body": "1. open",
-                "expected_version": 0,
-            },
-            (
-                "PUT",
-                "/agent/v1/chat/skills/deck-tune",
-                {"description": "Tune a deck", "body": "1. open", "expected_version": 0},
-            ),
-        ),
-        (
-            "chat_skills_delete",
-            {"name": "deck-tune"},
-            ("DELETE", "/agent/v1/chat/skills/deck-tune", None),
-        ),
     ]
     async with harness(handler) as h:
         for name, args, expected in calls:
@@ -111,13 +83,6 @@ async def test_chat_memory_tools_call_agent_routes() -> None:
 async def test_chat_memory_errors_surface_code() -> None:
     errors = {
         "chat_notes_update": (409, "version_conflict", {"body": "x", "expected_version": 1}),
-        "chat_skills_save": (
-            409,
-            "skill_limit",
-            {"name": "a", "description": "d", "body": "b", "expected_version": 0},
-        ),
-        "chat_skills_get": (404, "skill_not_found", {"name": "a"}),
-        "chat_skills_delete": (404, "skill_not_found", {"name": "a"}),
         "chat_notes_get": (409, "room_unbound", {}),
     }
 
@@ -149,10 +114,6 @@ async def test_chat_memory_schemas_and_annotations() -> None:
     ann = {
         "chat_notes_get": (True, False, True),
         "chat_notes_update": (False, False, True),
-        "chat_skills_list": (True, False, True),
-        "chat_skills_get": (True, False, True),
-        "chat_skills_save": (False, False, True),
-        "chat_skills_delete": (False, True, True),
     }
     for name, (ro, destructive, idem) in ann.items():
         spec = specs[name]
@@ -169,18 +130,6 @@ async def test_chat_memory_schemas_and_annotations() -> None:
     upd = specs["chat_notes_update"].input_schema
     assert set(upd["required"]) == {"body", "expected_version"}
     assert upd["properties"]["expected_version"]["minimum"] == 0
-    for name in ("chat_skills_get", "chat_skills_save", "chat_skills_delete"):
-        schema = specs[name].input_schema
-        assert "name" in schema["required"], name
-        assert schema["properties"]["name"]["pattern"] == NAME_PATTERN, name
-    save = specs["chat_skills_save"].input_schema
-    assert set(save["required"]) == {"name", "description", "body", "expected_version"}
-    assert (
-        save["properties"]["description"]["minLength"],
-        save["properties"]["description"]["maxLength"],
-    ) == (1, 1024)
-    assert save["properties"]["body"]["minLength"] == 1
-    assert save["properties"]["expected_version"]["minimum"] == 0
 
     sent: list[httpx.Request] = []
 
@@ -192,10 +141,6 @@ async def test_chat_memory_schemas_and_annotations() -> None:
         for name, args in (
             ("chat_notes_get", {"room": "!r:x"}),
             ("chat_notes_update", {"body": "x", "expected_version": 0, "room": "!r:x"}),
-            ("chat_skills_get", {"name": "Bad_Name"}),
-            ("chat_skills_get", {"name": "-lead"}),
-            ("chat_skills_delete", {"name": "../x"}),
-            ("chat_skills_save", {"name": "a", "description": "d", "body": "b"}),
         ):
             result = await h.call(f"orchestrator_{name}", args)
             assert result.is_error, (name, args)
@@ -210,3 +155,11 @@ async def test_chat_memory_routes_exist_in_the_orchestrator_openapi() -> None:
     for spec in memory_tools("http://orch.test:8081"):
         assert spec.http is not None
         assert (spec.http.method, norm(spec.http.path)) in known, spec.name
+
+
+async def test_no_chat_skills_tools() -> None:
+    """The chat skills feature is removed (T-505): no tool, no route."""
+    assert not [s.name for s in memory_tools("http://orch.test:8081") if "skills" in s.name]
+    async with harness(lambda request: httpx.Response(200, json={})) as h:
+        with pytest.raises(ProtocolError, match="unknown tool"):
+            await h.call("orchestrator_chat_skills_list", {})
