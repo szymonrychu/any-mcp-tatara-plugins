@@ -549,25 +549,14 @@
     "operationId": "rooms_agent_v1_chat_rooms_get"
    }
   },
-  "/agent/v1/chat/skills": {
-   "get": {
-    "operationId": "skills_list_agent_v1_chat_skills_get"
-   }
-  },
-  "/agent/v1/chat/skills/{name}": {
-   "delete": {
-    "operationId": "skill_delete_agent_v1_chat_skills__name__delete"
-   },
-   "get": {
-    "operationId": "skill_get_agent_v1_chat_skills__name__get"
-   },
-   "put": {
-    "operationId": "skill_put_agent_v1_chat_skills__name__put"
-   }
-  },
   "/agent/v1/close": {
    "post": {
     "operationId": "close_agent_v1_close_post"
+   }
+  },
+  "/agent/v1/envelope/stop": {
+   "post": {
+    "operationId": "stop_agent_v1_envelope_stop_post"
    }
   },
   "/agent/v1/handoff": {
