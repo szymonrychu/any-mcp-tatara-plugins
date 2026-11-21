@@ -1138,7 +1138,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "text of that section, not a delta); the same item as chat_notes_update. "
         "expected_version is the version of that section from chat_admin_notes_get (0 to "
         "create); 409 version_conflict: re-read that section, merge and retry. 413 "
-        "section_too_large: condense that section. 413 notes_too_large: condense another "
+        "section_too_large: condense that section. 413 notes_too_large: condense that "
         "section. An empty body forgets that section. Rules files in the notes "
         "apply from the next session of the room, not the running one. Never store secrets.",
         schema(

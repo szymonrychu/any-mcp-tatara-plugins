@@ -48,7 +48,7 @@ _UPDATE_NOTES = (
     "section, not a delta). expected_version is the version of that section from the last "
     "orchestrator_chat_notes_get or update (0 to create). On 409 version_conflict re-read "
     "that section and merge. 413 section_too_large: condense that section. 413 "
-    "notes_too_large: condense another section. An empty body forgets that section. Never "
+    "notes_too_large: condense that section. An empty body forgets that section. Never "
     "store secrets. Leader only."
 )
 
