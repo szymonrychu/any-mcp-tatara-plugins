@@ -26,6 +26,7 @@ from any_mcp_tatara_orchestrator.admin import (
     summarize_sessions,
 )
 from any_mcp_tatara_orchestrator.fit import measure
+from any_mcp_tatara_orchestrator.memory import SECTIONS
 
 OPENAPI = json.loads((Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text())
 CONFIG: dict[str, Any] = {
@@ -1628,7 +1629,7 @@ BACKUP_ROUTES = [
     ("handoffs_list", "GET", "/agent/v1/admin/handoffs"),
     ("handoff_get", "GET", "/agent/v1/admin/handoffs/{}"),
     ("chat_admin_notes_get", "GET", "/agent/v1/admin/chats/rooms/{}/notes"),
-    ("chat_admin_notes_update", "PUT", "/agent/v1/admin/chats/rooms/{}/notes"),
+    ("chat_admin_notes_update", "PUT", "/agent/v1/admin/chats/rooms/{}/notes/sections/{}"),
 ]
 
 
@@ -1664,8 +1665,18 @@ def test_backup_arg_shapes() -> None:
     assert rows["backups_list"].query == ("q", "limit", "cursor")
     assert rows["backup_versions"].query == ("limit", "cursor")
     assert rows["handoffs_list"].query == ("session", "limit", "before_id")
+    assert rows["chat_admin_notes_get"].query == ("section",)
+    for name in ("chat_admin_notes_get", "chat_admin_notes_update"):
+        assert rows[name].schema["properties"]["section"]["enum"] == list(SECTIONS), name
+    assert rows["chat_admin_notes_update"].schema["required"] == [
+        "room_id",
+        "section",
+        "body",
+        "expected_version",
+    ]
     assert set(rows["chat_admin_notes_update"].schema["properties"]) == {
         "room_id",
+        "section",
         "body",
         "expected_version",
     }
@@ -1686,7 +1697,11 @@ async def test_backup_tools_call_their_routes() -> None:
         ("backup_versions", {"name": "a", "limit": 5}),
         ("backup_manifest", {"name": "a", "version": "v1"}),
         ("handoffs_list", {"session": "mx-1", "limit": 3}),
-        ("chat_admin_notes_update", {"room_id": "r1", "body": "x", "expected_version": 1}),
+        (
+            "chat_admin_notes_update",
+            {"room_id": "r1", "section": "requests", "body": "x", "expected_version": 1},
+        ),
+        ("chat_admin_notes_get", {"room_id": "r1", "section": "requests"}),
     ]
     async with harness(handler) as h:
         for name, args in calls:
@@ -1704,8 +1719,9 @@ async def test_backup_tools_call_their_routes() -> None:
         ("GET", "/agent/v1/admin/handoffs", "session=mx-1&limit=3", None),
         (
             "PUT",
-            "/agent/v1/admin/chats/rooms/r1/notes",
+            "/agent/v1/admin/chats/rooms/r1/notes/sections/requests",
             "",
             {"body": "x", "expected_version": 1},
         ),
+        ("GET", "/agent/v1/admin/chats/rooms/r1/notes", "section=requests", None),
     ]
