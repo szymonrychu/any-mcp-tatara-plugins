@@ -1454,7 +1454,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "Save a mounted volume as a new version of its backup now (answers 202, the save runs "
         "in the background; volumes_status shows the result). Only for a volume attached with "
         "backup_restore true, else 403 backup_not_enabled. 404 for a name that is not mounted "
-        "in this session, 409 volume_busy while another save runs.",
+        "in this session, 409 volume_busy while the volume is not ready (saving, restoring or "
+        "resizing).",
         schema({"name": _str("Volume name (from volumes_status).")}, ("name",)),
     ),
     AdminRow(
@@ -1486,7 +1487,9 @@ _ROWS: tuple[AdminRow, ...] = (
         "access, docker) and any other preset, or that is RW on a privileged preset, is a "
         "cross-trust attach: nothing is applied and the answer is 202 with a proposal the "
         "user approves (follow it with proposal_get); any other attach answers 200 with the "
-        "preset.",
+        "preset. Errors: 403 volume_cross_trust for a cross-trust attach (file a proposal "
+        "instead), 409 when the volume is busy or the attach conflicts, 422 for an invalid "
+        "mount path or attachment.",
         schema(
             {
                 "ref": _REF,
