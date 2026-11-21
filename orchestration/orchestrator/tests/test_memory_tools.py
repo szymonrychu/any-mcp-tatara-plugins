@@ -13,7 +13,7 @@ import pytest
 from any_mcp._fastmcp_adapter import ProtocolError
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
-from any_mcp_tatara_orchestrator.memory import SECTIONS, memory_tools
+from any_mcp_tatara_orchestrator.memory import memory_tools
 
 OPENAPI = json.loads((Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text())
 TOKEN = "tok-for-tests"
@@ -163,10 +163,11 @@ async def test_chat_memory_schemas_and_annotations() -> None:
             assert not sent, (name, args)
 
 
-@pytest.mark.parametrize("name", ["chat_notes_get", "chat_notes_update"])
-def test_notes_tools_section_enum_is_the_five_sections(name: str) -> None:
-    spec = {s.name: s for s in memory_tools("http://orch.test:8081")}[name]
-    assert spec.input_schema["properties"]["section"]["enum"] == SECTIONS
+def test_notes_update_413_advice_condenses_that_section_for_both_caps() -> None:
+    """The connector room memory rule: on either 413, condense the written section."""
+    spec = {s.name: s for s in memory_tools("http://orch.test:8081")}["chat_notes_update"]
+    assert "notes_too_large: condense that section" in spec.description
+    assert "another section" not in spec.description
 
 
 async def test_notes_get_sends_section_as_query() -> None:
