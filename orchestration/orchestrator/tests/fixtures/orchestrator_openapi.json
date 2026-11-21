@@ -210,6 +210,14 @@
     "operationId": "attach_vault_agent_v1_admin_presets__ref__vault__entry_id__put"
    }
   },
+  "/agent/v1/admin/presets/{ref}/volumes/{volume_id}": {
+   "delete": {
+    "operationId": "detach_volume_agent_v1_admin_presets__ref__volumes__volume_id__delete"
+   },
+   "post": {
+    "operationId": "attach_volume_agent_v1_admin_presets__ref__volumes__volume_id__post"
+   }
+  },
   "/agent/v1/admin/projects": {
    "post": {
     "operationId": "create_project_agent_v1_admin_projects_post"
@@ -440,6 +448,19 @@
     ]
    }
   },
+  "/agent/v1/admin/volumes": {
+   "get": {
+    "operationId": "list_volumes_agent_v1_admin_volumes_get"
+   },
+   "post": {
+    "operationId": "create_volume_agent_v1_admin_volumes_post"
+   }
+  },
+  "/agent/v1/admin/volumes/{volume_id}": {
+   "get": {
+    "operationId": "get_volume_agent_v1_admin_volumes__volume_id__get"
+   }
+  },
   "/agent/v1/admin/webhooks/endpoints": {
    "get": {
     "operationId": "admin_webhook_get_endpoints"
@@ -494,16 +515,6 @@
   "/agent/v1/approvals": {
    "get": {
     "operationId": "approvals_agent_v1_approvals_get"
-   }
-  },
-  "/agent/v1/backup": {
-   "get": {
-    "operationId": "backup_status_agent_v1_backup_get"
-   }
-  },
-  "/agent/v1/backup/save": {
-   "post": {
-    "operationId": "backup_save_agent_v1_backup_save_post"
    }
   },
   "/agent/v1/chat/attachments": {
@@ -719,6 +730,16 @@
    },
    "put": {
     "operationId": "item_agent_v1_tasks__path__put"
+   }
+  },
+  "/agent/v1/volumes": {
+   "get": {
+    "operationId": "volumes_status_agent_v1_volumes_get"
+   }
+  },
+  "/agent/v1/volumes/{name}/save": {
+   "post": {
+    "operationId": "volume_save_agent_v1_volumes__name__save_post"
    }
   }
  }

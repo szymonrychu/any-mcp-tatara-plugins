@@ -1440,34 +1440,122 @@ _ROWS: tuple[AdminRow, ...] = (
         "settings.",
     ),
     AdminRow(
-        "backup_save",
+        "volumes_status",
+        "GET",
+        "/volumes",
+        "The shared volumes mounted in this session: name, mount path, mode (ro or rw), "
+        "whether backup_restore is on, the volume state and its last save and restore result. "
+        "Names, sizes and states only, never file listings.",
+    ),
+    AdminRow(
+        "volume_save",
         "POST",
-        "/backup/save",
-        "Save a directory of this session as a new version of its backup entry now: call after "
-        "writing a skill, rule or script so other sessions of the project get it. root is "
-        "workspace or claude, path the entry path inside that root; it must match an entry of "
-        "the session's backup list. The new version becomes current, the earlier one stays as "
-        "a version (no merge). Answers the save status; backup_status shows the entries. "
-        "404 until the orchestrator carries the backup routes.",
+        "/volumes/{name}/save",
+        "Save a mounted volume as a new version of its backup now (answers 202, the save runs "
+        "in the background; volumes_status shows the result). Only for a volume attached with "
+        "backup_restore true, else 403 backup_not_enabled. 404 for a name that is not mounted "
+        "in this session, 409 volume_busy while another save runs.",
+        schema({"name": _str("Volume name (from volumes_status).")}, ("name",)),
+    ),
+    AdminRow(
+        "volumes_list",
+        "GET",
+        f"{_A}/volumes",
+        "List the volumes that share a project with you: id, name, projects, size, state and "
+        "the number of attached presets and mounted sessions. Names, ids, sizes and states "
+        "only, never descriptions, file listings or manifests. Read ids for volume_get, "
+        "volume_attach and volume_detach here.",
+    ),
+    AdminRow(
+        "volume_get",
+        "GET",
+        f"{_A}/volumes/{{volume_id}}",
+        "One volume of your projects with the presets that attach it (preset, mode, mount "
+        "path, backup_restore). 404 volume_not_found for an unknown volume or one of other "
+        "projects.",
+        schema({"volume_id": _str("Volume id (uuid), from volumes_list.")}, ("volume_id",)),
+    ),
+    AdminRow(
+        "volume_attach",
+        "POST",
+        f"{_A}/presets/{{ref}}/volumes/{{volume_id}}",
+        "Attach a volume to a manageable preset; it is mounted in new sessions of the preset. "
+        "mode ro or rw, mount_path absolute (default /volumes/<name>), backup_restore true "
+        "opts the attachment into the automatic restore and save-on-last-release. An attach "
+        "that would share the volume between a privileged preset (cluster access, namespace "
+        "access, docker) and any other preset, or that is RW on a privileged preset, is a "
+        "cross-trust attach: nothing is applied and the answer is 202 with a proposal the "
+        "user approves (follow it with proposal_get); any other attach answers 200 with the "
+        "preset.",
         schema(
             {
-                "root": {
+                "ref": _REF,
+                "volume_id": _str("Volume id (uuid), from volumes_list."),
+                "mode": {
                     "type": "string",
-                    "enum": ["workspace", "claude"],
-                    "description": "Which root holds the path.",
+                    "enum": ["ro", "rw"],
+                    "description": "Read-only or read-write mount.",
                 },
-                "path": _str("Entry path inside the root."),
+                "mount_path": _str(
+                    "Absolute mount path, at most 200 characters; default /volumes/<name>."
+                ),
+                "backup_restore": {
+                    "type": "boolean",
+                    "description": "Restore the volume from its backup on start and save it "
+                    "when the last session releases it. Default false.",
+                },
             },
-            ("root", "path"),
+            ("ref", "volume_id", "mode"),
         ),
         "*",
     ),
     AdminRow(
-        "backup_status",
-        "GET",
-        "/backup",
-        "The backup entries of this session (root, path, mode, name, live, after_init) with the "
-        "last restore and save result of each and its warnings.",
+        "volume_detach",
+        "DELETE",
+        f"{_A}/presets/{{ref}}/volumes/{{volume_id}}",
+        "Detach a volume from a manageable preset; sessions already running keep the mount, "
+        "new sessions do not get it. The volume and its content stay.",
+        schema(
+            {"ref": _REF, "volume_id": _str("Volume id (uuid), from volumes_list.")},
+            ("ref", "volume_id"),
+        ),
+    ),
+    AdminRow(
+        "volume_create",
+        "POST",
+        f"{_A}/volumes",
+        "Ask for a new volume: this never creates it, it files a volume_create proposal "
+        "(answer 202) the user approves on the Proposals page; follow it with proposal_get. "
+        "name is lowercase letters, digits and hyphens, at most 40 characters. size is a "
+        "Kubernetes quantity such as 10Gi (default from the deploy, capped).",
+        schema(
+            {
+                "name": _str("Volume name, ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$."),
+                "projects": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string"},
+                    "description": "Project slugs the volume belongs to (labels, not isolation).",
+                },
+                "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000,
+                    "description": "Why the volume is needed, shown to the user who approves.",
+                },
+                "size": _str("Quantity such as 10Gi."),
+                "description": {"type": "string", "maxLength": 2000},
+                "labels": {"type": "array", "items": {"type": "string"}},
+                "exclude": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Path patterns left out of the volume backup.",
+                },
+                "client_key": {"type": "string", "maxLength": 200},
+            },
+            ("name", "projects", "reason"),
+        ),
+        "*",
     ),
     AdminRow(
         "backups_list",
