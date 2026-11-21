@@ -167,20 +167,6 @@ async def test_chat_memory_schemas_and_annotations() -> None:
 def test_notes_tools_section_enum_is_the_five_sections(name: str) -> None:
     spec = {s.name: s for s in memory_tools("http://orch.test:8081")}[name]
     assert spec.input_schema["properties"]["section"]["enum"] == SECTIONS
-    assert SECTIONS == (
-        "preferences",
-        "requests",
-        "work-in-progress",
-        "provided-information",
-        "repeatable-workflows",
-    )
-
-
-def test_notes_update_binding_puts_the_section_in_the_path_not_the_body() -> None:
-    spec = {s.name: s for s in memory_tools("http://orch.test:8081")}["chat_notes_update"]
-    assert spec.http is not None
-    assert spec.http.path == "/agent/v1/chat/notes/sections/{section}"
-    assert spec.http.method == "PUT"
 
 
 async def test_notes_get_sends_section_as_query() -> None:

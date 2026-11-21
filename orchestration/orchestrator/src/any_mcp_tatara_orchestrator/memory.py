@@ -1,7 +1,7 @@
 """The room memory tools: the notes of the chat room bound to the session.
 
 The orchestrator relays them under ``/agent/v1/chat/notes`` to the chat connector, which
-resolves the room from the caller session's active binding; the room is x
+resolves the room from the caller session's active binding.
 """
 
 from __future__ import annotations
