@@ -13,7 +13,7 @@ import pytest
 from any_mcp._fastmcp_adapter import ProtocolError
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
-from any_mcp_tatara_orchestrator.memory import memory_tools
+from any_mcp_tatara_orchestrator.memory import SECTIONS, memory_tools
 
 OPENAPI = json.loads((Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text())
 TOKEN = "tok-for-tests"
@@ -58,13 +58,14 @@ async def test_chat_memory_tools_call_agent_routes() -> None:
 
     calls: list[tuple[str, dict[str, Any], tuple[str, str, Any]]] = [
         ("chat_notes_get", {}, ("GET", "/agent/v1/chat/notes", None)),
+        ("chat_notes_get", {"section": "requests"}, ("GET", "/agent/v1/chat/notes", None)),
         (
             "chat_notes_update",
-            {"body": "## Preferences\n- terse", "expected_version": 2},
+            {"section": "preferences", "body": "- terse", "expected_version": 2},
             (
                 "PUT",
-                "/agent/v1/chat/notes",
-                {"body": "## Preferences\n- terse", "expected_version": 2},
+                "/agent/v1/chat/notes/sections/preferences",
+                {"body": "- terse", "expected_version": 2},
             ),
         ),
     ]
@@ -82,7 +83,11 @@ async def test_chat_memory_tools_call_agent_routes() -> None:
 
 async def test_chat_memory_errors_surface_code() -> None:
     errors = {
-        "chat_notes_update": (409, "version_conflict", {"body": "x", "expected_version": 1}),
+        "chat_notes_update": (
+            409,
+            "version_conflict",
+            {"section": "requests", "body": "x", "expected_version": 1},
+        ),
         "chat_notes_get": (409, "room_unbound", {}),
     }
 
@@ -105,7 +110,13 @@ async def test_chat_memory_errors_surface_code() -> None:
 
     for name, (status, code, args) in errors.items():
         await run(status, code, name, args)
-    await run(413, "notes_too_large", "chat_notes_update", {"body": "x", "expected_version": 1})
+    for code in ("section_too_large", "notes_too_large"):
+        await run(
+            413,
+            code,
+            "chat_notes_update",
+            {"section": "requests", "body": "x", "expected_version": 1},
+        )
 
 
 async def test_chat_memory_schemas_and_annotations() -> None:
@@ -126,9 +137,9 @@ async def test_chat_memory_schemas_and_annotations() -> None:
         assert spec.input_schema["additionalProperties"] is False, name
         assert "Leader only" in spec.description, name
 
-    assert specs["chat_notes_get"].input_schema["properties"] == {}
+    assert set(specs["chat_notes_get"].input_schema["properties"]) == {"section"}
     upd = specs["chat_notes_update"].input_schema
-    assert set(upd["required"]) == {"body", "expected_version"}
+    assert set(upd["required"]) == {"section", "body", "expected_version"}
     assert upd["properties"]["expected_version"]["minimum"] == 0
 
     sent: list[httpx.Request] = []
@@ -140,11 +151,48 @@ async def test_chat_memory_schemas_and_annotations() -> None:
     async with harness(record) as h:
         for name, args in (
             ("chat_notes_get", {"room": "!r:x"}),
-            ("chat_notes_update", {"body": "x", "expected_version": 0, "room": "!r:x"}),
+            (
+                "chat_notes_update",
+                {"section": "requests", "body": "x", "expected_version": 0, "room": "!r:x"},
+            ),
+            ("chat_notes_get", {"section": "other"}),
+            ("chat_notes_update", {"section": "notes", "body": "x", "expected_version": 0}),
         ):
             result = await h.call(f"orchestrator_{name}", args)
             assert result.is_error, (name, args)
             assert not sent, (name, args)
+
+
+@pytest.mark.parametrize("name", ["chat_notes_get", "chat_notes_update"])
+def test_notes_tools_section_enum_is_the_five_sections(name: str) -> None:
+    spec = {s.name: s for s in memory_tools("http://orch.test:8081")}[name]
+    assert spec.input_schema["properties"]["section"]["enum"] == SECTIONS
+    assert SECTIONS == (
+        "preferences",
+        "requests",
+        "work-in-progress",
+        "provided-information",
+        "repeatable-workflows",
+    )
+
+
+def test_notes_update_binding_puts_the_section_in_the_path_not_the_body() -> None:
+    spec = {s.name: s for s in memory_tools("http://orch.test:8081")}["chat_notes_update"]
+    assert spec.http is not None
+    assert spec.http.path == "/agent/v1/chat/notes/sections/{section}"
+    assert spec.http.method == "PUT"
+
+
+async def test_notes_get_sends_section_as_query() -> None:
+    sent: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json={})
+
+    async with harness(record) as h:
+        assert not (await h.call("orchestrator_chat_notes_get", {"section": "requests"})).is_error
+    assert sent[0].url.query.decode() == "section=requests"
 
 
 async def test_chat_memory_routes_exist_in_the_orchestrator_openapi() -> None:
