@@ -27,7 +27,6 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_init_scripts_get` | `GET /agent/v1/init-scripts` |
 | `orchestrator_init_scripts_edit(scripts)` | `PUT /agent/v1/init-scripts` |
 | `orchestrator_sessions_list` | `GET /agent/v1/sessions` |
-| `orchestrator_session_send(slug, text)` | `POST /agent/v1/sessions/{slug}/messages` (body `{"text"}`; asynchronous, answers a message id) |
 | `orchestrator_chat_rooms` | `GET /agent/v1/chat/rooms` |
 | `orchestrator_chat_history(before?, after?, from?, limit?)` | `GET /agent/v1/chat/history` (leader; the bound room's messages `m<n>`, `s<n>`, `o<n>`, newest fitting the output budget; default limit 20) |
 | `orchestrator_chat_attachment_fetch(id)` | `POST /agent/v1/chat/attachments` (leader; queues the download of the attachment of `m<n>`, the file arrives later as a new turn) |
@@ -147,14 +146,14 @@ changes and human-only fields of presets, schedules and session specs go there. 
 the target's spec. Proposals carry no secrets; a call with a `secrets` argument is refused by the closed schema before
 any request.
 
-The plugin always lists the seventeen agent tools, the admin tools (vault and proposal tools included). Which an agent sees is decided by the `allow` list of the
+The plugin always lists the sixteen agent tools, the admin tools (vault and proposal tools included). Which an agent sees is decided by the `allow` list of the
 entry the orchestrator renders (`scale` only on a scalable session, the hive tools only in a hive).
-The session tools `sessions_list` and `session_send` are rendered for every session; the
-orchestrator decides what each session may list and send: a superleader session's leader lists and
-messages every other session, any other session's leader lists and messages the other sessions of
+The session tool `sessions_list` is rendered for every session; the
+orchestrator decides what each session may list and message: a superleader session's leader lists and
+messages every other session (a `<session-send to="slug">` envelope in its own text), any other session's leader lists and messages the other sessions of
 its project and the superleader sessions (a send to another project is refused with
 `project_forbidden`, unless that session messaged it in the reply window). A message arrives at the target leader as a new turn framed
-`<session-message from="<slug>" ...>`; an answer is a send back to that slug. The chat tools
+`<message-in channel="session" from="<slug>" id="...">`; an answer is a `<session-send>` back to that slug (a project room post is a `<project-post to="a,b" reply_to="p12">` envelope; `orchestrator_project_chat_read` stays a tool). The chat tools
 reach the user's chat through the orchestrator, leader only. The final answer of a turn reaches the
 chat only for a chat-started turn; at any other time the leader reaches a room with a
 `<chat-send room="...">...</chat-send>` envelope at a line start of its answer, and reacts with
@@ -167,8 +166,8 @@ refusal codes are `room_not_allowed`, `room_not_authorised`, `bad_reference`, `r
 hive tool descriptions start with "You are agent <agent>, one of up to <max_replicas> agents in hive
 <slug>; the workdir is shared.". The handover description no longer
 advises a context threshold: the orchestrator sends a `handover_due` note when a handover is due.
-`orchestrator_leadership_handover` and `orchestrator_session_send` take an optional `handled`
-(up to 50 integers): the ids (the `id` attribute of `<session-message>`) of messages from other
+`orchestrator_leadership_handover` takes an optional `handled`
+(up to 50 integers): the ids (the `id` attribute of a `<message-in>`) of messages from other
 sessions the call answers or that need no answer; unmarked ones carry over to the next leader.
 `orchestrator_me` tells the leader its answer carries `leader_state`, the live generated state, to
 read first after taking over; its and the handover description end with the re-read rule for
@@ -197,7 +196,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.59.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.60.0
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

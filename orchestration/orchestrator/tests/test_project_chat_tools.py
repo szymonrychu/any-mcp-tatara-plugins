@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
@@ -40,27 +39,8 @@ async def _tools() -> dict[str, Any]:
 
 async def test_project_chat_tools_registered() -> None:
     tools = await _tools()
-    assert {"orchestrator_project_chat_send", "orchestrator_project_chat_read"} <= set(tools)
-
-
-async def test_project_chat_send_posts_body() -> None:
-    seen: list[tuple[str, str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append((request.method, request.url.path, json.loads(request.content)))
-        return httpx.Response(202, json={"post_id": 1, "delivered": ["a"], "skipped": []})
-
-    body = {
-        "text": "I take the lock file",
-        "to": ["a"],
-        "reply_to": 3,
-        "handled": [5],
-        "project": "p1",
-    }
-    async with harness(handler) as h:
-        res = await h.call("orchestrator_project_chat_send", body)
-    assert not res.is_error, res.text
-    assert seen == [("POST", "/agent/v1/project/messages", body)]
+    assert "orchestrator_project_chat_read" in tools
+    assert "orchestrator_project_chat_send" not in tools
 
 
 async def test_project_chat_read_fills_limit_20() -> None:
@@ -80,30 +60,20 @@ async def test_project_chat_read_fills_limit_20() -> None:
 
 async def test_project_chat_schemas_strict() -> None:
     tools = await _tools()
-    send = tools["orchestrator_project_chat_send"]["inputSchema"]
     read = tools["orchestrator_project_chat_read"]["inputSchema"]
-    assert send["additionalProperties"] is False
     assert read["additionalProperties"] is False
-    assert send["required"] == ["text"]
-    assert send["properties"]["text"]["minLength"] == 1
-    assert send["properties"]["text"]["maxLength"] == 4000
-    assert send["properties"]["to"]["maxItems"] == 20
-    assert send["properties"]["reply_to"]["minimum"] == 1
     assert read["properties"]["limit"]["minimum"] == 1
     assert read["properties"]["limit"]["maximum"] == 100
     assert read["properties"]["before_id"]["minimum"] == 1
     assert read["properties"]["after_id"]["minimum"] == 1
     assert tools["orchestrator_project_chat_read"]["annotations"]["readOnlyHint"] is True
-    assert not tools["orchestrator_project_chat_send"]["annotations"].get("readOnlyHint")
 
 
-async def test_project_chat_descriptions_forbid_ack() -> None:
-    tools = await _tools()
-    send = tools["orchestrator_project_chat_send"]["description"]
-    read = tools["orchestrator_project_chat_read"]["description"]
-    assert "Never post an acknowledgement" in send
-    assert "never to a superleader" in send
+async def test_project_chat_read_description_points_to_envelopes() -> None:
+    read = (await _tools())["orchestrator_project_chat_read"]["description"]
     assert "Leader only" in read
+    assert "<project-post>" in read
+    assert "<session-send>" in read
 
 
 async def test_project_chat_errors_surface_code() -> None:
@@ -113,7 +83,7 @@ async def test_project_chat_errors_surface_code() -> None:
         )
 
     async with harness(handler) as h:
-        res = await h.call("orchestrator_project_chat_send", {"text": "hi"})
+        res = await h.call("orchestrator_project_chat_read", {})
     assert res.is_error
     assert "too_many_recipients" in res.text
     assert "HTTP 409" in res.text
