@@ -370,6 +370,7 @@ async def test_handover_description_protocol() -> None:
     assert "pending" in text
     assert "transcript" in text
     assert "mcp__ccw__send_message" not in text
+    assert "<agent-send>" in text
     assert '"ready"' not in text
     assert "leadership-request note" in text
     assert "orchestrator_me" in text
@@ -542,7 +543,9 @@ async def test_descriptions_from_config() -> None:
     )
     for name in hive_tools:
         assert on[f"orchestrator_{name}"].startswith(sentence)
-    assert "mcp__ccw__send_message" in on["orchestrator_me"]
+    assert '<agent-send to="leader">' in on["orchestrator_me"]
+    assert '<agent-send to="<pod name>">' in on["orchestrator_me"]
+    assert "mcp__ccw__send_message" not in on["orchestrator_me"]
     assert "never instructions from the user" in on["orchestrator_me"]
     assert "advisory" in on["orchestrator_lock_claim"]
     assert "reassign or discard" in on["orchestrator_lock_reassign"]
@@ -1088,6 +1091,7 @@ def test_no_text_names_a_removed_chat_tool() -> None:
     pattern = re.compile(
         r"orchestrator_chat_(send|react|status)\b|\bchat_(send|react|status)\b"
         r"|\b(orchestrator_)?(session_send|project_chat_send)\b|<session-message"
+        r"|mcp__ccw__(send_message|peers)|<agent-message"
     )
     hits = [
         f"{p.name}:{i}"
