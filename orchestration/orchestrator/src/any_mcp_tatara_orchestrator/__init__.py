@@ -6,8 +6,8 @@ envelope at a line start of its answer, not with a tool), and two room memory to
 (``chat_notes_get``, ``chat_notes_update``) for the notes of its room. A chat room
 and a session are bound one to one: a session talks in at most one room, its bound room.
 ``self_close`` lets the leader of a finished session ask the orchestrator to discard it once
-every agent is idle. The backup tools (``backup_save``, ``backup_status`` and the superleader
-``backups_*``, ``handoff*`` and ``chat_admin_notes_*`` rows) are declared in ``admin.py``.
+every agent is idle. The volume tools and the superleader backup tools
+(``backups_*``, ``handoff*`` and ``chat_admin_notes_*`` rows) are declared in ``admin.py``.
 """
 
 from __future__ import annotations

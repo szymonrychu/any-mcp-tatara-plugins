@@ -59,7 +59,8 @@ EXPECTED = {
     "backups_cleanup_preview", "usage_history", "usage_sessions",
     "session_labels_update", "session_scale", "session_lock_reassign", "session_message_cancel",
     "project_update", "backups_cleanup_set", "spec_delete", "spec_suggestion_dismiss",
-    "backup_save", "backup_status", "backup_versions", "backup_manifest", "backups_copy",
+    "volumes_status", "volume_save", "volumes_list", "volume_get", "volume_attach",
+    "volume_detach", "volume_create", "backup_versions", "backup_manifest", "backups_copy",
     "handoffs_list", "handoff_get", "chat_admin_notes_get", "chat_admin_notes_update",
 }  # fmt: skip
 READ_ROWS = {
@@ -1617,8 +1618,6 @@ def test_fit_events_dropping_older_items_sets_has_more_before() -> None:
 
 
 BACKUP_ROUTES = [
-    ("backup_save", "POST", "/agent/v1/backup/save"),
-    ("backup_status", "GET", "/agent/v1/backup"),
     ("backups_list", "GET", "/agent/v1/admin/backups"),
     ("backup_versions", "GET", "/agent/v1/admin/backups/{}/versions"),
     ("backup_manifest", "GET", "/agent/v1/admin/backups/{}/versions/{}/manifest"),
@@ -1656,12 +1655,6 @@ def test_backups_copy_has_no_merge_arg() -> None:
 
 def test_backup_arg_shapes() -> None:
     rows = rows_by_name()
-    save = rows["backup_save"]
-    assert save.schema["properties"]["root"]["enum"] == ["workspace", "claude"]
-    assert save.schema["required"] == ["root", "path"]
-    assert "after writing a skill, rule or script so other sessions of the project get it" in (
-        save.description
-    )
     assert rows["backups_list"].query == ("q", "limit", "cursor")
     assert rows["backup_versions"].query == ("limit", "cursor")
     assert rows["handoffs_list"].query == ("session", "limit", "before_id")
@@ -1692,7 +1685,6 @@ async def test_backup_tools_call_their_routes() -> None:
         return httpx.Response(200, json={"ok": True})
 
     calls = [
-        ("backup_save", {"root": "claude", "path": "skills"}),
         ("backups_copy", {"source": "a", "source_version": "v1", "target": "b"}),
         ("backup_versions", {"name": "a", "limit": 5}),
         ("backup_manifest", {"name": "a", "version": "v1"}),
@@ -1707,7 +1699,6 @@ async def test_backup_tools_call_their_routes() -> None:
         for name, args in calls:
             assert not (await h.call(name, args)).is_error, name
     assert seen == [
-        ("POST", "/agent/v1/backup/save", "", {"root": "claude", "path": "skills"}),
         (
             "POST",
             "/agent/v1/admin/backups/copy",
@@ -1725,3 +1716,73 @@ async def test_backup_tools_call_their_routes() -> None:
         ),
         ("GET", "/agent/v1/admin/chats/rooms/r1/notes", "section=requests", None),
     ]
+
+
+def test_entry_backup_tools_are_gone() -> None:
+    assert {"backup_save", "backup_status"}.isdisjoint(rows_by_name())
+
+
+VOLUME_CALLS = [
+    ("volumes_status", {}, "GET", "/agent/v1/volumes", "", None),
+    ("volume_save", {"name": "data"}, "POST", "/agent/v1/volumes/data/save", "", None),
+    ("volumes_list", {}, "GET", "/agent/v1/admin/volumes", "", None),
+    ("volume_get", {"volume_id": "v-1"}, "GET", "/agent/v1/admin/volumes/v-1", "", None),
+    (
+        "volume_attach",
+        {
+            "ref": "dev",
+            "volume_id": "v-1",
+            "mode": "rw",
+            "mount_path": "/data",
+            "backup_restore": True,
+        },
+        "POST",
+        "/agent/v1/admin/presets/dev/volumes/v-1",
+        "",
+        {"mode": "rw", "mount_path": "/data", "backup_restore": True},
+    ),
+    (
+        "volume_detach",
+        {"ref": "dev", "volume_id": "v-1"},
+        "DELETE",
+        "/agent/v1/admin/presets/dev/volumes/v-1",
+        "",
+        None,
+    ),
+    (
+        "volume_create",
+        {
+            "name": "data",
+            "projects": ["p1"],
+            "reason": "shared cache",
+            "size": "10Gi",
+            "exclude": ["tmp"],
+        },
+        "POST",
+        "/agent/v1/admin/volumes",
+        "",
+        {
+            "name": "data",
+            "projects": ["p1"],
+            "reason": "shared cache",
+            "size": "10Gi",
+            "exclude": ["tmp"],
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize(("name", "args", "method", "path", "query", "body"), VOLUME_CALLS)
+async def test_volume_tools_map_to_their_routes(
+    name: str, args: dict[str, Any], method: str, path: str, query: str, body: Any
+) -> None:
+    seen: list[tuple[str, str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, request.url.query.decode(), sent))
+        return httpx.Response(200, json={"ok": True})
+
+    async with harness(handler) as h:
+        assert not (await h.call(name, args)).is_error
+    assert seen == [(method, path, query, body)]
