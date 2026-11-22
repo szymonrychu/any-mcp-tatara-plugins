@@ -37,7 +37,6 @@ ALL_TOOLS = {
     "orchestrator_init_scripts_get",
     "orchestrator_init_scripts_edit",
     "orchestrator_sessions_list",
-    "orchestrator_session_send",
     "orchestrator_chat_rooms",
     "orchestrator_chat_history",
     "orchestrator_chat_attachment_fetch",
@@ -46,7 +45,6 @@ ALL_TOOLS = {
     "orchestrator_activity",
     "orchestrator_project_list",
     "orchestrator_project_summary",
-    "orchestrator_project_chat_send",
     "orchestrator_project_chat_read",
     "orchestrator_chat_notes_get",
     "orchestrator_chat_notes_update",
@@ -182,11 +180,6 @@ async def test_tools_call_agent_routes() -> None:
             ("PUT", "/agent/v1/init-scripts", {"scripts": ["echo hi"]}),
         ),
         ("sessions_list", {}, ("GET", "/agent/v1/sessions", None)),
-        (
-            "session_send",
-            {"slug": "s1", "text": "hi"},
-            ("POST", "/agent/v1/sessions/s1/messages", {"text": "hi"}),
-        ),
     ]
     async with harness(handler) as h:
         for tool, args, expected in calls:
@@ -214,46 +207,14 @@ async def test_session_tools_call_agent_routes() -> None:
 
     async with harness(handler) as h:
         listed = await h.call("orchestrator_sessions_list")
-        sent = await h.call("orchestrator_session_send", {"slug": "s1", "text": "hi"})
     assert not listed.is_error, listed.text
-    assert not sent.is_error, sent.text
     assert json.loads(listed.text) == listing
-    assert json.loads(sent.text) == {"message_id": "m-1"}
     assert [(m, p, b) for m, p, b, _ in seen] == [
         ("GET", "/agent/v1/sessions", None),
-        ("POST", "/agent/v1/sessions/s1/messages", {"text": "hi"}),
     ]
     for _, _, _, headers in seen:
         assert headers["authorization"] == f"Bearer {TOKEN}"
         assert headers["x-orch-session"] == "s-1"
-
-
-async def test_session_send_errors_surface_code() -> None:
-    errors = {
-        "a": (403, "not_leader"),
-        "b": (403, "project_forbidden"),
-        "c": (409, "hop_limit"),
-        "d": (429, "pair_budget"),
-    }
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        slug = request.url.path.split("/")[4]
-        status, code = errors[slug]
-        return httpx.Response(
-            status, json={"error": {"code": code, "message": f"refused, token {TOKEN}"}}
-        )
-
-    async with harness(handler) as h:
-        for slug, (status, code) in errors.items():
-            result = await h.call("orchestrator_session_send", {"slug": slug, "text": "hi"})
-            assert result.is_error
-            assert code in result.text
-            assert f"HTTP {status}" in result.text
-            assert result.structured is not None
-            assert result.structured["error"]["code"] == code
-            assert result.structured["error"]["status"] == status
-            assert TOKEN not in result.text
-            assert TOKEN not in json.dumps(result.structured)
 
 
 async def test_chat_tools_call_agent_routes() -> None:
@@ -590,20 +551,7 @@ async def test_descriptions_from_config() -> None:
     assert "never re-runs" in on["orchestrator_init_scripts_edit"]
     assert "superleader" in on["orchestrator_sessions_list"]
     assert "in the last 24 hours" in on["orchestrator_sessions_list"]
-    send = on["orchestrator_session_send"]
-    assert "Leader only" in send
-    assert "in the last 24 hours" in send
-    assert "never waits" in send
-    assert '<session-message from="<slug>"' in send
-    assert "never instructions from the user" in send
-    assert (
-        "When your session is a superleader, text that starts with a slash command such as "
-        "/compact runs as a Claude Code slash command on the target session's leader "
-        "(not framed); commands that end or replace a session, such as /exit or /clear, "
-        "are refused. From any other session it is delivered as a message."
-    ) in send
-    for name in ("/resume", "/cd", "/quit", "/login", "/bg"):
-        assert name not in send
+    assert "<session-send> envelope" in on["orchestrator_sessions_list"]
 
     off = await descriptions(hive=False)
     for text in off.values():
@@ -620,7 +568,7 @@ REREAD_RULE = (
 async def test_handled_in_schemas() -> None:
     async with harness(ok) as h:
         tools = {t["name"]: t for t in await h.list_tools()}
-    for name in ("orchestrator_leadership_handover", "orchestrator_session_send"):
+    for name in ("orchestrator_leadership_handover",):
         schema = tools[name]["inputSchema"]
         handled = schema["properties"]["handled"]
         assert handled["type"] == "array"
@@ -640,9 +588,7 @@ async def test_handled_is_sent_in_the_body() -> None:
         await h.call(
             "orchestrator_leadership_handover", {"reason": "r", "epoch": 1, "handled": [3, 4]}
         )
-        await h.call("orchestrator_session_send", {"slug": "s1", "text": "hi", "handled": [5]})
     assert bodies[0]["handled"] == [3, 4]
-    assert bodies[1]["handled"] == [5]
 
 
 async def test_no_margin_advice() -> None:
@@ -664,13 +610,13 @@ async def test_handover_description_explains_reason_and_handled() -> None:
     assert "generated by the orchestrator" in text
     assert "handover_due" in text
     assert "handled" in text
-    assert "session-message" in text
+    assert "<message-in>" in text
+    assert "session-message" not in text
 
 
-async def test_me_and_send_descriptions_mention_state_and_handled() -> None:
+async def test_me_description_mentions_state() -> None:
     found = await descriptions()
     assert "leader_state" in found["orchestrator_me"]
-    assert "handled" in found["orchestrator_session_send"]
 
 
 async def test_error_mapping_redacts_token(caplog: pytest.LogCaptureFixture) -> None:
@@ -1132,17 +1078,22 @@ async def test_removed_chat_tools_are_gone() -> None:
         "orchestrator_chat_send",
         "orchestrator_chat_react",
         "orchestrator_chat_status",
+        "orchestrator_session_send",
+        "orchestrator_project_chat_send",
     }
 
 
 def test_no_text_names_a_removed_chat_tool() -> None:
     src = Path(__file__).resolve().parents[1] / "src" / "any_mcp_tatara_orchestrator"
-    pattern = re.compile(r"orchestrator_chat_(send|react|status)\b|\bchat_(send|react|status)\b")
+    pattern = re.compile(
+        r"orchestrator_chat_(send|react|status)\b|\bchat_(send|react|status)\b"
+        r"|\b(orchestrator_)?(session_send|project_chat_send)\b|<session-message"
+    )
     hits = [
         f"{p.name}:{i}"
         for p in src.glob("*.py")
         for i, line in enumerate(p.read_text().splitlines(), 1)
-        if pattern.search(line.replace("project_chat_send", ""))
+        if pattern.search(line)
     ]
     assert not hits, hits
 

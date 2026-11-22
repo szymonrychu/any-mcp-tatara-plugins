@@ -11,7 +11,7 @@ HANDLED: dict[str, Any] = {
     "items": {"type": "integer"},
     "maxItems": 50,
     "description": (
-        "Ids (the id attribute of <session-message>) of messages from other sessions this call "
+        "Ids (the id attribute of a <message-in>) of messages from other sessions this call "
         "answers or that need no answer; unmarked ones carry over to the next leader."
     ),
 }

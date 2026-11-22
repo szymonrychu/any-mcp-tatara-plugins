@@ -148,7 +148,7 @@ async def test_project_list_exists_in_the_orchestrator_openapi() -> None:
 async def test_project_chat_rows_exist_in_the_orchestrator_openapi() -> None:
     known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
     by_name = {s.name: s for s in await specs()}
-    for name in ("project_chat_send", "project_chat_read"):
+    for name in ("project_chat_read",):
         http = by_name[name].http
         assert http is not None
         assert (http.method, norm(http.path)) in known, name
@@ -934,7 +934,7 @@ def test_chat_open_requires_target_and_task() -> None:
 def test_chat_open_description_mentions_confirm_flow() -> None:
     text = rows_by_name()["chat_open"].description
     for word in ("chat_open_confirm", "chat_open_status", "chat_room_allow", "session_create",
-                 "session_send", "chat-send", "candidates", "vanity"):  # fmt: skip
+                 "session-send", "chat-send", "candidates", "vanity"):  # fmt: skip
         assert word in text, word
 
 
