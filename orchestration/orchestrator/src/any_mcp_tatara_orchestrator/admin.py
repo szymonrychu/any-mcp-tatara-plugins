@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .fit import measure
+from .memory import SECTIONS
 
 __all__ = [
     "ADMIN_TOOLS",
@@ -173,6 +174,7 @@ def _bounded_int(low: int, high: int, text: str) -> dict[str, Any]:
 
 
 _OBJ = {"type": "object"}
+_NOTES_SECTION = {"type": "string", "enum": list(SECTIONS), "description": "The notes section."}
 _REF = _str("Preset id or name.")
 _PROJECT = _str("Project slug of an existing project (see project_list).")
 _GRANT_TEXT = (
@@ -1118,31 +1120,39 @@ _ROWS: tuple[AdminRow, ...] = (
         "chat_admin_notes_get",
         "GET",
         f"{_A}/chats/rooms/{{room_id}}/notes",
-        "Superleader only: read the notes of any chat room by room_id: body, version, chars, "
-        "max_chars and rule (the standing instructions for room notes). version 0 means no "
-        "notes yet.",
-        schema({"room_id": _ROOM_ID}, ("room_id",)),
+        "Superleader only: read the notes of any chat room by room_id. Without section it "
+        "answers the room totals (chars, max_chars, section_max_chars), the five sections "
+        "(preferences, requests, work-in-progress, provided-information, repeatable-workflows) "
+        "each with version, chars and inject, the rendered body and rule (the standing "
+        "instructions for room notes). provided-information and repeatable-workflows are not "
+        "in the first prompt: read them with section, which answers that section in full.",
+        schema({"room_id": _ROOM_ID, "section": _NOTES_SECTION}, ("room_id",)),
+        None,
+        ("section",),
     ),
     AdminRow(
         "chat_admin_notes_update",
         "PUT",
-        f"{_A}/chats/rooms/{{room_id}}/notes",
-        "Superleader only: replace the notes of a chat room with body (the whole new text, "
-        "not a delta); the same item as chat_notes_update. expected_version is the version "
-        "from chat_admin_notes_get (0 to create); 409 version_conflict: re-read, merge and "
-        "retry. At most max_chars characters (413 notes_too_large). Rules files in the notes "
+        f"{_A}/chats/rooms/{{room_id}}/notes/sections/{{section}}",
+        "Superleader only: replace one section of a chat room's notes with body (the whole new "
+        "text of that section, not a delta); the same item as chat_notes_update. "
+        "expected_version is the version of that section from chat_admin_notes_get (0 to "
+        "create); 409 version_conflict: re-read that section, merge and retry. 413 "
+        "section_too_large: condense that section. 413 notes_too_large: condense that "
+        "section. An empty body forgets that section. Rules files in the notes "
         "apply from the next session of the room, not the running one. Never store secrets.",
         schema(
             {
                 "room_id": _ROOM_ID,
+                "section": _NOTES_SECTION,
                 "body": {"type": "string"},
                 "expected_version": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "The version you last read; 0 to create.",
+                    "description": "The version of this section you last read; 0 to create.",
                 },
             },
-            ("room_id", "body", "expected_version"),
+            ("room_id", "section", "body", "expected_version"),
         ),
         "*",
     ),

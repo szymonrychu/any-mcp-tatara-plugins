@@ -34,8 +34,8 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_chat_attachment_status(request_id)` | `GET /agent/v1/chat/attachments/{request_id}` (status of a fetch `a<n>`) |
 | `orchestrator_project_list` | `GET /agent/v1/projects` (your own project; a superleader also gets archived ones) |
 | `orchestrator_project_summary(project?)` | `GET /agent/v1/projects/summary` (task and spec counts per project in your scope; every project for a superleader) |
-| `orchestrator_chat_notes_get` | `GET /agent/v1/chat/notes` (notes of the session's own chat room, leader only; room is never a parameter) |
-| `orchestrator_chat_notes_update(body, expected_version)` | `PUT /agent/v1/chat/notes` (replace the notes; 409 `version_conflict`, 413 `notes_too_large`) |
+| `orchestrator_chat_notes_get(section?)` | `GET /agent/v1/chat/notes` (notes of the session's own chat room, leader only; room is never a parameter; `section` is one of preferences, requests, work-in-progress, provided-information, repeatable-workflows) |
+| `orchestrator_chat_notes_update(section, body, expected_version)` | `PUT /agent/v1/chat/notes/sections/{section}` (replace one section; 409 `version_conflict`, 413 `section_too_large` or `notes_too_large`) |
 | `orchestrator_self_close(reason)` | `POST /agent/v1/close` (close the session once idle, leader only) |
 
 Task tools (`tasks.py`, `views.py`): `decision_withdraw` takes `reason` and exactly one of `superseded_by` (decision id) or `answered_elsewhere` (text); `task_get` takes a `view` (`summary` default, `open_decisions`, `todo`,
@@ -197,7 +197,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.57.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.58.1
     allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
     config:
       base_url: http://orchestrator-agents:8081

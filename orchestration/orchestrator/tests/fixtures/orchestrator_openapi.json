@@ -89,9 +89,11 @@
   "/agent/v1/admin/chats/rooms/{room_id}/notes": {
    "get": {
     "operationId": "admin_connector_get_rooms_room_id_notes"
-   },
+   }
+  },
+  "/agent/v1/admin/chats/rooms/{room_id}/notes/sections/{section}": {
    "put": {
-    "operationId": "admin_connector_put_rooms_room_id_notes"
+    "operationId": "admin_connector_put_rooms_room_id_notes_sections_section"
    }
   },
   "/agent/v1/admin/chats/rooms/{room_id}/settings": {
@@ -544,10 +546,15 @@
   },
   "/agent/v1/chat/notes": {
    "get": {
-    "operationId": "notes_get_agent_v1_chat_notes_get"
-   },
+    "operationId": "notes_get_agent_v1_chat_notes_get",
+    "query": [
+     "section"
+    ]
+   }
+  },
+  "/agent/v1/chat/notes/sections/{section}": {
    "put": {
-    "operationId": "notes_put_agent_v1_chat_notes_put"
+    "operationId": "notes_section_put_agent_v1_chat_notes_sections__section__put"
    }
   },
   "/agent/v1/chat/reactions": {
