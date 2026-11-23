@@ -275,8 +275,8 @@ TASK_CALLS = [
     ("task_create", {"title": "t", "client_key": "k"}),
     ("task_update", {"key": "T-19", "version": 57, "status": "done"}),
     ("task_comment", {"key": "T-19", "body": "hi"}),
-    ("todo_set", {"key": "T-19", "items": [{"text": "x"}]}),
-    ("todo_update", {"key": "T-19", "item_id": "2", "status": "done"}),
+    ("todo", {"op": "set", "key": "T-19", "items": [{"text": "x"}]}),
+    ("todo", {"op": "update", "key": "T-19", "item_id": "2", "status": "done"}),
 ]
 
 
@@ -627,16 +627,22 @@ WRITES = [
         {"key": "T-19", "body": "hi"},
         {"key", "version", "url", "comment_id", "comments_total"},
     ),
-    ("todo_set", {"key": "T-19", "items": [{"text": "x"}]}, {"key", "version", "url", "todo"}),
     (
-        "todo_update",
-        {"key": "T-19", "item_id": "2", "status": "done"},
-        {"key", "version", "url"},
+        "todo",
+        {"op": "set", "key": "T-19", "items": [{"text": "x"}]},
+        {"key", "version", "url", "todo"},
+    ),
+    (
+        "todo",
+        {"op": "update", "key": "T-19", "item_id": "2", "status": "done"},
+        {"key", "version", "url", "todo"},
     ),
 ]
 
 
-@pytest.mark.parametrize(("tool", "args", "keys"), WRITES, ids=[w[0] for w in WRITES])
+@pytest.mark.parametrize(
+    ("tool", "args", "keys"), WRITES, ids=[f"{w[0]}-{w[1].get('op', '')}" for w in WRITES]
+)
 async def test_write_tools_answer_a_short_confirmation(tool: str, args: dict, keys: set) -> None:
     upstream = big_task()
     upstream["events"].append(event(401))
@@ -687,7 +693,7 @@ async def test_schemas_declare_view_and_acks() -> None:
     view = tools["orchestrator_task_get"]["inputSchema"]["properties"]["view"]
     assert view["enum"] == ["summary", "open_decisions", "todo", "events", "comments"]
     assert "default" in view["description"].lower()
-    for name in ("task_create", "task_update", "task_comment", "todo_set", "todo_update"):
+    for name in ("task_create", "task_update", "task_comment", "todo"):
         out = tools[f"orchestrator_{name}"]["outputSchema"]
         assert out["required"] == ["key", "version", "url"]
     for name in ("decision_ask", "decision_withdraw"):

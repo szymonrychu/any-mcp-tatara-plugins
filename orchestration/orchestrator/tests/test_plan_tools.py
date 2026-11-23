@@ -1,4 +1,4 @@
-"""T-116 L4: the plan relay rows (header, steps, next step, gate, section)."""
+"""T-116 L4: the plan relay rows (plan_set, next step) and the merged plan_get."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import httpx
 
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
-from any_mcp_tatara_orchestrator.plan import plan_tools
+from any_mcp_tatara_orchestrator.plan import PLAN_MERGED, plan_tools
 
 OPENAPI = json.loads((Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text())
 CONFIG: dict[str, Any] = {
@@ -21,15 +21,8 @@ CONFIG: dict[str, Any] = {
     "slug": "my-hive",
 }
 ROWS = {
-    "plan_get": ("GET", "/agent/v1/specs/{spec}/plan"),
     "plan_set": ("PUT", "/agent/v1/specs/{spec}/plan"),
-    "plan_steps": ("GET", "/agent/v1/specs/{spec}/steps"),
-    "plan_step_get": ("GET", "/agent/v1/tasks/{key}"),
-    "plan_step_edit": ("PATCH", "/agent/v1/tasks/{key}"),
     "plan_step_next": ("POST", "/agent/v1/specs/{spec}/steps/next"),
-    "plan_step_update": ("PATCH", "/agent/v1/tasks/{key}"),
-    "plan_gate": ("GET", "/agent/v1/specs/{spec}/gate"),
-    "spec_section": ("GET", "/agent/v1/specs/{spec}/docs/{path}/section"),
 }
 
 
@@ -74,61 +67,28 @@ def test_read_rows_are_read_only() -> None:
 def test_descriptions_state_the_stale_and_cap_rules() -> None:
     rows = {s.name: s for s in plan_tools("http://x")}
     assert "current_version" in rows["plan_set"].description
-    assert "32 KiB" in rows["plan_step_edit"].description
     assert "no ready step" in rows["plan_step_next"].description
 
 
 async def test_rows_call_their_routes() -> None:
-    seen: list[tuple[str, str, str, Any]] = []
+    seen: list[tuple[str, str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
-        seen.append((request.method, request.url.path, request.url.query.decode(), body))
-        return httpx.Response(200, json={"key": "T-5", "version": 2, "url": "u", "items": []})
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"key": "T-5", "version": 2})
 
-    calls: list[tuple[str, dict[str, Any]]] = [
-        ("plan_get", {"spec": "S-3"}),
-        ("plan_set", {"spec": "S-3", "version": 1, "goal": "g", "constraints": ["c"]}),
-        ("plan_steps", {"spec": "S-3"}),
-        ("plan_step_get", {"key": "T-5"}),
-        ("plan_step_edit", {"key": "T-5", "version": 2, "title": "n", "model": "sonnet"}),
-        ("plan_step_next", {"spec": "S-3", "claim": True}),
-        (
-            "plan_step_update",
-            {
-                "key": "T-5",
-                "version": 3,
-                "status": "in_progress",
-                "refs": [{"kind": "pr", "value": "x"}],
-            },
-        ),
-        ("plan_gate", {"spec": "S-3"}),
-        ("spec_section", {"spec": "S-3", "path": "plan/a.md", "heading": "goal", "version": 2}),
-    ]
     async with harness(handler) as h:
-        for name, args in calls:
+        for name, args in (
+            ("plan_set", {"spec": "S-3", "version": 1, "goal": "g", "constraints": ["c"]}),
+            ("plan_step_next", {"spec": "S-3", "claim": True}),
+        ):
             res = await h.call(f"orchestrator_{name}", args)
             assert not res.is_error, (name, res.text)
-    assert [(m, p, q) for m, p, q, _ in seen] == [
-        ("GET", "/agent/v1/specs/S-3/plan", ""),
-        ("PUT", "/agent/v1/specs/S-3/plan", ""),
-        ("GET", "/agent/v1/specs/S-3/steps", ""),
-        ("GET", "/agent/v1/tasks/T-5", "events_limit=10&comments_limit=0"),
-        ("PATCH", "/agent/v1/tasks/T-5", ""),
-        ("POST", "/agent/v1/specs/S-3/steps/next", ""),
-        ("PATCH", "/agent/v1/tasks/T-5", ""),
-        ("GET", "/agent/v1/specs/S-3/gate", ""),
-        ("GET", "/agent/v1/specs/S-3/docs/plan/a.md/section", "heading=goal&version=2"),
+    assert seen == [
+        ("PUT", "/agent/v1/specs/S-3/plan", {"version": 1, "goal": "g", "constraints": ["c"]}),
+        ("POST", "/agent/v1/specs/S-3/steps/next", {"claim": True}),
     ]
-    bodies = [b for _, _, _, b in seen]
-    assert bodies[1] == {"version": 1, "goal": "g", "constraints": ["c"]}
-    assert bodies[4] == {"version": 2, "title": "n", "model": "sonnet"}
-    assert bodies[5] == {"claim": True}
-    assert bodies[6] == {
-        "version": 3,
-        "status": "in_progress",
-        "refs": [{"kind": "pr", "value": "x"}],
-    }
 
 
 async def test_plan_step_next_passes_claim_false_by_default() -> None:
@@ -151,7 +111,7 @@ async def test_plan_step_next_204_means_no_ready_step() -> None:
     assert "no ready step" in res.text
 
 
-async def test_plan_step_get_goes_through_the_task_window_fit() -> None:
+async def test_task_get_of_a_step_shows_the_step_fields() -> None:
     seen: list[str] = []
     task = {
         "key": "T-5",
@@ -174,23 +134,12 @@ async def test_plan_step_get_goes_through_the_task_window_fit() -> None:
         return httpx.Response(200, json=task)
 
     async with harness(handler) as h:
-        res = await h.call("orchestrator_plan_step_get", {"key": "T-5"})
+        res = await h.call("orchestrator_task_get", {"key": "T-5"})
     assert not res.is_error, res.text
     out = json.loads(res.text)
     assert out["body"] == "step body" and "comments" not in out
     assert out["step"] == 2 and out["model"] == "sonnet" and out["refs"] == task["refs"]
     assert "events_limit" in seen[0] and "comments_limit=0" in seen[0]
-
-
-async def test_step_writes_answer_a_short_confirmation() -> None:
-    task = {"key": "T-5", "version": 3, "url": "u", "body": "x" * 5000, "comments": []}
-    async with harness(lambda r: httpx.Response(200, json=task)) as h:
-        for name, args in (
-            ("plan_step_edit", {"key": "T-5", "version": 2, "title": "n"}),
-            ("plan_step_update", {"key": "T-5", "version": 2, "status": "done"}),
-        ):
-            res = await h.call(f"orchestrator_{name}", args)
-            assert json.loads(res.text) == {"key": "T-5", "version": 3, "url": "u"}, name
 
 
 async def test_stale_plan_is_surfaced() -> None:
@@ -205,8 +154,8 @@ async def test_stale_plan_is_surfaced() -> None:
     assert plan.is_error and "stale_version" in plan.text
 
 
-def test_plan_gate_description_names_approvable() -> None:
-    rows = {s.name: s for s in plan_tools("http://x")}
-    desc = rows["plan_gate"].description
+def test_plan_get_gate_description_names_approvable() -> None:
+    (plan_get,) = (m.spec() for m in PLAN_MERGED)
+    desc = plan_get.description
     assert "approvable" in desc
     assert "open_decisions" in desc

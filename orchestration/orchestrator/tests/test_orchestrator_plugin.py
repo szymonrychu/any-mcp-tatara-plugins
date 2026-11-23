@@ -35,40 +35,29 @@ CONFIG: dict[str, Any] = {
 }
 ALL_TOOLS = {
     "orchestrator_me",
-    "orchestrator_leadership_handover",
     "orchestrator_handoff_submit",
-    "orchestrator_lock_claim",
-    "orchestrator_lock_release",
-    "orchestrator_lock_list",
-    "orchestrator_lock_reassign",
+    "orchestrator_lock",
     "orchestrator_scale",
-    "orchestrator_init_scripts_get",
-    "orchestrator_init_scripts_edit",
+    "orchestrator_init_scripts",
     "orchestrator_sessions_list",
     "orchestrator_session_send",
     "orchestrator_chat_rooms",
     "orchestrator_chat_history",
-    "orchestrator_chat_attachment_fetch",
-    "orchestrator_chat_attachment_status",
+    "orchestrator_chat_attachment",
     "orchestrator_self_close",
     "orchestrator_activity",
-    "orchestrator_project_list",
-    "orchestrator_project_summary",
+    "orchestrator_project",
     "orchestrator_project_chat_read",
-    "orchestrator_chat_notes_get",
-    "orchestrator_chat_notes_update",
+    "orchestrator_chat_notes",
 }
 SPEC_TOOLS = {
     "orchestrator_spec_list",
     "orchestrator_spec_get",
     "orchestrator_spec_create",
     "orchestrator_spec_update",
-    "orchestrator_spec_versions",
     "orchestrator_spec_comment",
     "orchestrator_spec_comments",
-    "orchestrator_spec_comment_resolve",
-    "orchestrator_spec_queue_list",
-    "orchestrator_spec_queue_move",
+    "orchestrator_spec_queue",
     "orchestrator_spec_pull",
     "orchestrator_spec_push",
 }
@@ -84,13 +73,7 @@ MINDMAP_TOOLS = {
 PLAN_TOOLS = {
     "orchestrator_plan_get",
     "orchestrator_plan_set",
-    "orchestrator_plan_steps",
-    "orchestrator_plan_step_get",
-    "orchestrator_plan_step_edit",
     "orchestrator_plan_step_next",
-    "orchestrator_plan_step_update",
-    "orchestrator_plan_gate",
-    "orchestrator_spec_section",
     "orchestrator_plan_steps_push",
     "orchestrator_plan_export",
     "orchestrator_plan_questions_ask",
@@ -105,9 +88,8 @@ TASK_TOOLS = {
     "orchestrator_decision_withdraw",
     "orchestrator_approval_ask",
     "orchestrator_approval_list",
-    "orchestrator_todo_set",
-    "orchestrator_todo_update",
-    "orchestrator_session_labels_set",
+    "orchestrator_todo",
+    "orchestrator_session_labels",
 }
 
 
@@ -151,40 +133,7 @@ async def test_tools_call_agent_routes() -> None:
         return httpx.Response(200, json={"echo": request.url.path})
 
     calls: list[tuple[str, dict[str, Any], tuple[str, str, Any]]] = [
-        ("me", {}, ("GET", "/agent/v1/me", None)),
-        (
-            "leadership_handover",
-            {"reason": "ctx", "epoch": 4, "to": "agent-1"},
-            (
-                "POST",
-                "/agent/v1/leadership/handover",
-                {"reason": "ctx", "epoch": 4, "to": "agent-1"},
-            ),
-        ),
-        (
-            "leadership_handover",
-            {"reason": "ctx", "epoch": 4},
-            ("POST", "/agent/v1/leadership/handover", {"reason": "ctx", "epoch": 4}),
-        ),
-        ("lock_claim", {"paths": ["a.py"]}, ("POST", "/agent/v1/locks/claim", {"paths": ["a.py"]})),
-        (
-            "lock_release",
-            {"paths": ["a.py"]},
-            ("POST", "/agent/v1/locks/release", {"paths": ["a.py"]}),
-        ),
-        ("lock_list", {}, ("GET", "/agent/v1/locks", None)),
-        (
-            "lock_reassign",
-            {"path": "a.py", "to": None},
-            ("POST", "/agent/v1/locks/reassign", {"path": "a.py", "to": None}),
-        ),
-        ("scale", {"replicas": 2}, ("POST", "/agent/v1/scale", {"replicas": 2})),
-        ("init_scripts_get", {}, ("GET", "/agent/v1/init-scripts", None)),
-        (
-            "init_scripts_edit",
-            {"scripts": ["echo hi"]},
-            ("PUT", "/agent/v1/init-scripts", {"scripts": ["echo hi"]}),
-        ),
+        ("activity", {}, ("GET", "/agent/v1/activity", None)),
         ("sessions_list", {}, ("GET", "/agent/v1/sessions", None)),
     ]
     async with harness(handler) as h:
@@ -221,38 +170,6 @@ async def test_session_tools_call_agent_routes() -> None:
     for _, _, _, headers in seen:
         assert headers["authorization"] == f"Bearer {TOKEN}"
         assert headers["x-orch-session"] == "s-1"
-
-
-async def test_chat_tools_call_agent_routes() -> None:
-    seen: list[tuple[str, str, Any, httpx.Headers]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content) if request.content else None
-        seen.append((request.method, request.url.path, body, request.headers))
-        return httpx.Response(200, json={"echo": request.url.path})
-
-    calls: list[tuple[str, dict[str, Any], tuple[str, str, Any]]] = [
-        ("chat_rooms", {}, ("GET", "/agent/v1/chat/rooms", None)),
-        (
-            "chat_attachment_fetch",
-            {"id": "m3"},
-            ("POST", "/agent/v1/chat/attachments", {"id": "m3"}),
-        ),
-        (
-            "chat_attachment_status",
-            {"request_id": "a4"},
-            ("GET", "/agent/v1/chat/attachments/a4", None),
-        ),
-    ]
-    async with harness(handler) as h:
-        for tool, args, expected in calls:
-            seen.clear()
-            result = await h.call(f"orchestrator_{tool}", args)
-            assert not result.is_error, result.text
-            assert [(m, p, b) for m, p, b, _ in seen] == [expected]
-            assert seen[0][3]["authorization"] == f"Bearer {TOKEN}"
-            assert seen[0][3]["x-orch-session"] == "s-1"
-            assert json.loads(result.text) == {"echo": expected[1]}
 
 
 async def test_self_close_calls_route() -> None:
@@ -370,7 +287,7 @@ async def test_activity_tool_schema_and_description() -> None:
 
 
 async def test_handover_description_protocol() -> None:
-    text = (await descriptions())["orchestrator_leadership_handover"]
+    text = (await descriptions())["orchestrator_handoff_submit"]
     assert "handover_due" in text
     assert "2000" in text
     assert "pending" in text
@@ -390,24 +307,20 @@ async def test_handover_description_protocol() -> None:
 
 async def test_handover_reason_schema() -> None:
     async with harness(ok) as h:
-        tool = next(
-            t for t in await h.list_tools() if t["name"] == "orchestrator_leadership_handover"
-        )
+        tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_handoff_submit")
     reason = tool["inputSchema"]["properties"]["reason"]
     assert reason["minLength"] == 1
     assert reason["maxLength"] == 2000
 
 
-async def test_leadership_handover_has_no_extend() -> None:
+async def test_handover_has_no_extend() -> None:
     async with harness(ok) as h:
-        tool = next(
-            t for t in await h.list_tools() if t["name"] == "orchestrator_leadership_handover"
-        )
+        tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_handoff_submit")
     schema = tool["inputSchema"]
     assert "extend" not in schema["properties"]
     assert "reason" not in schema.get("required", [])
     text = tool["description"]
-    for word in ("extend", "solo", "countdown"):
+    for word in ("extend", "countdown"):
         assert word not in text
     assert "hive leader" in text
 
@@ -441,7 +354,7 @@ async def test_handoff_submit_schema_matches_openapi() -> None:
     props = schema["properties"]
     assert set(props) == {
         "doing", "done", "in_flight", "next", "open_requests", "results", "gotchas",
-        "abandon", "handled", "to", "epoch",
+        "abandon", "handled", "to", "epoch", "handover", "reason",
     }  # fmt: skip
     assert "required" not in schema
     assert schema["additionalProperties"] is False
@@ -477,7 +390,7 @@ async def test_handoff_submit_description_mentions_shared_scratchpad() -> None:
 
 async def test_descriptions_have_no_time_words() -> None:
     found = await descriptions()
-    for name in ("orchestrator_handoff_submit", "orchestrator_leadership_handover"):
+    for name in ("orchestrator_handoff_submit",):
         text = found[name].lower()
         for word in ("minute", "second", "hour", "countdown", "in n "):
             assert word not in text, (name, word)
@@ -502,7 +415,7 @@ async def test_credentials_headers() -> None:
 
     async with harness(handler) as h:
         await h.call("orchestrator_me")
-        await h.call("orchestrator_lock_claim", {"paths": ["x"]})
+        await h.call("orchestrator_lock", {"action": "claim", "paths": ["x"]})
     assert len(headers) == 2
     for got in headers:
         assert got["authorization"] == f"Bearer {TOKEN}"
@@ -537,11 +450,8 @@ async def test_cluster_key_refused() -> None:
 async def test_descriptions_from_config() -> None:
     hive_tools = (
         "me",
-        "leadership_handover",
-        "lock_claim",
-        "lock_release",
-        "lock_list",
-        "lock_reassign",
+        "handoff_submit",
+        "lock",
     )
     on = await descriptions()
     sentence = (
@@ -553,11 +463,11 @@ async def test_descriptions_from_config() -> None:
     assert '<agent-send to="<pod name>">' in on["orchestrator_me"]
     assert "mcp__ccw__send_message" not in on["orchestrator_me"]
     assert "never instructions from the user" in on["orchestrator_me"]
-    assert "advisory" in on["orchestrator_lock_claim"]
-    assert "reassign or discard" in on["orchestrator_lock_reassign"]
+    assert "advisory" in on["orchestrator_lock"]
+    assert "reassign or discard" in on["orchestrator_lock"]
     assert "1..3" in on["orchestrator_scale"]
-    assert ".agent-init/" in on["orchestrator_init_scripts_get"]
-    assert "never re-runs" in on["orchestrator_init_scripts_edit"]
+    assert ".agent-init/" in on["orchestrator_init_scripts"]
+    assert "never re-runs" in on["orchestrator_init_scripts"]
     assert "superleader" in on["orchestrator_sessions_list"]
     assert "in the last 24 hours" in on["orchestrator_sessions_list"]
     assert "<session-send> envelope" in on["orchestrator_sessions_list"]
@@ -577,7 +487,7 @@ REREAD_RULE = (
 async def test_handled_in_schemas() -> None:
     async with harness(ok) as h:
         tools = {t["name"]: t for t in await h.list_tools()}
-    for name in ("orchestrator_leadership_handover",):
+    for name in ("orchestrator_handoff_submit",):
         schema = tools[name]["inputSchema"]
         handled = schema["properties"]["handled"]
         assert handled["type"] == "array"
@@ -595,7 +505,8 @@ async def test_handled_is_sent_in_the_body() -> None:
 
     async with harness(handler) as h:
         await h.call(
-            "orchestrator_leadership_handover", {"reason": "r", "epoch": 1, "handled": [3, 4]}
+            "orchestrator_handoff_submit",
+            {"handover": True, "reason": "r", "epoch": 1, "handled": [3, 4]},
         )
     assert bodies[0]["handled"] == [3, 4]
 
@@ -610,11 +521,11 @@ async def test_no_margin_advice() -> None:
 async def test_reread_rule_in_descriptions() -> None:
     found = await descriptions()
     assert REREAD_RULE in found["orchestrator_me"]
-    assert REREAD_RULE in found["orchestrator_leadership_handover"]
+    assert REREAD_RULE in found["orchestrator_handoff_submit"]
 
 
 async def test_handover_description_explains_reason_and_handled() -> None:
-    text = (await descriptions())["orchestrator_leadership_handover"]
+    text = (await descriptions())["orchestrator_handoff_submit"]
     assert "judgment for the successor" in text
     assert "generated by the orchestrator" in text
     assert "handover_due" in text
@@ -637,7 +548,9 @@ async def test_error_mapping_redacts_token(caplog: pytest.LogCaptureFixture) -> 
 
     caplog.set_level(logging.DEBUG)
     async with harness(handler) as h:
-        result = await h.call("orchestrator_leadership_handover", {"reason": "r", "epoch": 1})
+        result = await h.call(
+            "orchestrator_handoff_submit", {"handover": True, "reason": "r", "epoch": 1}
+        )
     assert result.is_error
     assert "stale_epoch" in result.text
     assert "epoch is 5" in result.text
@@ -717,10 +630,10 @@ async def test_scale_and_init_tools_match_contracts() -> None:
         ):
             r = await h.call("orchestrator_scale", {"replicas": n})
             assert r.is_error and code in r.text
-        r = await h.call("orchestrator_init_scripts_get")
+        r = await h.call("orchestrator_init_scripts")
         assert json.loads(r.text) == scripts
         seen.clear()
-        r = await h.call("orchestrator_init_scripts_edit", {"scripts": ["echo b"]})
+        r = await h.call("orchestrator_init_scripts", {"action": "edit", "scripts": ["echo b"]})
         assert seen == [("PUT", {"scripts": ["echo b"]})]
 
 
@@ -738,7 +651,7 @@ async def test_refused_edit_surfaces_proposable() -> None:
         assert r.is_error and r.structured["error"]["proposable"] is True
         assert r.structured["error"]["fields"] == ["x"]
         assert "proposable: true" in r.text
-        r = await h.call("orchestrator_init_scripts_get")
+        r = await h.call("orchestrator_init_scripts")
         assert r.is_error and "proposable" not in r.text
         assert "proposable" not in r.structured["error"]
 
@@ -775,9 +688,9 @@ async def test_schemas_strict_and_enums() -> None:
     ]
     create = tools["orchestrator_task_create"]["inputSchema"]
     assert create["required"] == ["title", "client_key"]
-    todo = tools["orchestrator_todo_update"]["inputSchema"]["properties"]
+    todo = tools["orchestrator_todo"]["inputSchema"]["properties"]
     assert todo["status"]["enum"] == ["todo", "inprogress", "done"]
-    items = tools["orchestrator_todo_set"]["inputSchema"]["properties"]["items"]
+    items = todo["items"]
     assert items["maxItems"] == 100
     assert items["items"]["additionalProperties"] is False
     assert items["items"]["properties"]["status"]["enum"] == ["todo", "inprogress", "done"]
@@ -788,7 +701,7 @@ async def test_task_tools_accept_project() -> None:
     for name in ("task_create", "task_update", "task_list"):
         props = tools[f"orchestrator_{name}"]["inputSchema"]["properties"]
         assert props["project"]["type"] == "string", name
-        assert "project_list" in props["project"]["description"], name
+        assert "see project" in props["project"]["description"], name
     assert "project" not in tools["orchestrator_task_create"]["inputSchema"]["required"]
     seen: list[tuple[str, str, str, Any]] = []
 
@@ -808,54 +721,6 @@ async def test_task_tools_accept_project() -> None:
     ]
 
 
-async def test_project_list_maps_to_agent_projects() -> None:
-    seen: list[tuple[str, str, str]] = []
-    projects = [{"slug": "default", "name": "Default", "description": "", "archived": False}]
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append((request.method, request.url.path, request.url.query.decode()))
-        return httpx.Response(200, json=projects)
-
-    async with harness(handler) as h:
-        tool = {t["name"]: t for t in await h.list_tools()}["orchestrator_project_list"]
-        res = await h.call("orchestrator_project_list")
-    assert tool["inputSchema"]["properties"] == {}
-    assert tool["annotations"]["readOnlyHint"] is True
-    assert not res.is_error, res.text
-    assert json.loads(res.text) == projects
-    assert seen == [("GET", "/agent/v1/projects", "")]
-
-
-async def test_project_summary_tool() -> None:
-    seen: list[tuple[str, str, str]] = []
-    summary = [{"project": "default", "tasks": {"open": 2}, "specs": 1}]
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append((request.method, request.url.path, request.url.query.decode()))
-        return httpx.Response(200, json=summary)
-
-    openapi = json.loads(
-        (Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text()
-    )
-    known = {(m.upper(), p) for p, ms in openapi["paths"].items() for m in ms}
-    assert ("GET", "/agent/v1/projects/summary") in known
-    async with harness(handler) as h:
-        tool = {t["name"]: t for t in await h.list_tools()}["orchestrator_project_summary"]
-        res = await h.call("orchestrator_project_summary")
-        await h.call("orchestrator_project_summary", {"project": "default"})
-    assert set(tool["inputSchema"]["properties"]) == {"project"}
-    assert tool["inputSchema"]["additionalProperties"] is False
-    assert "required" not in tool["inputSchema"]
-    assert tool["annotations"]["readOnlyHint"] is True
-    assert "project_list" in tool["inputSchema"]["properties"]["project"]["description"]
-    assert not res.is_error, res.text
-    assert json.loads(res.text) == summary
-    assert seen == [
-        ("GET", "/agent/v1/projects/summary", ""),
-        ("GET", "/agent/v1/projects/summary", "project=default"),
-    ]
-
-
 async def test_annotations_per_tool() -> None:
     tools = await tools_by_name()
 
@@ -865,7 +730,7 @@ async def test_annotations_per_tool() -> None:
     for name in ("task_list", "task_get"):
         assert hints(name)["readOnlyHint"] is True
         assert hints(name)["openWorldHint"] is False
-    for name in ("task_update", "todo_set", "todo_update", "decision_withdraw"):
+    for name in ("task_update", "todo", "decision_withdraw"):
         assert hints(name)["idempotentHint"] is True, name
         assert hints(name)["destructiveHint"] is False, name
         assert hints(name).get("readOnlyHint") is not True, name
@@ -951,21 +816,6 @@ async def test_task_get_path_and_method() -> None:
                 {"reason": "moot", "answered_elsewhere": "in chat"},
             ),
         ),
-        (
-            "todo_set",
-            {"key": "T-5", "items": [{"text": "x"}]},
-            ("PUT", "/agent/v1/tasks/T-5/todo", "", {"items": [{"text": "x"}]}),
-        ),
-        (
-            "todo_update",
-            {"key": "T-5", "item_id": "2", "status": "done"},
-            ("PATCH", "/agent/v1/tasks/T-5/todo/2", "", {"status": "done"}),
-        ),
-        (
-            "session_labels_set",
-            {"labels": ["a", "b"]},
-            ("PUT", "/agent/v1/session/labels", "", {"labels": ["a", "b"]}),
-        ),
     ]
     async with harness(handler) as h:
         for tool, args, expected in calls:
@@ -1035,7 +885,7 @@ async def test_409_maps_to_is_error() -> None:
 
 async def test_description_mentions_lifecycle() -> None:
     tools = await tools_by_name()
-    for name in ("task_create", "task_update", "todo_set", "todo_update"):
+    for name in ("task_create", "task_update", "todo"):
         text = tools[f"orchestrator_{name}"]["description"].lower()
         assert "create or claim" in text and "todo" in text and "close" in text, name
     ask = tools["orchestrator_decision_ask"]["description"].lower()
@@ -1045,13 +895,13 @@ async def test_description_mentions_lifecycle() -> None:
 async def test_labels_param_schema_pattern_and_max() -> None:
     tools = await tools_by_name()
     pattern = "^[a-z0-9-_.:]{1,40}$"
-    for name in ("task_create", "task_update", "session_labels_set"):
+    for name in ("task_create", "task_update", "session_labels"):
         labels = tools[f"orchestrator_{name}"]["inputSchema"]["properties"]["labels"]
         assert labels["type"] == "array" and labels["maxItems"] == 20, name
         assert labels["items"]["type"] == "string" and labels["items"]["maxLength"] == 40, name
         assert "pattern" not in labels["items"], name
         assert pattern in labels["description"], name
-    assert tools["orchestrator_session_labels_set"]["inputSchema"]["required"] == ["labels"]
+    assert tools["orchestrator_session_labels"]["inputSchema"]["required"] == ["labels"]
     one = tools["orchestrator_task_list"]["inputSchema"]["properties"]["label"]
     assert one["items"]["maxLength"] == 40 and pattern in one["description"]
 
@@ -1062,9 +912,9 @@ async def test_task_list_labels_mine_enum() -> None:
     assert labels["enum"] == ["mine"]
 
 
-async def test_session_labels_set_tool_path_method_and_annotations() -> None:
+async def test_session_labels_tool_path_method_and_annotations() -> None:
     tools = await tools_by_name()
-    tool = tools["orchestrator_session_labels_set"]
+    tool = tools["orchestrator_session_labels"]
     assert tool["annotations"]["idempotentHint"] is True
     assert tool["annotations"]["destructiveHint"] is False
     assert tool["annotations"]["openWorldHint"] is False
@@ -1076,7 +926,7 @@ async def test_session_labels_set_tool_path_method_and_annotations() -> None:
         return httpx.Response(200, json={"session_id": "s-1", "labels": ["a"]})
 
     async with harness(handler) as h:
-        result = await h.call("orchestrator_session_labels_set", {"labels": ["A "]})
+        result = await h.call("orchestrator_session_labels", {"labels": ["A "]})
     assert not result.is_error, result.text
     assert seen == [("PUT", "/agent/v1/session/labels", {"labels": ["A "]})]
 
@@ -1094,10 +944,30 @@ async def test_removed_tools_absent(name: str) -> None:
     assert f"orchestrator_{name}" not in set(await tools_by_name())
 
 
+# Names merged into another tool by S-83 (886-902): the merged tool replaces them, no alias.
+MERGED_AWAY = (
+    "meta_get", "leadership_handover", "lock_claim", "lock_release", "lock_list",
+    "lock_reassign", "session_locks", "session_lock_reassign", "session_scale",
+    "init_scripts_get", "init_scripts_edit", "session_labels_set", "session_labels_update",
+    "chat_notes_get", "chat_notes_update", "chat_attachment_fetch", "chat_attachment_status",
+    "chat_admin_rooms", "chat_admin_history", "chat_admin_notes_get", "chat_admin_notes_update",
+    "todo_set", "todo_update", "project_list", "project_summary", "project_create",
+    "project_update", "session_projects_grant", "session_projects_revoke",
+    "preset_projects_grant", "preset_projects_revoke", "spec_versions", "spec_section",
+    "spec_comment_resolve", "spec_suggestion_dismiss", "spec_queue_list", "spec_queue_move",
+    "plan_step_get", "plan_step_edit", "plan_step_update", "plan_steps", "plan_gate",
+)  # fmt: skip
+
+
+@pytest.mark.parametrize("name", MERGED_AWAY)
+async def test_old_names_absent(name: str) -> None:
+    assert f"orchestrator_{name}" not in set(await tools_by_name())
+
+
 def test_no_text_names_removed_tool() -> None:
     src = Path(__file__).resolve().parents[1] / "src" / "any_mcp_tatara_orchestrator"
     pattern = re.compile(
-        r"\b(orchestrator_)?(" + "|".join(REMOVED_TOOLS) + r")\b|"
+        r"\b(orchestrator_)?(" + "|".join(REMOVED_TOOLS + MERGED_AWAY) + r")\b|"
         r"<session-message"
         r"|mcp__ccw__(send_message|peers)|<agent-message"
     )
@@ -1223,34 +1093,6 @@ async def test_chat_history_keeps_newest_within_budget() -> None:
     assert seen == []
 
 
-async def test_chat_attachment_fetch_posts_id() -> None:
-    seen: list[tuple[str, str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append((request.method, request.url.path, json.loads(request.content)))
-        return httpx.Response(202, json={"request_id": "a1", "status": "queued"})
-
-    async with harness(handler) as h:
-        res = await h.call("orchestrator_chat_attachment_fetch", {"id": "m3"})
-    assert not res.is_error, res.text
-    assert seen == [("POST", "/agent/v1/chat/attachments", {"id": "m3"})]
-
-
-async def test_chat_attachment_status_route() -> None:
-    seen: list[tuple[str, str]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append((request.method, request.url.path))
-        return httpx.Response(200, json={"status": "sent"})
-
-    async with harness(handler) as h:
-        res = await h.call("orchestrator_chat_attachment_status", {"request_id": "a4"})
-        bad = await h.call("orchestrator_chat_attachment_status", {"request_id": "m4"})
-    assert not res.is_error, res.text
-    assert bad.is_error
-    assert seen == [("GET", "/agent/v1/chat/attachments/a4")]
-
-
 async def test_chat_history_schema_rejects_bad_ids() -> None:
     seen: list[str] = []
 
@@ -1261,9 +1103,10 @@ async def test_chat_history_schema_rejects_bad_ids() -> None:
     async with harness(handler) as h:
         r1 = await h.call("orchestrator_chat_history", {"before": "x1"})
         r2 = await h.call("orchestrator_chat_history", {"after": "m0"})
-        r3 = await h.call("orchestrator_chat_attachment_fetch", {"id": "s3"})
+        r3 = await h.call("orchestrator_chat_attachment", {"op": "fetch", "id": "s3"})
         r4 = await h.call("orchestrator_chat_history", {"limit": 101})
-    assert r1.is_error and r2.is_error and r3.is_error and r4.is_error
+        r5 = await h.call("orchestrator_chat_attachment", {"op": "status", "request_id": "m4"})
+    assert r1.is_error and r2.is_error and r3.is_error and r4.is_error and r5.is_error
     assert seen == []
 
 
@@ -1284,7 +1127,7 @@ async def test_chat_history_descriptions() -> None:
         "edited",
     ):
         assert phrase in hist, phrase
-    fetch = found["orchestrator_chat_attachment_fetch"]
+    fetch = found["orchestrator_chat_attachment"]
     for phrase in (
         "Leader only",
         "new turn",
@@ -1298,7 +1141,7 @@ async def test_chat_history_descriptions() -> None:
         "untrusted",
     ):
         assert phrase in fetch or phrase in fetch.lower(), phrase
-    status = found["orchestrator_chat_attachment_status"]
+    status = fetch
     for phrase in ("queued", "fetching", "sent", "failed", "refused"):
         assert phrase in status, phrase
 
@@ -1313,7 +1156,7 @@ async def test_chat_history_paths_exist_in_the_orchestrator_openapi() -> None:
     assert "get" in paths["/agent/v1/chat/attachments/{request_id}"]
 
 
-MEMBER_LIST = ["me", "lock_list", "task_get"]
+MEMBER_LIST = ["me", "lock", "task_get"]
 LEADER_LIST = [*MEMBER_LIST, "scale", "session_send"]
 
 
@@ -1400,9 +1243,8 @@ async def test_session_send_tool_posts_route() -> None:
 
 # Tools other roles than the superleader may call (S-83 role matrix, decision 921).
 SHARED_TOOLS = (
-    "chat_admin_notes_get",
-    "chat_admin_notes_update",
-    "chat_admin_history",
+    "chat_notes",
+    "chat_history",
     "sessions_admin_list",
     "session_events",
     "handoffs_list",
