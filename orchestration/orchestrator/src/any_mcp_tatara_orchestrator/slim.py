@@ -132,13 +132,6 @@ def proposal_latest(answer: Any, _args: Mapping[str, Any]) -> Any:
     return {**answer, "revisions": revisions[-1:], "revisions_total": len(revisions)}
 
 
-def me_without_leader_state(answer: Any, _args: Mapping[str, Any]) -> Any:
-    """``leader_state`` (the generated state of a leader) only when the call asks for it."""
-    if not isinstance(answer, dict):
-        return answer
-    return {k: v for k, v in answer.items() if k != "leader_state"}
-
-
 def spec_comments(answer: Any, _args: Mapping[str, Any]) -> Any:
     """Comment bodies and suggestions cut to a short head, the cut length marked."""
     if not isinstance(answer, dict) or not isinstance(answer.get("items"), list):
@@ -187,7 +180,6 @@ def vault_list(answer: Any, args: Mapping[str, Any]) -> Any:
 SHAPERS: dict[tuple[str, str], Shaper] = {
     ("session_get", ""): session_get,
     ("proposal_get", "id"): proposal_latest,
-    ("me", ""): me_without_leader_state,
     ("spec_comments", ""): spec_comments,
     ("chat_rooms", "projects"): chat_rooms,
     ("vault_list", ""): vault_list,

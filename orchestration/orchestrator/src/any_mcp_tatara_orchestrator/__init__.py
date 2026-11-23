@@ -150,17 +150,12 @@ _CORE_MERGED = (
         DESCRIPTIONS["me"],
         {
             "meta": {"type": "boolean", "description": "Deploy metadata (superleader only)."},
-            "leader_state": {
-                "type": "boolean",
-                "description": "A leader: include its generated leader_state text.",
-            },
         },
         {
             "": Route("GET", "/me"),
-            "leader_state": Route("GET", "/me"),
             "meta": Route("GET", "/admin/meta"),
         },
-        scopes=("meta", "leader_state"),
+        scopes=("meta",),
     ),
     Merged(
         "handoff_submit",

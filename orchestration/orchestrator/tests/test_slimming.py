@@ -98,8 +98,7 @@ SHAPES: list[tuple[str, dict[str, Any], Any, Any]] = [
         _PROPOSAL,
         lambda a: len(a["revisions"]) == 2,
     ),
-    ("me", {}, _ME, lambda a: "leader_state" not in a),
-    ("me", {"leader_state": True}, _ME, lambda a: a["leader_state"] == "long text"),
+    ("me", {}, _ME, lambda a: a["leader_state"] == "long text"),
     (
         "chat_rooms",
         {"scope": "projects"},

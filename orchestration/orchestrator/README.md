@@ -220,7 +220,6 @@ default below is overridden by passing the argument.
 |---|---|---|
 | `session_get` | `view` summary | drops `spec` and `vault`; `view: spec` is whole |
 | `proposal_get` with `id` | latest revision | `revisions_total` says how many; `all_revisions: true` returns every revision |
-| `me` | no `leader_state` | `leader_state: true` adds it for a leader |
 | `history_get` records | `limit` 20 | over the output budget: the leading records, `omitted`, `next_after_id` |
 | `activity` | `limit` 20 | - |
 | `mindmap_map` op get | `depth` 3 | - |
