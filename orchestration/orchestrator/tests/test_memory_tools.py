@@ -79,13 +79,6 @@ async def test_chat_notes_refuses_unknown_arguments() -> None:
             assert not sent, args
 
 
-def test_notes_update_413_advice_condenses_that_section_for_both_caps() -> None:
-    """The connector room memory rule: on either 413, condense the written section."""
-    (spec,) = (m.spec() for m in MEMORY_MERGED)
-    assert "notes_too_large: condense that section" in spec.description
-    assert "another section" not in spec.description
-
-
 async def test_no_chat_skills_tools() -> None:
     """The chat skills feature is removed (T-505): no tool, no route."""
     assert not [m.name for m in MEMORY_MERGED if "skills" in m.name]

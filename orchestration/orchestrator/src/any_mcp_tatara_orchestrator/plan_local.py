@@ -22,6 +22,7 @@ import httpx
 from any_mcp.errors import UpstreamError
 from any_mcp.types import HttpBinding, ToolSpec
 
+from .descriptions import DESCRIPTIONS
 from .specs import SPEC_PARAM, _hints, _schema
 from .specs_local import (
     MAX_REQUEST_BYTES,
@@ -74,20 +75,7 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
     return [
         ToolSpec(
             name="plan_steps_push",
-            description=(
-                "Write the whole step set of a spec's plan from a JSON file in your working copy: "
-                '{"steps": [{"n", "title", "body", "depends_on": [n], "model"?, "labels"?, '
-                '"todo"?: [text]}]}. n must run 1..N without gaps or repeats (checked before any '
-                "request). The steps_version the file was based on is sent with the set: the one "
-                "you pass, else the one plan_export recorded next to the file; with neither "
-                "the push is refused (steps_version_unknown). A plan changed since is refused "
-                "(HTTP 412 stale_version): export again and redo. Steps are keyed by n: new "
-                "ones are created, changed ones updated, unstarted ones missing from the file "
-                "are dropped; a started or done one missing is refused (step_in_progress). Each "
-                "body is up to 32 KiB, the file up to 256 KiB encoded. Answers the step keys "
-                "only, never a body. Write the file with your file tools; the header is written "
-                "with plan_set."
-            ),
+            description=(DESCRIPTIONS["plan_steps_push"]),
             input_schema=_schema(
                 {
                     "spec": SPEC_PARAM,
@@ -108,14 +96,7 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
         ),
         ToolSpec(
             name="plan_export",
-            description=(
-                "Write the plan header and every step, in order, with bodies and todo, as one "
-                f"markdown file {EXPORT_FILE} under dir (default .scratchpad/<spec name>/spec/, "
-                "inside the workdir) for reading with your file tools. It is a view: never push "
-                "it back; edit steps with task_update or plan_steps_push. Records the "
-                "steps_version next to it for plan_steps_push. Answers the path, the step "
-                "count and the steps_version, never the text."
-            ),
+            description=(DESCRIPTIONS["plan_export"]),
             input_schema=_schema(
                 {
                     "spec": SPEC_PARAM,
@@ -128,19 +109,7 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
         ),
         ToolSpec(
             name="plan_questions_ask",
-            description=(
-                "Ask the gate questions of a spec as decisions on its gate task (the "
-                "improvement's task linked to the spec; task overrides it). Every question has "
-                "2 to 8 options with a consequence each and exactly one recommended (mark the "
-                "MVP option in its label); a call that breaks this is refused before any "
-                "request. Safe to repeat, also from another session: a question already open "
-                "with the same options is skipped, an answered one is never asked again "
-                "(answered, not re-asked), an open one whose options changed is posted anew and "
-                "the old one withdrawn as superseded. Answers a row per question: question, "
-                "decision_id, action (posted, skipped, revised, answered or failed) and a note "
-                "when something needs attention (a failed question does not stop the others). "
-                "The user answers in the web UI; read the outcome with plan_get view gate."
-            ),
+            description=(DESCRIPTIONS["plan_questions_ask"]),
             input_schema=_schema(
                 {
                     "spec": SPEC_PARAM,

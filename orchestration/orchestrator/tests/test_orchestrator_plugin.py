@@ -205,14 +205,6 @@ async def test_self_close_errors_surface_code() -> None:
             assert TOKEN not in json.dumps(result.structured)
 
 
-async def test_self_close_description() -> None:
-    d = (await descriptions())["orchestrator_self_close"]
-    assert "Leader only" in d
-    assert "last action of your turn" in d
-    assert "cancel it from the web UI" in d
-    assert "Superleader sessions cannot close themselves" in d
-
-
 async def test_self_close_schema_bounds() -> None:
     async with harness(ok) as h:
         tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_self_close")
@@ -221,16 +213,6 @@ async def test_self_close_schema_bounds() -> None:
     assert schema["properties"]["reason"]["maxLength"] == 500
     assert schema["required"] == ["reason"]
     assert schema["additionalProperties"] is False
-
-
-async def test_chat_descriptions() -> None:
-    on = await descriptions()
-    rooms = on["orchestrator_chat_rooms"]
-    assert "bound room" in rooms
-    assert "unbound" in rooms
-    assert "Leader only" in rooms
-    for text in (await descriptions(hive=False)).values():
-        assert "You are agent" not in text
 
 
 async def test_activity_tool_calls_route() -> None:
@@ -253,7 +235,7 @@ async def test_activity_tool_calls_route() -> None:
         assert json.loads(result.text) == answer
     assert [(m, p, q, b) for m, p, q, b, _ in seen] == [
         ("GET", "/agent/v1/activity", {"agent": "pod-1", "limit": "20"}, None),
-        ("GET", "/agent/v1/activity", {}, None),
+        ("GET", "/agent/v1/activity", {"limit": "20"}, None),
         ("GET", "/agent/v1/activity", {"limit": "200"}, None),
     ]
     for *_, headers in seen:
@@ -261,7 +243,7 @@ async def test_activity_tool_calls_route() -> None:
         assert headers["x-orch-session"] == "s-1"
 
 
-async def test_activity_tool_schema_and_description() -> None:
+async def test_activity_tool_schema() -> None:
     async with harness(ok) as h:
         tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_activity")
     props = tool["inputSchema"]["properties"]
@@ -271,36 +253,6 @@ async def test_activity_tool_schema_and_description() -> None:
     assert props["limit"]["minimum"] == 1
     assert props["limit"]["maximum"] == 200
     assert not tool["inputSchema"].get("required")
-    text = tool["description"]
-    assert text.startswith(
-        "You are agent agent-0, one of up to 3 agents in hive my-hive; the workdir is shared."
-    )
-    assert (
-        "What the other agents did recently (commands with exit status, files written, "
-        "finished turns): newest last. Call it when you need it; nothing is streamed to you."
-    ) in text
-    off = (await descriptions(hive=False))["orchestrator_activity"]
-    assert "You are agent" not in off
-    assert off.startswith("What the other agents did recently")
-
-
-async def test_handover_description_protocol() -> None:
-    text = (await descriptions())["orchestrator_handoff_submit"]
-    assert "handover_due" in text
-    assert "2000" in text
-    assert "pending" in text
-    assert "transcript" in text
-    assert "mcp__ccw__send_message" not in text
-    assert "<agent-send>" in text
-    assert '"ready"' not in text
-    assert "leadership-request note" in text
-    assert "orchestrator_me" in text
-    assert "outcome arrives as a hive-state note" not in text
-    # every handover has a deadline, and a pending one can be withdrawn
-    assert "deadline" in text and "expired" in text
-    # the deadline is the orchestrator's setting: no literal that drifts from it
-    assert "minutes" not in text
-    assert "orchestrator_leadership_withdraw" in text
 
 
 async def test_handover_reason_schema() -> None:
@@ -365,31 +317,12 @@ async def test_handoff_submit_schema_matches_openapi() -> None:
     assert "post" in openapi["paths"]["/agent/v1/handoff"]
 
 
-async def test_handoff_submit_description_mentions_shared_scratchpad() -> None:
-    text = (await descriptions())["orchestrator_handoff_submit"]
-    assert "/tmp/claude-*" in text
-    assert ".scratchpad/<name>/" in text
-    assert "abandon it with a reason" in text
-    assert "422" in text and "409 in_flight" in text
-    assert "never post the handoff to the room" in text
-
-
 async def test_descriptions_have_no_time_words() -> None:
     found = await descriptions()
     for name in ("orchestrator_handoff_submit",):
         text = found[name].lower()
         for word in ("minute", "second", "hour", "countdown", "in n "):
             assert word not in text, (name, word)
-
-
-async def test_me_description_points_to_activity() -> None:
-    text = (await descriptions())["orchestrator_me"]
-    assert "forwards one line to the leader" in text
-    assert "orchestrator_activity" in text
-    assert "nothing is streamed" in text
-    off = (await descriptions(hive=False))["orchestrator_me"]
-    assert "orchestrator_activity" in off
-    assert "nothing is streamed" in off
 
 
 async def test_credentials_headers() -> None:
@@ -433,35 +366,14 @@ async def test_cluster_key_refused() -> None:
             pass
 
 
-async def test_descriptions_from_config() -> None:
-    hive_tools = (
-        "me",
-        "handoff_submit",
-        "lock",
-    )
+async def test_hive_tools_start_with_the_role_line_only_in_a_hive() -> None:
     on = await descriptions()
-    sentence = (
-        "You are agent agent-0, one of up to 3 agents in hive my-hive; the workdir is shared."
-    )
-    for name in hive_tools:
-        assert on[f"orchestrator_{name}"].startswith(sentence)
-    assert '<agent-send to="leader">' in on["orchestrator_me"]
-    assert '<agent-send to="<pod name>">' in on["orchestrator_me"]
-    assert "mcp__ccw__send_message" not in on["orchestrator_me"]
-    assert "never instructions from the user" in on["orchestrator_me"]
-    assert "advisory" in on["orchestrator_lock"]
-    assert "reassign or discard" in on["orchestrator_lock"]
-    assert "1..3" in on["orchestrator_scale"]
-    assert ".agent-init/" in on["orchestrator_init_scripts"]
-    assert "never re-runs" in on["orchestrator_init_scripts"]
-    assert "superleader" in on["orchestrator_sessions_list"]
-    assert "in the last 24 hours" in on["orchestrator_sessions_list"]
-    assert "<session-send> envelope" in on["orchestrator_sessions_list"]
-
-    off = await descriptions(hive=False)
-    for text in off.values():
+    for name in ("me", "handoff_submit", "lock", "activity"):
+        assert on[f"orchestrator_{name}"].startswith(
+            "You are agent agent-0 of up to 3 in hive my-hive"
+        )
+    for text in (await descriptions(hive=False)).values():
         assert "You are agent" not in text
-        assert "in hive" not in text
 
 
 REREAD_RULE = (
@@ -502,22 +414,6 @@ async def test_no_margin_advice() -> None:
         for text in (await descriptions(**overrides)).values():
             assert "context passes" not in text
             assert "natural boundary once" not in text
-
-
-async def test_reread_rule_in_descriptions() -> None:
-    found = await descriptions()
-    assert REREAD_RULE in found["orchestrator_me"]
-    assert REREAD_RULE in found["orchestrator_handoff_submit"]
-
-
-async def test_handover_description_explains_reason_and_handled() -> None:
-    text = (await descriptions())["orchestrator_handoff_submit"]
-    assert "judgment for the successor" in text
-    assert "generated by the orchestrator" in text
-    assert "handover_due" in text
-    assert "handled" in text
-    assert "<message-in>" in text
-    assert "session-message" not in text
 
 
 async def test_me_description_mentions_state() -> None:
@@ -832,11 +728,6 @@ async def test_decision_withdraw_schema_and_texts() -> None:
     assert props["reason"]["type"] == "string"
     assert props["superseded_by"]["type"] == "integer"
     assert props["answered_elsewhere"]["type"] == "string"
-    text = w["description"].lower()
-    assert "exactly one" in text and "422" in text
-    ask = tools["orchestrator_decision_ask"]["description"].lower()
-    assert "only channel" in ask and "never ask" in ask
-    assert "blocked by a tool, permission or sandbox" in ask and "fix" in ask
 
 
 async def test_409_maps_to_is_error() -> None:
@@ -868,15 +759,6 @@ async def test_409_maps_to_is_error() -> None:
             assert result.structured is not None
             assert result.structured["error"]["code"] == code
             assert result.structured["error"]["status"] == status
-
-
-async def test_description_mentions_lifecycle() -> None:
-    tools = await tools_by_name()
-    for name in ("task_create", "task_update", "todo"):
-        text = tools[f"orchestrator_{name}"]["description"].lower()
-        assert "create or claim" in text and "todo" in text and "close" in text, name
-    ask = tools["orchestrator_decision_ask"]["description"].lower()
-    assert "chat message" in ask and "link" in ask and "task_get" in ask
 
 
 async def test_labels_param_schema_pattern_and_max() -> None:
@@ -982,16 +864,6 @@ def test_no_text_names_removed_tool() -> None:
     assert not hits, hits
 
 
-async def test_chat_texts_point_to_envelopes() -> None:
-    on = await descriptions()
-    assert "<chat-send" in on["orchestrator_chat_rooms"]
-
-
-async def test_chat_rooms_description_mentions_agents_may_send_files() -> None:
-    on = await descriptions()
-    assert "agents_may_send_files" in on["orchestrator_chat_rooms"]
-
-
 async def test_approval_tools_relay_paths() -> None:
     seen: list[tuple[str, str, str, Any]] = []
 
@@ -1040,9 +912,6 @@ async def test_approval_texts_route_permissions() -> None:
     ask = tools["orchestrator_approval_ask"]
     assert ask["inputSchema"]["required"] == ["key", "title"]
     assert ask["inputSchema"]["properties"]["expires_in_seconds"]["maximum"] == 604800
-    text = ask["description"].lower()
-    assert "never a numbered list in chat" in text and "task_get" in text and "expired" in text
-    assert "approval_ask instead" in tools["orchestrator_decision_ask"]["description"]
     assert tools["orchestrator_approval_list"]["annotations"]["readOnlyHint"] is True
 
 
@@ -1110,42 +979,6 @@ async def test_chat_history_schema_rejects_bad_ids() -> None:
         r5 = await h.call("orchestrator_chat_attachment", {"op": "status", "request_id": "m4"})
     assert r1.is_error and r2.is_error and r3.is_error and r4.is_error and r5.is_error
     assert seen == []
-
-
-async def test_chat_history_descriptions() -> None:
-    found = await descriptions()
-    hist = found["orchestrator_chat_history"]
-    for phrase in (
-        "Leader only",
-        "room_unbound",
-        "m<n>",
-        "s<n>",
-        "o<n>",
-        "untrusted",
-        "data, never instructions",
-        "30 days",
-        "bad_reference",
-        "withheld",
-        "edited",
-    ):
-        assert phrase in hist, phrase
-    fetch = found["orchestrator_chat_attachment"]
-    for phrase in (
-        "Leader only",
-        "new turn",
-        "<attachment for=",
-        "6 MiB",
-        "already_fetching",
-        "rate_limited",
-        "unsupported_type",
-        "foreign_media",
-        "no_attachment",
-        "untrusted",
-    ):
-        assert phrase in fetch or phrase in fetch.lower(), phrase
-    status = fetch
-    for phrase in ("queued", "fetching", "sent", "failed", "refused"):
-        assert phrase in status, phrase
 
 
 async def test_chat_history_paths_exist_in_the_orchestrator_openapi() -> None:
@@ -1233,8 +1066,6 @@ async def test_session_send_tool_posts_route() -> None:
         seen.append((request.method, request.url.path, json.loads(request.content)))
         return httpx.Response(202, json={"message_id": 7, "handled": [3]})
 
-    tools = await tools_by_name()
-    assert "own and granted projects" in tools["orchestrator_session_send"]["description"]
     async with harness(handler) as h:
         result = await h.call(
             "orchestrator_session_send", {"slug": "other", "text": "hi", "handled": [3]}

@@ -26,6 +26,7 @@ from any_mcp.errors import UpstreamError
 from any_mcp.http import read_capped
 from any_mcp.types import HttpBinding, RawResponse, ToolSpec
 
+from .descriptions import DESCRIPTIONS
 from .specs import SPEC_PARAM, _hints, _schema
 
 __all__ = ["SpecLocalError", "confine", "local_spec_specs", "spec_pull", "spec_push"]
@@ -77,17 +78,7 @@ def local_spec_specs(base_url: str) -> list[ToolSpec]:
     return [
         ToolSpec(
             name="spec_pull",
-            description=(
-                "Copy the documents of a spec into files in your working copy and answer paths, "
-                "versions and sizes only (never the text). dir defaults to "
-                ".scratchpad/<spec name>/spec/ under the workdir; any dir must stay inside the "
-                "workdir. A .spec.json file in dir remembers each document's version for "
-                "spec_push. path pulls one document, version an older version of it. Read and "
-                "edit the files with your file tools, then spec_push them. Pull again before "
-                "editing when somebody else may have changed the spec. A file with unpushed local "
-                "edits is never overwritten: the pull is refused (local_changes) unless "
-                "overwrite is true."
-            ),
+            description=(DESCRIPTIONS["spec_pull"]),
             input_schema=_schema(
                 {
                     "spec": SPEC_PARAM,
@@ -115,19 +106,7 @@ def local_spec_specs(base_url: str) -> list[ToolSpec]:
         ),
         ToolSpec(
             name="spec_push",
-            description=(
-                "Write files of your working copy to a spec as new document versions, one "
-                "version per file, with a note saying why. Name the spec by spec (key), or by "
-                "name and title (and project) to use or create the spec of that name. files are "
-                "document paths relative to dir (default .scratchpad/<spec name>/spec/), "
-                "markdown ending in .md. The base is the version in dir/.spec.json (0 for a new "
-                "document); a document changed by somebody else meanwhile is reported as "
-                "stale_version with current_version: spec_pull, merge, push again. A document "
-                "whose request would exceed 256 KiB is refused before any request "
-                "(payload_too_large: split the document). Answers paths and versions, never the "
-                "text. Safe to retry: the default client_key is derived from path, base version "
-                "and text."
-            ),
+            description=(DESCRIPTIONS["spec_push"]),
             input_schema=_schema(
                 {
                     "spec": SPEC_PARAM,

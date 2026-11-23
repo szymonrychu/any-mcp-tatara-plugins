@@ -14,6 +14,7 @@ from typing import Any
 
 from any_mcp.types import HttpBinding, ToolSpec
 
+from .descriptions import DESCRIPTIONS
 from .merged import Merged, Route
 from .specs import SPEC_PARAM, _hints, _schema
 
@@ -57,10 +58,7 @@ def plan_tools(base_url: str) -> list[ToolSpec]:
             "plan_set",
             "PUT",
             "/specs/{spec}/plan",
-            "Write the plan header of a spec (replaces it whole): goal up to 500 characters, "
-            "architecture up to 4000, tech_stack up to 1000, constraints and review_focus up to "
-            "50 strings of up to 1000 each. " + _STALE_PLAN + " The steps are written with "
-            "plan_steps_push.",
+            DESCRIPTIONS["plan_set"],
             _schema(
                 {
                     "spec": SPEC_PARAM,
@@ -84,11 +82,7 @@ def plan_tools(base_url: str) -> list[ToolSpec]:
             "plan_step_next",
             "POST",
             "/specs/{spec}/steps/next",
-            "Take the first ready step in order (open, every dependency done or dropped). With "
-            "claim true the step is assigned to your session and set in_progress in one guarded "
-            "update, so two implementers never get the same step; without claim it only shows "
-            "it. When none is ready the answer says no ready step (HTTP 204 upstream). Read the "
-            "step in full with task_get.",
+            DESCRIPTIONS["plan_step_next"],
             _schema(
                 {"spec": SPEC_PARAM, "claim": {"type": "boolean", "description": "Default false."}},
                 ("spec",),
@@ -102,17 +96,7 @@ def plan_tools(base_url: str) -> list[ToolSpec]:
 PLAN_MERGED = (
     Merged(
         "plan_get",
-        "Read the plan of a spec; view picks what. header (default): goal, architecture, "
-        "tech_stack, constraints, review_focus and version (0 and empty fields before the "
-        "first plan_set). steps: the steps in order, without bodies: key, step number, title, "
-        "status, assignee_session, model, refs, version, ready (open and every dependency done "
-        "or dropped), todo_total, todo_done and deps (task keys), plus steps_version; a step is "
-        "a task: read it with task_get, edit it (title, body, model, status, refs) with "
-        "task_update. gate: the spec status, the approved document versions, the gate task and "
-        "its open and answered decisions, and gate none, waiting (a decision is open) or open; "
-        "approvable and open_decisions cover every open or in_progress task linked to the spec "
-        "(steps included): approvable is false while any decision is open, the same rule as "
-        "approving with spec_update.",
+        DESCRIPTIONS["plan_get"],
         {
             "spec": SPEC_PARAM,
             "view": {"type": "string", "enum": ["header", "steps", "gate"]},

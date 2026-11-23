@@ -71,10 +71,6 @@ def test_no_row_takes_a_document_body() -> None:
 
 def test_spec_update_description_says_when_agents_approve() -> None:
     rows = {s.name: s for s in spec_tools("http://x")}
-    desc = rows["spec_update"].description
-    for needle in ("approved", "plan_get view gate", "approvable", "409 decisions_open"):
-        assert needle in desc
-    assert "set by the user only" not in desc
     props = rows["spec_update"].input_schema["properties"]
     assert "approved" in props["status"]["enum"]
     assert list(rows["spec_update"].input_schema["required"]) == ["spec", "version"]

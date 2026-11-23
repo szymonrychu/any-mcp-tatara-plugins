@@ -69,13 +69,6 @@ async def test_project_chat_schemas_strict() -> None:
     assert tools["orchestrator_project_chat_read"]["annotations"]["readOnlyHint"] is True
 
 
-async def test_project_chat_read_description_points_to_envelopes() -> None:
-    read = (await _tools())["orchestrator_project_chat_read"]["description"]
-    assert "Leader only" in read
-    assert "<project-post>" in read
-    assert "<session-send>" in read
-
-
 async def test_project_chat_errors_surface_code() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

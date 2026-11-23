@@ -211,6 +211,29 @@ rejected `expired`; a pending one is cancelled with `orchestrator_leadership_wit
 The `orchestrator_me` description tells a member that receives a background-agent notification
 meant for the leader to forward one line to the leader.
 
+## Answer slimming (S-83 925, 927)
+
+Reads answer the fields agents use and default to short pages (`slim.py`, `Route.fill`); every
+default below is overridden by passing the argument.
+
+| Tool | Default now | Shaped answer |
+|---|---|---|
+| `session_get` | `view` summary | drops `spec` and `vault`; `view: spec` is whole |
+| `proposal_get` with `id` | latest revision | `revisions_total` says how many; `all_revisions: true` returns every revision |
+| `me` | no `leader_state` | `leader_state: true` adds it for a leader |
+| `history_get` records | `limit` 20 | over the output budget: the leading records, `omitted`, `next_after_id` |
+| `activity` | `limit` 20 | - |
+| `mindmap_map` op get | `depth` 3 | - |
+| `mindmap_search` | `limit` 20 | - |
+| `spec_comments` | `open` true (unresolved only; `open: false` for all) | bodies and suggestions cut at 400 chars, the cut length marked |
+| `webhook` events, `schedule` runs and runs_all | `limit` 20 | rows keep the fields agents use |
+| `handoffs` list | `limit` 20 | - |
+| `chat_rooms` scope projects | `limit` 20 | `{rooms, omitted?}` with summary rows |
+| `vault_list` | `limit` 20 | `entries` without timestamps and counters, `omitted` |
+
+Descriptions (`descriptions.py`) are one purpose line plus `Errors:` and the codes; the rules of
+use live in the docs and skills.
+
 ## Configuration
 
 any-mcp installs the plugin from its source on load (or ahead of time with
@@ -219,7 +242,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 ```yaml
 plugins:
   - name: orchestrator
-    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.61.0
+    source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.62.0
     allow: [me, activity, handoff_submit, lock, init_scripts]
     config:
       base_url: http://orchestrator-agents:8081

@@ -64,12 +64,6 @@ def test_read_rows_are_read_only() -> None:
         assert s.annotations["readOnlyHint"] is reads, s.name
 
 
-def test_descriptions_state_the_stale_and_cap_rules() -> None:
-    rows = {s.name: s for s in plan_tools("http://x")}
-    assert "current_version" in rows["plan_set"].description
-    assert "no ready step" in rows["plan_step_next"].description
-
-
 async def test_rows_call_their_routes() -> None:
     seen: list[tuple[str, str, Any]] = []
 

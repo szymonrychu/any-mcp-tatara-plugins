@@ -12,6 +12,7 @@ from typing import Any
 
 from any_mcp.types import HttpBinding, ToolSpec
 
+from .descriptions import DESCRIPTIONS
 from .merged import Merged, Route
 from .specs import SPEC_KEY_PATTERN
 from .views import TASK_VIEWS
@@ -261,9 +262,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "task_create",
             "POST",
             "/tasks",
-            "Create a task on the task board (kind idea or task). Safe to retry: the same "
-            "client_key from your session returns the existing task instead of a second one. "
-            "assignee_self assigns it to your session. " + _LIFECYCLE,
+            DESCRIPTIONS["task_create"],
             _schema(
                 {
                     "title": {"type": "string"},
@@ -296,11 +295,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "task_update",
             "PATCH",
             "/tasks/{key}",
-            "Edit a task or a plan step (a step is a task of its spec). version is the version "
-            "you last read (task_get); a stale one is refused (HTTP 412 stale_version): read the "
-            "task again and retry. A step also takes model (null clears it) and refs (what "
-            "implements it, replacing the list: up to 20 of kind pr, commit, branch, tag or "
-            "url); a body over 32 KiB is HTTP 413 payload_too_large. " + _LIFECYCLE,
+            DESCRIPTIONS["task_update"],
             _schema(
                 {
                     "key": _KEY,
@@ -336,13 +331,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "task_list",
             "GET",
             "/tasks",
-            "List tasks, blocked ones first. status defaults to active (idea, open, "
-            "in_progress). mine: your tasks; waiting: tasks with an open decision; session: "
-            "tasks assigned to a session id; label: tasks carrying any of the labels; labels "
-            "mine: tasks matching any label of your own session. " + _LABEL_RULE + " "
-            "Each task is a summary with counts of its todo items, decisions, comments and "
-            "events; read one in full with task_get. Pages of limit tasks (default 10, at most "
-            "20); pass next_cursor as cursor for the next page.",
+            DESCRIPTIONS["task_list"],
             _schema(
                 {
                     "status": {"type": "string", "enum": ["active", "done", "dropped", "all"]},
@@ -390,17 +379,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "task_get",
             "GET",
             "/tasks/{key}",
-            "Read one task or plan step (a step also carries step, depends_on, refs and "
-            "model). The view picks what comes back; every view carries key, project, "
-            "title, kind, status, labels, assignee_session, version, blocked, open_decisions, "
-            "url, events_total, comments_total and updated_at. summary (default): the body, "
-            "open decisions in full, answered decisions as id, question, answer and note, "
-            "withdrawn ones only as a count, the todo items still todo or inprogress plus "
-            "todo_done, and the newest 10 events (no comments). open_decisions: the open "
-            "decisions in full. todo: every todo item. events: the newest 20 events. comments: "
-            "the newest 20 comments. Use it to read a user's answer after the chat message that "
-            "links the task. events_limit (events and summary) and comments_limit (comments) "
-            "resize the window; page back with events_before / comments_before. " + _TRIMMED,
+            DESCRIPTIONS["task_get"],
             _schema(
                 {
                     "key": _KEY,
@@ -424,7 +403,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "task_comment",
             "POST",
             "/tasks/{key}/comments",
-            "Add a comment to a task. Comments never notify the user. " + _LIFECYCLE,
+            DESCRIPTIONS["task_comment"],
             _schema({"key": _KEY, "body": {"type": "string"}}, ("key", "body")),
             _ACK_OUT,
             _hints(),
@@ -434,14 +413,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "decision_ask",
             "POST",
             "/tasks/{key}/decisions",
-            "Ask the user a decision on a task, with 2 to 8 options, exactly one marked "
-            "recommended. This is the only channel for a question to the user: never ask a "
-            "question in chat (a <chat-send> envelope) or in your final answer. When the action "
-            "the decision unblocks was blocked by a tool, permission or sandbox block, the same "
-            "decision also asks for the fix of that block, so one answer unblocks it. "
-            "Not blocking: continue other work. " + _ANSWER + " The task counts "
-            "as blocked while a decision is open. A repeated client_key returns the same "
-            "decision. A yes/no permission to act goes through approval_ask instead. " + _LIFECYCLE,
+            DESCRIPTIONS["decision_ask"],
             _schema(
                 {
                     "key": _KEY,
@@ -466,12 +438,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "decision_withdraw",
             "POST",
             "/tasks/{key}/decisions/{decision_id}/withdraw",
-            "Withdraw a decision you asked, or, as a superleader, any open decision, while it "
-            "is still open (HTTP 409 once answered). "
-            "A withdrawal needs an outcome: reason plus exactly one of superseded_by (the id "
-            "of the decision that replaces it) or answered_elsewhere (where the answer came "
-            "from); HTTP 422 when reason is missing, both or neither outcome is given, or "
-            "superseded_by is not a decision you can see. " + _ANSWER + _ACKED,
+            DESCRIPTIONS["decision_withdraw"],
             _schema(
                 {
                     "key": _KEY,
@@ -503,14 +470,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "approval_ask",
             "POST",
             "/tasks/{key}/approvals",
-            "Ask the user a yes/no permission to act (merge, deploy, apply, delete) on your "
-            "task. Use this, never a numbered list in chat and never decision_ask, for a "
-            "permission; one approval per action. Not blocking: continue other work. The "
-            "verdict arrives as a chat message 'Approval D-<id> (T-<n>) GO|NO-GO|EXPIRED ...'. "
-            "EXPIRED or NO-GO means do not act. Before acting on GO, re-read the task with "
-            "task_get: the decision there is the authority, the message only a hint; a repeated "
-            "message is the same answer. Withdraw with decision_withdraw. A repeated client_key "
-            "returns the same approval." + _ACKED,
+            DESCRIPTIONS["approval_ask"],
             _schema(
                 {
                     "key": _KEY,
@@ -545,9 +505,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "approval_list",
             "GET",
             "/approvals",
-            "Your own approvals (status open by default): id, task_key, title, status, verdict "
-            "(the answer label, once answered), note, expires_at and a link to the task. "
-            "status all lists every state. To act on a GO, re-read the task with task_get.",
+            DESCRIPTIONS["approval_list"],
             _schema(
                 {
                     "status": {
@@ -566,10 +524,7 @@ def task_tools(base_url: str) -> list[ToolSpec]:
 TASK_MERGED = (
     Merged(
         "todo",
-        "The todo list of a task. op set replaces it (key, items: max 100, one line of at most "
-        "200 characters each; every item id changes); op update changes the status or text of "
-        "one item (key, item_id from task_get). Answers key, version, url and the todo items as "
-        "[id, text cut to 60 chars]. " + _LIFECYCLE,
+        DESCRIPTIONS["todo"],
         {
             "op": {"type": "string", "enum": ["set", "update"]},
             "key": _KEY,
@@ -595,10 +550,7 @@ TASK_MERGED = (
     ),
     Merged(
         "session_labels",
-        "Replace the labels of a session. op set: your own session (labels). op update: the "
-        "session slug (superleader: any session it may manage, its own included; 403 "
-        "not_manageable otherwise). A task matches a session when they share a label. "
-        "Idempotent. " + _LABEL_RULE,
+        DESCRIPTIONS["session_labels"],
         {
             "op": {"type": "string", "enum": ["set", "update"]},
             "slug": {"type": "string", "description": "Session slug (op update)."},
