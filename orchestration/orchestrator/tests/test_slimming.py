@@ -59,6 +59,7 @@ DEFAULTS = [
     ("mindmap_map", {"op": "get", "key": "M-1"}, "depth", "3"),
     ("webhook", {"action": "events"}, "limit", "20"),
     ("schedule", {"action": "runs_all"}, "limit", "20"),
+    ("schedule", {"action": "runs", "schedule_id": "7"}, "limit", "20"),
     ("handoffs", {}, "limit", "20"),
     ("history_get", {"session_id": _ID, "records": True}, "limit", "20"),
 ]
@@ -154,6 +155,30 @@ async def test_history_records_page_is_cut_to_the_budget_with_a_continue_id() ->
     assert 0 < len(kept) < 30
     assert shaped["omitted"] == 30 - len(kept)
     assert shaped["next_after_id"] == kept[-1]["id"]
+
+
+async def test_a_first_record_over_the_budget_leaves_no_continue_id() -> None:
+    """Nothing kept: the upstream next_after_id would skip the whole page unnoticed."""
+    page = {"records": [{"id": 5, "data": "x" * 50000}], "next_after_id": 9}
+    _, shaped = await _call("history_get", {"session_id": _ID, "records": True}, page)
+    assert shaped["records"] == [] and shaped["omitted"] == 1
+    assert "next_after_id" not in shaped
+
+
+async def test_chat_rooms_keep_settings_and_binding_fields() -> None:
+    room = {
+        "room_id": "!1",
+        "trigger": "mention",
+        "agents_may_initiate": True,
+        "anonymize_names": False,
+        "agent_aliases": ["bot"],
+        "agents_may_send_files": True,
+        "binding": {"slug": "s", "origin": "o"},
+        "alias": "dropped",
+    }
+    _, shaped = await _call("chat_rooms", {"scope": "projects"}, [room])
+    (row,) = shaped["rooms"]
+    assert row == {k: v for k, v in room.items() if k != "alias"}
 
 
 def _norm(path: str) -> str:

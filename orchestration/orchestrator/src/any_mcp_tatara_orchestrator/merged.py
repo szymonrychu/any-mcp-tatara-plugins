@@ -32,7 +32,8 @@ class Route:
     ``query`` names route arguments sent as query parameters; ``body`` sends the arguments left
     after the path and the query as a JSON object. ``rename`` maps a tool argument to the name
     the route uses for it (``spec`` to ``key``). ``fill`` gives an argument the route takes a
-    default when the call omits it (a lowered page limit, a graph depth)."""
+    default when the call omits it (a lowered page limit, a graph depth); ``omit_null`` names
+    arguments left out of the request when null (the route rejects null, the schema allows it)."""
 
     method: str
     path: str
@@ -42,6 +43,7 @@ class Route:
     body: bool = False
     rename: Mapping[str, str] = field(default_factory=dict)
     fill: Mapping[str, Any] = field(default_factory=dict)
+    omit_null: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not set(self.fill) <= set(self.takes):
@@ -105,6 +107,13 @@ class Merged:
     def resolve(self, call: ToolCall, base_url: str) -> ToolCall:
         """The call bound to the route its arguments pick, with the route's argument names."""
         args = {**self.defaults, **call.arguments}
+        empty = [
+            (a, f"empty in {self.name}: omit it or name a value")
+            for a in self.scopes
+            if args.get(a) == ""
+        ]
+        if empty:
+            raise ToolInputError(empty)
         key = op_key(self.selectors, self.scopes, args)
         route = self.ops.get(key)
         if route is None:
@@ -123,6 +132,7 @@ class Merged:
             raise ToolInputError(missing + foreign)
         sent = {route.rename.get(a, a): v for a, v in args.items() if a in route.takes}
         sent |= {a: v for a, v in route.fill.items() if sent.get(a) is None}
+        sent = {a: v for a, v in sent.items() if v is not None or a not in route.omit_null}
         binding = HttpBinding(
             route.method,
             f"{_BASE}{route.path}",

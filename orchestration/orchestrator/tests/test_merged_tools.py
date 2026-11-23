@@ -562,6 +562,11 @@ _MISSING = [
     ("chat_connector", {"action": "invite", "target": "a", "task_key": "T-1"}, "room_id"),
     ("mindmap_node", {"op": "update", "key": "N-1", "notes": "x"}, "version"),
 ]
+_EMPTY_SCOPE = [
+    ("lock", {"action": "list", "slug": ""}, "slug"),
+    ("scale", {"replicas": 2, "slug": ""}, "slug"),
+    ("chat_history", {"room_id": ""}, "room_id"),
+]
 _FOREIGN = [
     ("lock", {"action": "claim", "paths": ["a"], "slug": "x"}, "claim+slug"),
     ("scale", {"replicas": 2, "to": "x"}, "to"),
@@ -598,3 +603,18 @@ async def test_merged_op_unknown_op_or_foreign_arg_refused(
     tool: str, args: dict[str, Any], named: str
 ) -> None:
     await _refused(tool, args, named)
+
+
+@pytest.mark.parametrize(("tool", "args", "named"), _EMPTY_SCOPE)
+async def test_merged_empty_scope_argument_refused(
+    tool: str, args: dict[str, Any], named: str
+) -> None:
+    await _refused(tool, args, named)
+
+
+async def test_webhook_create_does_not_forward_a_null_chain() -> None:
+    await _routed(
+        "webhook",
+        {"action": "create", "type": "github", "preset_id": "p", "then_schedule_ids": None},
+        ("POST", f"{_ADM}/webhooks/endpoints", "", {"type": "github", "preset_id": "p"}),
+    )

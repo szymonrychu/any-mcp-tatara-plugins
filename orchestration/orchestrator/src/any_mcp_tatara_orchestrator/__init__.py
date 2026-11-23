@@ -125,6 +125,8 @@ def _schema(properties: dict[str, Any], required: Sequence[str] = ()) -> dict[st
 
 _PATHS = {"type": "array", "items": {"type": "string"}, "description": "File paths in the workdir."}
 # Calls that read or move leadership: the plugin re-checks the role after them.
+# Webhook actions whose answer may carry an issued credential (the only ones read whole).
+_ISSUING_ACTIONS = frozenset({"create", "update", "clone", "rotate"})
 _ROLE_CALLS = frozenset({"me", "leadership_withdraw", "handoff_submit"})
 
 _ABANDON = {
@@ -318,10 +320,12 @@ _MERGED: dict[str, Merged] = {
 
 def _leads(me: Any) -> bool | None:
     """Whether a ``GET /me`` answer names the caller as leader (``leader`` is the leader's pod
-    name); None for an answer that is not one."""
+    name); None for an answer that is not one and while the leader slot is vacant."""
     if not isinstance(me, dict) or not isinstance(me.get("pod_name"), str):
         return None
-    return me.get("leader") == me["pod_name"]
+    if me.get("leader") is None:
+        return None
+    return me["leader"] == me["pod_name"]
 
 
 class OrchestratorPlugin(Plugin):
@@ -365,10 +369,12 @@ class OrchestratorPlugin(Plugin):
         return _leads(body)
 
     def _set_role(self, leader: bool | None) -> bool:
-        """Cache a role read; True when it differs from the role the tool list was built for."""
-        changed = leader is not None and leader != self._leader
+        """Cache a role read; True when it differs from the role the tool list was built for.
+        None (unreadable, or a vacant leader slot) forgets the role, so both lists are offered
+        instead of a stale one, and the read is retried on the next reload."""
+        changed = leader != self._leader
+        self._leader = leader
         if leader is not None:
-            self._leader = leader
             self._role_read_at = time.monotonic()
         return changed
 
@@ -396,10 +402,9 @@ class OrchestratorPlugin(Plugin):
                 leader = _leads(raw.json())
             except ValueError:
                 leader = None
-            if leader is not None:
-                if self._set_role(leader):
-                    self.ctx.request_reload()
-                return raw
+            if self._set_role(leader):
+                self.ctx.request_reload()
+            return raw
         self._role_read_at = None
         self.ctx.request_reload()
         return raw
@@ -432,6 +437,7 @@ class OrchestratorPlugin(Plugin):
 
     async def _call(self, call: ToolCall, whole: bool) -> RawResponse:
         merged = _MERGED.get(call.spec.name)
+        key = merged.key_of(call.arguments) if merged is not None else ""
         # A schedule update replaces every field: resend the stored chain links when omitted.
         keep_chain = (
             call.spec.name == "schedule"
@@ -487,7 +493,7 @@ class OrchestratorPlugin(Plugin):
             return self._next_step(await super().call(call))
         if call.spec.name in ACKS:
             return self._ack(call.spec.name, await self._read_whole(call))
-        if call.spec.name not in CREDENTIAL_TOOLS:
+        if call.spec.name not in CREDENTIAL_TOOLS or key not in _ISSUING_ACTIONS:
             return await super().call(call)
         # An issued credential goes to ``to_file`` or nowhere: it never reaches the result.
         args = dict(call.arguments)
