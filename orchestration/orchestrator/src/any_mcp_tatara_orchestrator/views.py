@@ -165,7 +165,6 @@ ACKS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "todo_update": task_ack,
     "plan_step_edit": task_ack,
     "plan_step_update": task_ack,
-    "plan_step_deps": task_ack,
     "decision_ask": decision_ack,
     "decision_withdraw": decision_ack,
     "approval_ask": approval_ack,

@@ -25,10 +25,7 @@ ROWS = {
     "plan_set": ("PUT", "/agent/v1/specs/{spec}/plan"),
     "plan_steps": ("GET", "/agent/v1/specs/{spec}/steps"),
     "plan_step_get": ("GET", "/agent/v1/tasks/{key}"),
-    "plan_step_add": ("POST", "/agent/v1/specs/{spec}/steps"),
     "plan_step_edit": ("PATCH", "/agent/v1/tasks/{key}"),
-    "plan_step_deps": ("PUT", "/agent/v1/tasks/{key}/deps"),
-    "plan_steps_order": ("PUT", "/agent/v1/specs/{spec}/steps/order"),
     "plan_step_next": ("POST", "/agent/v1/specs/{spec}/steps/next"),
     "plan_step_update": ("PATCH", "/agent/v1/tasks/{key}"),
     "plan_gate": ("GET", "/agent/v1/specs/{spec}/gate"),
@@ -77,10 +74,8 @@ def test_read_rows_are_read_only() -> None:
 def test_descriptions_state_the_stale_and_cap_rules() -> None:
     rows = {s.name: s for s in plan_tools("http://x")}
     assert "current_version" in rows["plan_set"].description
-    assert "current_steps_version" in rows["plan_step_add"].description
-    assert "32 KiB" in rows["plan_step_add"].description
+    assert "32 KiB" in rows["plan_step_edit"].description
     assert "no ready step" in rows["plan_step_next"].description
-    assert "plan_steps_push" in rows["plan_step_add"].description
 
 
 async def test_rows_call_their_routes() -> None:
@@ -96,10 +91,7 @@ async def test_rows_call_their_routes() -> None:
         ("plan_set", {"spec": "S-3", "version": 1, "goal": "g", "constraints": ["c"]}),
         ("plan_steps", {"spec": "S-3"}),
         ("plan_step_get", {"key": "T-5"}),
-        ("plan_step_add", {"spec": "S-3", "steps_version": 4, "after": 1, "title": "t"}),
         ("plan_step_edit", {"key": "T-5", "version": 2, "title": "n", "model": "sonnet"}),
-        ("plan_step_deps", {"key": "T-5", "depends_on": ["T-4"]}),
-        ("plan_steps_order", {"spec": "S-3", "steps_version": 4, "order": ["T-5", "T-4"]}),
         ("plan_step_next", {"spec": "S-3", "claim": True}),
         (
             "plan_step_update",
@@ -122,10 +114,7 @@ async def test_rows_call_their_routes() -> None:
         ("PUT", "/agent/v1/specs/S-3/plan", ""),
         ("GET", "/agent/v1/specs/S-3/steps", ""),
         ("GET", "/agent/v1/tasks/T-5", "events_limit=10&comments_limit=0"),
-        ("POST", "/agent/v1/specs/S-3/steps", ""),
         ("PATCH", "/agent/v1/tasks/T-5", ""),
-        ("PUT", "/agent/v1/tasks/T-5/deps", ""),
-        ("PUT", "/agent/v1/specs/S-3/steps/order", ""),
         ("POST", "/agent/v1/specs/S-3/steps/next", ""),
         ("PATCH", "/agent/v1/tasks/T-5", ""),
         ("GET", "/agent/v1/specs/S-3/gate", ""),
@@ -133,12 +122,9 @@ async def test_rows_call_their_routes() -> None:
     ]
     bodies = [b for _, _, _, b in seen]
     assert bodies[1] == {"version": 1, "goal": "g", "constraints": ["c"]}
-    assert bodies[4] == {"steps_version": 4, "after": 1, "title": "t"}
-    assert bodies[5] == {"version": 2, "title": "n", "model": "sonnet"}
-    assert bodies[6] == {"depends_on": ["T-4"]}
-    assert bodies[7] == {"steps_version": 4, "order": ["T-5", "T-4"]}
-    assert bodies[8] == {"claim": True}
-    assert bodies[9] == {
+    assert bodies[4] == {"version": 2, "title": "n", "model": "sonnet"}
+    assert bodies[5] == {"claim": True}
+    assert bodies[6] == {
         "version": 3,
         "status": "in_progress",
         "refs": [{"kind": "pr", "value": "x"}],
@@ -202,29 +188,21 @@ async def test_step_writes_answer_a_short_confirmation() -> None:
         for name, args in (
             ("plan_step_edit", {"key": "T-5", "version": 2, "title": "n"}),
             ("plan_step_update", {"key": "T-5", "version": 2, "status": "done"}),
-            ("plan_step_deps", {"key": "T-5", "depends_on": []}),
         ):
             res = await h.call(f"orchestrator_{name}", args)
             assert json.loads(res.text) == {"key": "T-5", "version": 3, "url": "u"}, name
 
 
-async def test_stale_plan_and_stale_steps_are_surfaced() -> None:
+async def test_stale_plan_is_surfaced() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        field = (
-            "current_steps_version" if request.url.path.endswith("/steps") else "current_version"
-        )
         return httpx.Response(
             412,
-            json={"error": {"code": "stale_version", "message": "changed", field: 7}},
+            json={"error": {"code": "stale_version", "message": "changed", "current_version": 7}},
         )
 
     async with harness(handler) as h:
         plan = await h.call("orchestrator_plan_set", {"spec": "S-3", "version": 1})
-        step = await h.call(
-            "orchestrator_plan_step_add", {"spec": "S-3", "steps_version": 1, "title": "t"}
-        )
     assert plan.is_error and "stale_version" in plan.text
-    assert step.is_error and "stale_version" in step.text
 
 
 def test_plan_gate_description_names_approvable() -> None:

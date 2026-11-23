@@ -22,7 +22,6 @@ from any_mcp_tatara_orchestrator.admin import (
     ADMIN_TOOLS,
     fit_events,
     fit_sessions,
-    summarize_presets,
     summarize_sessions,
 )
 from any_mcp_tatara_orchestrator.fit import measure
@@ -37,7 +36,7 @@ CONFIG: dict[str, Any] = {
     "slug": "my-hive",
 }
 EXPECTED = {
-    "presets_list", "preset_get", "preset_create", "preset_replace", "preset_patch",
+    "preset_get", "preset_create", "preset_patch",
     "preset_delete",
     "preset_copy", "session_get", "session_patch", "session_create", "session_discard",
     "session_restart", "agent_restart", "command_get", "webhooks_list", "webhook_get_meta",
@@ -48,17 +47,17 @@ EXPECTED = {
     "schedule_runs", "schedule_runs_all", "schedule_run_get", "schedule_preview",
     "chat_admin_rooms", "chat_room_settings", "chat_rules", "chat_rule_add", "chat_rule_delete",
     "history_search", "history_get", "history_records", "usage_get",
-    "chat_admin_room", "chat_admin_history", "chat_users", "chat_room_allow", "chat_open",
+    "chat_admin_history", "chat_users", "chat_room_allow", "chat_open",
     "chat_open_status",
     "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
     "leadership_withdraw", "vault_list", "vault_attach", "vault_detach", "proposal_create",
     "proposal_revise", "project_create", "session_projects_grant", "session_projects_revoke",
     "preset_projects_grant", "preset_projects_revoke", "preset_manageable_request",
-    "sessions_admin_list", "session_activity", "session_events", "session_messages",
-    "session_locks", "session_commands", "meta_get", "backups_list", "backups_cleanup_get",
-    "backups_cleanup_preview", "usage_history", "usage_sessions",
+    "sessions_admin_list", "session_events",
+    "session_locks", "session_commands", "meta_get", "backups_list",
+    "usage_history", "usage_sessions",
     "session_labels_update", "session_scale", "session_lock_reassign", "session_message_cancel",
-    "project_update", "backups_cleanup_set", "spec_delete", "spec_suggestion_dismiss",
+    "project_update", "spec_delete", "spec_suggestion_dismiss",
     "volumes_status", "volume_save", "volumes_list", "volume_get", "volume_attach",
     "volume_detach", "volume_create", "backup_versions", "backup_manifest", "backups_copy",
     "handoffs_list", "handoff_get", "chat_admin_notes_get", "chat_admin_notes_update",
@@ -69,19 +68,15 @@ READ_ROWS = {
         "/agent/v1/admin/sessions",
         ("label", "project", "superleaders", "session_slug"),
     ),
-    "session_activity": ("GET", "/agent/v1/admin/sessions/{}/activity", ("agent", "limit")),
     "session_events": (
         "GET",
         "/agent/v1/admin/sessions/{}/events",
         ("before_id", "after_id", "limit", "agent_id", "types"),
     ),
-    "session_messages": ("GET", "/agent/v1/admin/sessions/{}/messages", ("status", "limit")),
     "session_locks": ("GET", "/agent/v1/admin/sessions/{}/locks", ()),
     "session_commands": ("GET", "/agent/v1/admin/sessions/{}/commands", ("limit",)),
     "meta_get": ("GET", "/agent/v1/admin/meta", ()),
     "backups_list": ("GET", "/agent/v1/admin/backups", ("q", "limit", "cursor")),
-    "backups_cleanup_get": ("GET", "/agent/v1/admin/backups/cleanup/settings", ()),
-    "backups_cleanup_preview": ("GET", "/agent/v1/admin/backups/cleanup/preview", ()),
     "usage_history": (
         "GET",
         "/agent/v1/admin/usage/history",
@@ -294,7 +289,7 @@ def test_sessions_admin_list_names_the_slice3_writes() -> None:
 
 async def test_preset_rows_take_a_project_to_move_a_preset() -> None:
     rows = rows_by_name()
-    for name, method in (("preset_patch", "PATCH"), ("preset_replace", "PUT")):
+    for name, method in (("preset_patch", "PATCH"),):
         row = rows[name]
         assert row.method == method and row.path == "/admin/presets/{ref}"
         assert row.schema["properties"]["project"]["type"] == "string"
@@ -355,7 +350,6 @@ async def test_rows_call_their_routes() -> None:
         return httpx.Response(200, json={"ok": True})
 
     calls = [
-        ("presets_list", {}, ("GET", "/agent/v1/admin/presets", "", None)),
         ("preset_get", {"ref": "web"}, ("GET", "/agent/v1/admin/presets/web", "", None)),
         (
             "preset_create",
@@ -376,16 +370,6 @@ async def test_rows_call_their_routes() -> None:
             "preset_patch",
             {"ref": "web", "project": "acme"},
             ("PATCH", "/agent/v1/admin/presets/web", "", {"project": "acme"}),
-        ),
-        (
-            "preset_replace",
-            {"ref": "web", "name": "web", "spec": {}, "project": "acme"},
-            (
-                "PUT",
-                "/agent/v1/admin/presets/web",
-                "",
-                {"name": "web", "spec": {}, "project": "acme"},
-            ),
         ),
         (
             "session_patch",
@@ -778,70 +762,6 @@ def _big_preset(i: int) -> dict[str, Any]:
     }
 
 
-async def test_presets_list_is_a_compact_summary_within_the_output_budget() -> None:
-    presets = [_big_preset(i) for i in range(100)]
-    assert len(json.dumps(presets, separators=(",", ":"))) > DEFAULT_BUDGET_CHARS
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert (request.method, request.url.path) == ("GET", "/agent/v1/admin/presets")
-        return httpx.Response(200, json=presets)
-
-    async with harness(handler) as h:
-        res = await h.call("presets_list", {})
-    assert not res.is_error
-    assert "[truncated:" not in res.text
-    assert len(res.text) < DEFAULT_BUDGET_CHARS // 2
-    rows = res.structured
-    assert isinstance(rows, list) and len(rows) == 100
-    assert [r["name"] for r in rows] == [f"preset-{i}" for i in range(100)]
-    for i, row in enumerate(rows):
-        assert row["labels"] == ["team", f"n{i}"]
-        assert row["superleader_manageable"] is (i % 2 == 0)
-        assert row["kube_cluster_access"] is (i % 3 == 0)
-        assert row["kube_namespace_access"] is (i % 4 == 0)
-        assert row["docker"] is (i % 5 == 0)
-        assert row["session_messaging"] is (i % 7 == 0)
-        assert ("inactivity" in row) is (i == 4)
-        assert set(row) - {"inactivity"} == {
-            "name", "labels", "superleader_manageable", "kube_cluster_access",
-            "kube_namespace_access", "docker", "session_messaging",
-        }  # fmt: skip
-    assert rows[4]["inactivity"] == {"reminder_seconds": 60, "close_seconds": 600}
-
-
-async def test_presets_list_omits_superleader_manageable_when_absent() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[{"name": "a", "labels": [], "spec": {}}])
-
-    async with harness(handler) as h:
-        res = await h.call("presets_list", {})
-    assert res.structured == [
-        {
-            "name": "a",
-            "labels": [],
-            "kube_cluster_access": False,
-            "kube_namespace_access": False,
-            "session_messaging": False,
-            "docker": False,
-        }
-    ]
-
-
-def test_presets_list_summary_kube_flags() -> None:
-    def row(spec: dict[str, Any]) -> dict[str, Any]:
-        return summarize_presets([{"name": "a", "labels": [], "spec": spec}])[0]
-
-    both = row({"kube_cluster_access": True, "kube_namespace_access": {"ns1": ["read"]}})
-    assert both["kube_cluster_access"] is True
-    assert both["kube_namespace_access"] is True
-    empty = row({})
-    assert empty["kube_cluster_access"] is False
-    assert empty["kube_namespace_access"] is False
-    assert row({"kube_namespace_access": {}})["kube_namespace_access"] is False
-    assert row({"kube_cluster_access": "yes"})["kube_cluster_access"] is False
-    assert "kube_access" not in empty
-
-
 def test_patch_spec_descriptions() -> None:
     plain = _PATCH_SPEC["description"]
     assert "session_messaging" not in plain
@@ -852,13 +772,6 @@ def test_patch_spec_descriptions() -> None:
     assert "kube_access," not in session
     assert session.count("session_messaging") == 1
     assert "a regular leader may not turn session_messaging on for its own session" in session
-
-
-async def test_presets_list_description_points_to_preset_get() -> None:
-    desc = rows_by_name()["presets_list"].description
-    assert desc == (
-        "List the presets: name, labels and privilege flags; use preset_get for the full spec."
-    )
 
 
 def test_session_discard_schema_lists_force() -> None:
@@ -952,7 +865,6 @@ async def test_chat_admin_rows_call_their_routes() -> None:
 
     base = "/agent/v1/admin/chats"
     calls = [
-        ("chat_admin_room", {"room_id": "!a:x"}, ("GET", f"{base}/rooms/!a:x", "", None)),
         ("chat_users", {"q": "ann", "limit": 5}, ("GET", f"{base}/users", "q=ann&limit=5", None)),
         (
             "chat_room_allow",
@@ -1100,18 +1012,16 @@ async def test_read_rows_call_their_routes() -> None:
 
     args = {"slug": "hive-a", "limit": 5}
     async with harness(handler) as h:
-        for name in ("session_activity", "session_events", "session_messages", "session_commands"):
+        for name in ("session_events", "session_commands"):
             assert not (await h.call(name, args)).is_error, name
         assert not (await h.call("session_locks", {"slug": "hive-a"})).is_error
         assert not (
             await h.call("sessions_admin_list", {"session_slug": "a", "label": "x"})
         ).is_error
-    assert seen[0] == ("GET", "/agent/v1/admin/sessions/hive-a/activity?limit=5")
-    assert seen[1] == ("GET", "/agent/v1/admin/sessions/hive-a/events?limit=5")
-    assert seen[2] == ("GET", "/agent/v1/admin/sessions/hive-a/messages?limit=5")
-    assert seen[3] == ("GET", "/agent/v1/admin/sessions/hive-a/commands?limit=5")
-    assert seen[4] == ("GET", "/agent/v1/admin/sessions/hive-a/locks?")
-    assert seen[5][1] in {
+    assert seen[0] == ("GET", "/agent/v1/admin/sessions/hive-a/events?limit=5")
+    assert seen[1] == ("GET", "/agent/v1/admin/sessions/hive-a/commands?limit=5")
+    assert seen[2] == ("GET", "/agent/v1/admin/sessions/hive-a/locks?")
+    assert seen[3][1] in {
         "/agent/v1/admin/sessions?label=x&session_slug=a",
         "/agent/v1/admin/sessions?session_slug=a&label=x",
     }
@@ -1273,7 +1183,7 @@ def test_superleader_read_texts() -> None:
     for name in ("preset_get", "session_get"):
         desc = rows[name].description
         assert "403 not_manageable" in desc and "approval" in desc, name
-    for name in ("preset_replace", "preset_patch", "preset_delete", "preset_copy",
+    for name in ("preset_patch", "preset_delete", "preset_copy",
                  "session_patch", "session_restart", "agent_restart", "vault_attach",
                  "vault_detach", "leadership_withdraw"):  # fmt: skip
         desc = rows[name].description
@@ -1291,7 +1201,7 @@ def test_room_tools_say_preset_and_trigger_are_replaced_on_every_call(name: str)
     text = " ".join([row.description, row.schema["properties"]["agent_aliases"]["description"]])
     assert "replaced on every call" in row.description
     assert "omitted or null clears them" in row.description
-    assert "chat_admin_room" in row.description
+    assert "chat_admin_rooms" in row.description
     assert "resend its preset_id and trigger" in row.description
     assert "Omit to keep, [] to clear" in text
 
@@ -1302,7 +1212,6 @@ SLICE3 = [
     "session_lock_reassign",
     "session_message_cancel",
     "project_update",
-    "backups_cleanup_set",
     "spec_delete",
     "spec_suggestion_dismiss",
 ]
@@ -1312,18 +1221,9 @@ SLICE3_ROUTES = {
     "session_lock_reassign": ("POST", "/agent/v1/admin/sessions/{}/locks/reassign"),
     "session_message_cancel": ("DELETE", "/agent/v1/admin/sessions/{}/messages/{}"),
     "project_update": ("PATCH", "/agent/v1/admin/projects/{}"),
-    "backups_cleanup_set": ("PUT", "/agent/v1/admin/backups/cleanup/settings"),
     "spec_delete": ("DELETE", "/agent/v1/admin/specs/{}"),
     "spec_suggestion_dismiss": ("POST", "/agent/v1/admin/specs/{}/comments/{}/dismiss"),
 }
-POLICY_KEYS = [
-    "enabled",
-    "dry_run",
-    "retention_days",
-    "keep_newest",
-    "interval_seconds",
-    "grace_seconds",
-]
 
 
 @pytest.mark.parametrize("name", SLICE3)
@@ -1343,14 +1243,6 @@ async def test_slice3_write_rows_call_their_routes() -> None:
         seen.append((request.method, request.url.path, body))
         return httpx.Response(200, json={"ok": True})
 
-    policy = {
-        "enabled": True,
-        "dry_run": True,
-        "retention_days": 30,
-        "keep_newest": 5,
-        "interval_seconds": 3600,
-        "grace_seconds": 600,
-    }
     calls = [
         (
             "session_labels_update",
@@ -1386,11 +1278,6 @@ async def test_slice3_write_rows_call_their_routes() -> None:
             {"slug": "acme", "name": "Acme", "archived": True},
             ("PATCH", "/agent/v1/admin/projects/acme", {"name": "Acme", "archived": True}),
         ),
-        (
-            "backups_cleanup_set",
-            policy,
-            ("PUT", "/agent/v1/admin/backups/cleanup/settings", policy),
-        ),
         ("spec_delete", {"key": "S-4"}, ("DELETE", "/agent/v1/admin/specs/S-4", None)),
         (
             "spec_suggestion_dismiss",
@@ -1423,28 +1310,6 @@ def test_scale_and_lock_rows_name_own_session() -> None:
         desc = rows[name].description
         assert "own_session" in desc, name
         assert own_tool in desc, name
-
-
-def test_backups_cleanup_set_requires_the_full_policy() -> None:
-    row = rows_by_name()["backups_cleanup_set"]
-    assert row.schema["required"] == POLICY_KEYS
-    props = row.schema["properties"]
-    assert set(props) == set(POLICY_KEYS)
-    bounds = {
-        "retention_days": (1, 3650),
-        "keep_newest": (1, 1000),
-        "interval_seconds": (60, 2592000),
-        "grace_seconds": (0, 604800),
-    }
-    for key, (low, high) in bounds.items():
-        assert (props[key]["type"], props[key]["minimum"], props[key]["maximum"]) == (
-            "integer",
-            low,
-            high,
-        ), key
-    assert props["enabled"]["type"] == props["dry_run"]["type"] == "boolean"
-    assert "backups_cleanup_get" in row.description
-    assert "dry_run" in row.description
 
 
 def test_preset_patch_takes_manageable_false_only() -> None:
@@ -1622,9 +1487,6 @@ BACKUP_ROUTES = [
     ("backup_versions", "GET", "/agent/v1/admin/backups/{}/versions"),
     ("backup_manifest", "GET", "/agent/v1/admin/backups/{}/versions/{}/manifest"),
     ("backups_copy", "POST", "/agent/v1/admin/backups/copy"),
-    ("backups_cleanup_get", "GET", "/agent/v1/admin/backups/cleanup/settings"),
-    ("backups_cleanup_preview", "GET", "/agent/v1/admin/backups/cleanup/preview"),
-    ("backups_cleanup_set", "PUT", "/agent/v1/admin/backups/cleanup/settings"),
     ("handoffs_list", "GET", "/agent/v1/admin/handoffs"),
     ("handoff_get", "GET", "/agent/v1/admin/handoffs/{}"),
     ("chat_admin_notes_get", "GET", "/agent/v1/admin/chats/rooms/{}/notes"),

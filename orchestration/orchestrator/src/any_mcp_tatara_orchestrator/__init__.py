@@ -36,7 +36,6 @@ from .admin import (
     SESSION_EVENTS_LIMIT,
     fit_events,
     fit_sessions,
-    summarize_presets,
     summarize_sessions,
 )
 from .common import HANDLED
@@ -254,8 +253,6 @@ class OrchestratorPlugin(Plugin):
         if call.spec.name == "history_search":
             call = call.with_arguments({"limit": HISTORY_SEARCH_LIMIT, **call.arguments})
             return self._with_cursor(await super().call(call))
-        if call.spec.name == "presets_list":
-            return self._compact_presets(await self._read_whole(call))
         if call.spec.name == "sessions_admin_list":
             return self._compact_sessions(await self._read_whole(call))
         if call.spec.name == "session_events":
@@ -389,17 +386,6 @@ class OrchestratorPlugin(Plugin):
         if not isinstance(value, dict):
             return raw
         return RawResponse.from_value(ACKS[name](value))
-
-    @staticmethod
-    def _compact_presets(raw: RawResponse) -> RawResponse:
-        """Shrink the preset list to summaries: the full specs outgrow the tool output budget."""
-        try:
-            presets = raw.json()
-        except ValueError:
-            return raw
-        if not isinstance(presets, list):
-            return raw
-        return RawResponse.from_value(summarize_presets(presets))
 
     def _compact_sessions(self, raw: RawResponse) -> RawResponse:
         """Shrink the session list to summaries and keep it inside the output budget."""

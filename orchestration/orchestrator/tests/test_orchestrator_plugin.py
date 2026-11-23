@@ -86,10 +86,7 @@ PLAN_TOOLS = {
     "orchestrator_plan_set",
     "orchestrator_plan_steps",
     "orchestrator_plan_step_get",
-    "orchestrator_plan_step_add",
     "orchestrator_plan_step_edit",
-    "orchestrator_plan_step_deps",
-    "orchestrator_plan_steps_order",
     "orchestrator_plan_step_next",
     "orchestrator_plan_step_update",
     "orchestrator_plan_gate",
@@ -1084,21 +1081,24 @@ async def test_session_labels_set_tool_path_method_and_annotations() -> None:
     assert seen == [("PUT", "/agent/v1/session/labels", {"labels": ["A "]})]
 
 
-async def test_removed_chat_tools_are_gone() -> None:
-    names = set(await tools_by_name())
-    assert not names & {
-        "orchestrator_chat_send",
-        "orchestrator_chat_react",
-        "orchestrator_chat_status",
-        "orchestrator_project_chat_send",
-    }
+REMOVED_TOOLS = (
+    "chat_send", "chat_react", "chat_status", "project_chat_send", "backup_save", "backup_status",
+    "session_activity", "session_messages", "chat_admin_room", "presets_list", "plan_step_add",
+    "plan_steps_order", "plan_step_deps", "preset_replace", "backups_cleanup_get",
+    "backups_cleanup_preview", "backups_cleanup_set",
+)  # fmt: skip
 
 
-def test_no_text_names_a_removed_chat_tool() -> None:
+@pytest.mark.parametrize("name", REMOVED_TOOLS)
+async def test_removed_tools_absent(name: str) -> None:
+    assert f"orchestrator_{name}" not in set(await tools_by_name())
+
+
+def test_no_text_names_removed_tool() -> None:
     src = Path(__file__).resolve().parents[1] / "src" / "any_mcp_tatara_orchestrator"
     pattern = re.compile(
-        r"orchestrator_chat_(send|react|status)\b|\bchat_(send|react|status)\b"
-        r"|\b(orchestrator_)?project_chat_send\b|<session-message"
+        r"\b(orchestrator_)?(" + "|".join(REMOVED_TOOLS) + r")\b|"
+        r"<session-message"
         r"|mcp__ccw__(send_message|peers)|<agent-message"
     )
     hits = [
