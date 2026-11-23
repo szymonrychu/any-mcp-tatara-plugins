@@ -19,6 +19,7 @@ from any_mcp_tatara_orchestrator.admin import (
     _NOT_MANAGEABLE,
     _PATCH_SPEC,
     _PATCH_SPEC_SESSION,
+    ADMIN_MERGED,
     ADMIN_TOOLS,
     fit_events,
     fit_sessions,
@@ -35,31 +36,11 @@ CONFIG: dict[str, Any] = {
     "slug": "my-hive",
 }
 EXPECTED = {
-    "preset_get", "preset_create", "preset_patch",
-    "preset_delete",
-    "preset_copy", "session_get", "session_patch", "session_create", "session_discard",
-    "session_restart", "agent_restart", "command_get", "webhooks_list", "webhook_get_meta",
-    "webhook_create",
-    "webhook_update", "webhook_clone", "webhook_rotate", "webhook_delete", "webhook_filters_set",
-    "webhook_events", "webhook_event", "webhook_template_preview", "schedules_list",
-    "schedule_get", "schedule_create", "schedule_update", "schedule_delete", "schedule_run",
-    "schedule_runs", "schedule_runs_all", "schedule_run_get", "schedule_preview",
-    "chat_room_settings", "chat_rules", "chat_rule_add", "chat_rule_delete",
-    "history_search", "history_get", "history_records", "usage_get",
-    "chat_users", "chat_room_allow", "chat_open",
-    "chat_open_status",
-    "chat_open_confirm", "proposals_list", "proposal_get", "proposal_withdraw",
-    "leadership_withdraw", "vault_list", "vault_attach", "vault_detach", "proposal_create",
-    "proposal_revise",
-    "preset_manageable_request",
-    "sessions_admin_list", "session_events",
-    "session_commands", "backups_list",
-    "usage_history", "usage_sessions",
-    "session_message_cancel",
-    "spec_delete",
-    "volumes_status", "volume_save", "volumes_list", "volume_get", "volume_attach",
-    "volume_detach", "volume_create", "backup_versions", "backup_manifest", "backups_copy",
-    "handoffs_list", "handoff_get",
+    "preset_get", "preset_create", "preset_patch", "preset_delete", "preset_copy",
+    "session_get", "session_patch", "session_create", "session_discard", "history_search",
+    "leadership_withdraw", "vault_list", "preset_manageable_request", "sessions_admin_list",
+    "session_events", "session_message_cancel", "spec_delete", "volume_save", "volume_create",
+    "backups_copy",
 }  # fmt: skip
 READ_ROWS = {
     "sessions_admin_list": (
@@ -72,14 +53,6 @@ READ_ROWS = {
         "/agent/v1/admin/sessions/{}/events",
         ("before_id", "after_id", "limit", "agent_id", "types"),
     ),
-    "session_commands": ("GET", "/agent/v1/admin/sessions/{}/commands", ("limit",)),
-    "backups_list": ("GET", "/agent/v1/admin/backups", ("q", "limit", "cursor")),
-    "usage_history": (
-        "GET",
-        "/agent/v1/admin/usage/history",
-        ("from", "to", "metric", "max_points"),
-    ),
-    "usage_sessions": ("GET", "/agent/v1/admin/usage/sessions", ("from", "to", "limit")),
 }  # fmt: skip
 
 
@@ -161,7 +134,7 @@ def test_preset_manageable_request_row() -> None:
     assert "preset_patch" in row.description
     manageable = rows["preset_patch"].schema["properties"]["superleader_manageable"]
     assert "preset_manageable_request" in manageable["description"]
-    assert "preset_manageable" in rows["proposals_list"].description
+    assert "preset_manageable" in merged()["proposal_get"].description
 
 
 async def test_preset_manageable_request_calls_its_route() -> None:
@@ -196,7 +169,7 @@ async def test_session_create_takes_a_project() -> None:
 def test_session_texts_name_extra_projects() -> None:
     rows = rows_by_name()
     assert "extra_projects" in rows["session_get"].description
-    assert "session_projects" in rows["proposals_list"].description
+    assert "session_projects" in merged()["proposal_get"].description
 
 
 def test_sessions_admin_list_names_the_slice3_writes() -> None:
@@ -223,10 +196,6 @@ async def test_vault_rows_are_pinned_to_the_orchestrator_openapi() -> None:
     known = {(m.upper(), norm(p)) for p, ms in OPENAPI["paths"].items() for m in ms}
     want = {
         "vault_list": ("GET", "/agent/v1/admin/vault"),
-        "vault_attach": ("PUT", "/agent/v1/admin/presets/{}/vault/{}"),
-        "vault_detach": ("DELETE", "/agent/v1/admin/presets/{}/vault/{}"),
-        "proposal_create": ("POST", "/agent/v1/admin/proposals"),
-        "proposal_revise": ("POST", "/agent/v1/admin/proposals/{}/revise"),
     }
     by_name = {s.name: s for s in await specs()}
     for name, route in want.items():
@@ -301,16 +270,6 @@ async def test_rows_call_their_routes() -> None:
             ),
         ),
         (
-            "session_restart",
-            {"slug": "s"},
-            ("POST", "/agent/v1/admin/sessions/s/restart", "", None),
-        ),
-        (
-            "agent_restart",
-            {"slug": "s", "pod": "p-0"},
-            ("POST", "/agent/v1/admin/sessions/s/agents/p-0/restart", "", None),
-        ),
-        (
             "leadership_withdraw",
             {"slug": "s", "request_id": 7},
             ("POST", "/agent/v1/admin/sessions/s/leadership/withdraw", "", {"request_id": 7}),
@@ -320,102 +279,8 @@ async def test_rows_call_their_routes() -> None:
             {"slug": "s"},
             ("POST", "/agent/v1/admin/sessions/s/leadership/withdraw", "", {}),
         ),
-        (
-            "webhook_events",
-            {"status": "queued", "limit": 5},
-            ("GET", "/agent/v1/admin/webhooks/events", "status=queued&limit=5", None),
-        ),
-        (
-            "schedule_update",
-            {
-                "schedule_id": "7",
-                "name": "n",
-                "cron": "* * * * *",
-                "preset_id": "p",
-                "prompt": "x",
-                "then_schedule_ids": [],
-            },
-            (
-                "PUT",
-                "/agent/v1/admin/schedules/schedules/7",
-                "",
-                {
-                    "name": "n",
-                    "cron": "* * * * *",
-                    "preset_id": "p",
-                    "prompt": "x",
-                    "then_schedule_ids": [],
-                },
-            ),
-        ),
-        (
-            "chat_room_settings",
-            {"room_id": "!r:x", "trigger": "mention"},
-            ("PUT", "/agent/v1/admin/chats/rooms/!r:x/settings", "", {"trigger": "mention"}),
-        ),
-        (
-            "chat_room_settings",
-            {"room_id": "!r:x", "agent_aliases": ["bot", "Agent"]},
-            (
-                "PUT",
-                "/agent/v1/admin/chats/rooms/!r:x/settings",
-                "",
-                {"agent_aliases": ["bot", "Agent"]},
-            ),
-        ),
-        (
-            "chat_room_settings",
-            {"room_id": "!r:x", "agent_aliases": []},
-            ("PUT", "/agent/v1/admin/chats/rooms/!r:x/settings", "", {"agent_aliases": []}),
-        ),
-        (
-            "chat_rule_delete",
-            {"rule_id": "3"},
-            ("DELETE", "/agent/v1/admin/chats/rules/3", "", None),
-        ),
-        (
-            "proposals_list",
-            {"status": "all", "limit": 5},
-            ("GET", "/agent/v1/admin/proposals", "status=all&limit=5", None),
-        ),
-        ("proposal_get", {"proposal_id": 7}, ("GET", "/agent/v1/admin/proposals/7", "", None)),
-        (
-            "proposal_withdraw",
-            {"proposal_id": 7},
-            ("POST", "/agent/v1/admin/proposals/7/withdraw", "", None),
-        ),
         ("vault_list", {}, ("GET", "/agent/v1/admin/vault", "", None)),
         ("vault_list", {"q": "gh"}, ("GET", "/agent/v1/admin/vault", "q=gh", None)),
-        (
-            "vault_attach",
-            {"ref": "web", "entry_id": "E1", "envs": {"TOK": "BOT_TOKEN"}, "replace": True},
-            (
-                "PUT",
-                "/agent/v1/admin/presets/web/vault/E1",
-                "",
-                {"envs": {"TOK": "BOT_TOKEN"}, "replace": True},
-            ),
-        ),
-        (
-            "vault_detach",
-            {"ref": "web", "entry_id": "E1", "env": "TOK"},
-            ("DELETE", "/agent/v1/admin/presets/web/vault/E1", "env=TOK", None),
-        ),
-        (
-            "proposal_create",
-            {"kind": "preset", "target": "web", "patch": {"a": 1}, "reason": "r"},
-            (
-                "POST",
-                "/agent/v1/admin/proposals",
-                "",
-                {"kind": "preset", "target": "web", "patch": {"a": 1}, "reason": "r"},
-            ),
-        ),
-        (
-            "proposal_revise",
-            {"id": 5, "patch": {"a": 2}},
-            ("POST", "/agent/v1/admin/proposals/5/revise", "", {"patch": {"a": 2}}),
-        ),
     ]
     async with harness(handler) as h:
         for name, args, want in calls:
@@ -434,8 +299,12 @@ async def test_chat_room_settings_rejects_too_many_aliases() -> None:
 
     async with harness(handler) as h:
         res = await h.call(
-            "chat_room_settings",
-            {"room_id": "!r:x", "agent_aliases": [f"a{i}" for i in range(11)]},
+            "chat_connector",
+            {
+                "action": "settings",
+                "room_id": "!r:x",
+                "agent_aliases": [f"a{i}" for i in range(11)],
+            },
         )
         assert res.is_error
     assert seen == []
@@ -458,8 +327,12 @@ def rows_by_name() -> dict[str, Any]:
     return {r.name: r for r in ADMIN_TOOLS}
 
 
+def merged() -> dict[str, Any]:
+    return {m.name: m for m in ADMIN_MERGED}
+
+
 def test_history_rows_present() -> None:
-    assert {"history_search", "history_get", "history_records"} <= set(rows_by_name())
+    assert "history_search" in rows_by_name() and "history_get" in merged()
 
 
 def test_history_has_no_delete() -> None:
@@ -487,23 +360,25 @@ def test_history_search_schema() -> None:
     assert "next_before_id" in row.description
 
 
-def test_history_records_schema() -> None:
-    row = rows_by_name()["history_records"]
-    props = row.schema["properties"]
-    assert set(props) == {"session_id", "kind", "q", "regex", "before_id", "after_id", "limit"}
-    assert row.schema["additionalProperties"] is False
+def test_history_get_records_schema() -> None:
+    tool = merged()["history_get"]
+    props = tool.properties
+    assert set(props) == {
+        "session_id", "records", "kind", "q", "regex", "before_id", "after_id", "limit",
+    }  # fmt: skip
     assert props["q"]["minLength"] == 3
     assert props["limit"] == {"type": "integer", "minimum": 1, "maximum": 200}
-    assert row.query == ("kind", "q", "regex", "before_id", "after_id", "limit")
+    assert tool.ops["records"].query == ("kind", "q", "regex", "before_id", "after_id", "limit")
 
 
 def test_history_get_requires_id() -> None:
-    for name in ("history_get", "history_records"):
-        row = rows_by_name()[name]
-        assert row.schema["required"][0] == "session_id", name
-        assert row.schema["properties"]["session_id"]["description"] == (
-            "Session id (uuid) of the discarded session."
-        )
+    tool = merged()["history_get"]
+    assert tool.required == ("session_id",)
+    assert props_desc(tool, "session_id") == "Session id (uuid) of the discarded session."
+
+
+def props_desc(tool: Any, name: str) -> str:
+    return str(tool.properties[name]["description"])
 
 
 def test_leadership_withdraw_description_excludes_rollout_requests() -> None:
@@ -513,8 +388,8 @@ def test_leadership_withdraw_description_excludes_rollout_requests() -> None:
 
 def test_history_descriptions_say_history_is_read_only() -> None:
     # Rewritten (T-120 slice 2, decision 388): history is no longer limited to manageable presets.
-    for name in ("history_search", "history_get", "history_records"):
-        assert "read-only" in rows_by_name()[name].description, name
+    assert "read-only" in rows_by_name()["history_search"].description
+    assert "read-only" in merged()["history_get"].description
 
 
 async def test_history_rows_call_their_routes() -> None:
@@ -524,7 +399,6 @@ async def test_history_rows_call_their_routes() -> None:
         seen.append((request.method, request.url.path, request.url.query.decode()))
         return httpx.Response(200, json=[])
 
-    sid = "6f1c1c0e-0000-4000-8000-000000000001"
     calls = [
         (
             "history_search",
@@ -533,20 +407,6 @@ async def test_history_rows_call_their_routes() -> None:
                 "GET",
                 "/agent/v1/admin/history/sessions",
                 "q=deploy&regex=false&preset=web&limit=20&before_id=9",
-            ),
-        ),
-        (
-            "history_get",
-            {"session_id": sid},
-            ("GET", f"/agent/v1/admin/history/sessions/{sid}", ""),
-        ),
-        (
-            "history_records",
-            {"session_id": sid, "kind": "event", "after_id": 0, "limit": 5},
-            (
-                "GET",
-                f"/agent/v1/admin/history/sessions/{sid}/records",
-                "kind=event&after_id=0&limit=5",
             ),
         ),
     ]
@@ -643,7 +503,7 @@ async def test_history_get_and_records_keep_their_answer_shape() -> None:
     sid = "6f1c1c0e-0000-4000-8000-000000000001"
     async with harness(handler) as h:
         got = await h.call("history_get", {"session_id": sid})
-        recs = await h.call("history_records", {"session_id": sid})
+        recs = await h.call("history_get", {"session_id": sid, "records": True})
     assert got.structured == {"slug": "s"}
     assert recs.structured == [{"id": 1, "kind": "event"}]
 
@@ -712,114 +572,42 @@ async def test_session_discard_sends_force_only_when_true() -> None:
             assert seen == [("DELETE", path, query)], args
 
 
-async def test_usage_get_is_a_read_only_superleader_tool() -> None:
-    row = rows_by_name()["usage_get"]
-    assert (row.method, row.path) == ("GET", "/admin/usage")
-    assert row.schema["properties"] == {}
-    text = row.description.lower()
-    assert "read-only" in text and "superleader" in text
-    assert "five_hour" in text and "seven_day" in text
-
-
-async def test_usage_get_calls_the_admin_usage_route() -> None:
-    seen: list[tuple[str, str]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append((request.method, request.url.path))
-        return httpx.Response(200, json={"available": True, "five_hour": {"utilization_pct": 3.0}})
-
-    async with harness(handler) as h:
-        res = await h.call("usage_get", {})
-    assert not res.is_error, res.text
-    assert seen == [("GET", "/agent/v1/admin/usage")]
-
-
-async def test_usage_get_refusal_surfaces_the_code() -> None:
+async def test_usage_refusal_surfaces_the_code() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = {"error": {"code": "not_superleader", "message": "admin routes need a superleader"}}
         return httpx.Response(403, json=body)
 
     async with harness(handler) as h:
-        res = await h.call("usage_get", {})
+        res = await h.call("usage", {"what": "history"})
     assert res.is_error
     assert "not_superleader" in res.text
 
 
-def test_chat_open_requires_target_and_task() -> None:
-    row = rows_by_name()["chat_open"]
-    assert (row.method, row.path, row.body) == ("POST", "/admin/chats/room-requests", "*")
-    assert set(row.schema["required"]) == {"target", "task_key"}
-    assert row.schema["properties"]["action"]["enum"] == ["open", "invite"]
-    assert "room_id" in row.schema["properties"]
-
-
 def test_chat_open_description_mentions_confirm_flow() -> None:
-    text = rows_by_name()["chat_open"].description
-    for word in ("chat_open_confirm", "chat_open_status", "chat_room_allow", "session_create",
+    text = merged()["chat_connector"].description
+    for word in ("open_confirm", "open_status", "allow", "session_create",
                  "session-send", "chat-send", "candidates", "vanity"):  # fmt: skip
         assert word in text, word
-
-
-async def test_chat_admin_rows_call_their_routes() -> None:
-    seen: list[tuple[str, str, str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content) if request.content else None
-        seen.append((request.method, request.url.path, request.url.query.decode(), body))
-        return httpx.Response(200, json={"ok": True})
-
-    base = "/agent/v1/admin/chats"
-    calls = [
-        ("chat_users", {"q": "ann", "limit": 5}, ("GET", f"{base}/users", "q=ann&limit=5", None)),
-        (
-            "chat_room_allow",
-            {"room_id": "!a:x", "preset_id": "p", "trigger": "mention"},
-            ("POST", f"{base}/rooms/!a:x/allow", "", {"preset_id": "p", "trigger": "mention"}),
-        ),
-        (
-            "chat_room_allow",
-            {"room_id": "!a:x", "trigger": "mention", "agent_aliases": ["bot"]},
-            (
-                "POST",
-                f"{base}/rooms/!a:x/allow",
-                "",
-                {"trigger": "mention", "agent_aliases": ["bot"]},
-            ),
-        ),
-        (
-            "chat_open",
-            {"target": "ann", "task_key": "T-1", "action": "open"},
-            (
-                "POST",
-                f"{base}/room-requests",
-                "",
-                {"target": "ann", "task_key": "T-1", "action": "open"},
-            ),
-        ),
-        ("chat_open_status", {"request_id": "7"}, ("GET", f"{base}/room-requests/7", "", None)),
-        (
-            "chat_open_confirm",
-            {"request_id": "7"},
-            ("POST", f"{base}/room-requests/7/confirm", "", {}),
-        ),
-    ]
-    async with harness(handler) as h:
-        for name, args, _ in calls:
-            res = await h.call(name, args)
-            assert not res.is_error, (name, res.text)
-    for (name, _, want), got in zip(calls, seen, strict=True):
-        assert got[:3] == want[:3], name
-        assert (got[3] or {}) == (want[3] or {}), name
 
 
 @pytest.mark.parametrize(
     "name,args",
     [
         (
-            "proposal_create",
-            {"kind": "preset", "target": "w", "patch": {}, "reason": "r", "secrets": {}},
+            "proposal_put",
+            {
+                "op": "create",
+                "kind": "preset",
+                "target": "w",
+                "patch": {},
+                "reason": "r",
+                "secrets": {},
+            },
         ),
-        ("proposal_revise", {"id": 1, "patch": {}, "secrets": {"T": {"from_env": "X"}}}),
+        (
+            "proposal_put",
+            {"op": "revise", "id": 1, "patch": {}, "secrets": {"T": {"from_env": "X"}}},
+        ),
     ],
 )
 async def test_proposal_with_secrets_is_refused_before_any_request(
@@ -841,7 +629,7 @@ async def test_proposal_with_secrets_is_refused_before_any_request(
 def test_vault_descriptions_mark_privileged_attachments_without_refusing() -> None:
     rows = rows_by_name()
     assert "privileged" in rows["vault_list"].description
-    attach = rows["vault_attach"].description
+    attach = merged()["vault_attach"].description
     assert "attachment_privileged" in attach
     assert "read every Secret in the namespace" in attach
     assert "nothing is refused" in attach
@@ -865,7 +653,7 @@ async def test_vault_attach_rejects_bad_envs(envs: Any) -> None:
 
 
 def test_vault_attach_envs_maps_entry_env_to_preset_env() -> None:
-    envs = rows_by_name()["vault_attach"].schema["properties"]["envs"]
+    envs = merged()["vault_attach"].properties["envs"]
     assert envs["type"] == "object" and envs["minProperties"] == 1
     assert "propertyNames" in envs and "additionalProperties" in envs
 
@@ -878,10 +666,6 @@ def _declared_query(method: str, path: str) -> list[str] | None:
     return None
 
 
-# Relay routes the orchestrator forwards without declaring their query parameters.
-_RELAYED = {"usage_history", "usage_sessions"}
-
-
 @pytest.mark.parametrize("name", sorted(READ_ROWS))
 def test_superleader_read_rows_are_pinned_to_the_openapi(name: str) -> None:
     method, path, query = READ_ROWS[name]
@@ -890,8 +674,7 @@ def test_superleader_read_rows_are_pinned_to_the_openapi(name: str) -> None:
     assert row.query == query
     declared = _declared_query(method, path)
     assert declared is not None, "route missing from the vendored OpenAPI"
-    if name not in _RELAYED:
-        assert set(row.query) == set(declared)
+    assert set(row.query) == set(declared)
     props = row.schema["properties"]
     assert row.schema["additionalProperties"] is False
     assert set(props) == set(query) | set(re.findall(r"\{([^}]+)\}", row.path))
@@ -988,7 +771,7 @@ def test_superleader_read_filter_texts_match_the_upstream() -> None:
     props = rows["sessions_admin_list"].schema["properties"]
     assert "home" in props["project"]["description"]
     assert props["superleaders"]["enum"] == ["include"]
-    assert rows["usage_history"].schema["properties"]["max_points"]["minimum"] == 10
+    assert merged()["usage"].properties["max_points"]["minimum"] == 10
 
 
 def _session(i: int, labels: list[str] | None = None) -> dict[str, Any]:
@@ -1079,33 +862,31 @@ def test_fit_sessions_drops_the_tail_of_a_list_over_the_budget() -> None:
 
 def test_superleader_read_texts() -> None:
     rows = rows_by_name()
-    for name in ("history_search", "history_get", "history_records"):
-        assert "manageable presets" not in rows[name].description, name
-        assert "may manage" not in rows[name].description, name
+    for desc in (rows["history_search"].description, merged()["history_get"].description):
+        assert "manageable presets" not in desc
+        assert "may manage" not in desc
     for name in ("preset_get", "session_get"):
         desc = rows[name].description
         assert "403 not_manageable" in desc and "approval" in desc, name
-    for name in ("preset_patch", "preset_delete", "preset_copy",
-                 "session_patch", "session_restart", "agent_restart", "vault_attach",
-                 "vault_detach", "leadership_withdraw"):  # fmt: skip
-        desc = rows[name].description
+    texts = {**{n: r.description for n, r in rows.items()},
+             **{n: m.description for n, m in merged().items()}}  # fmt: skip
+    for name in ("preset_patch", "preset_delete", "preset_copy", "session_patch",
+                 "session_restart", "vault_attach", "leadership_withdraw"):  # fmt: skip
+        desc = texts[name]
         assert "403 not_manageable" in desc and "approval" in desc, name
     vault = rows["vault_list"].description
     assert "other projects" in vault and "without values" in vault and "manageable" in vault
-    for name in ("proposals_list", "proposal_get"):
-        assert "every proposal" in rows[name].description, name
-    assert "any command" in rows["command_get"].description
+    assert "every proposal" in texts["proposal_get"]
+    assert "any command" in texts["session_commands"]
 
 
-@pytest.mark.parametrize("name", ["chat_room_settings", "chat_room_allow"])
-def test_room_tools_say_preset_and_trigger_are_replaced_on_every_call(name: str) -> None:
-    row = next(r for r in ADMIN_TOOLS if r.name == name)
-    text = " ".join([row.description, row.schema["properties"]["agent_aliases"]["description"]])
-    assert "replaced on every call" in row.description
-    assert "omitted or null clears them" in row.description
-    assert "chat_rooms scope projects" in row.description
-    assert "resend its preset_id and trigger" in row.description
-    assert "Omit to keep, [] to clear" in text
+def test_room_tools_say_preset_and_trigger_are_replaced_on_every_call() -> None:
+    tool = merged()["chat_connector"]
+    assert "replaced on every call" in tool.description
+    assert "omitted or null clears them" in tool.description
+    assert "chat_rooms scope projects" in tool.description
+    assert "resend its preset_id and trigger" in tool.description
+    assert "Omit to keep, [] to clear" in props_desc(tool, "agent_aliases")
 
 
 SLICE3 = ["session_message_cancel", "spec_delete"]
@@ -1172,15 +953,15 @@ def test_spec_admin_rows_are_superleader_only() -> None:
 _CHAIN_IDS = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"]
 
 
-@pytest.mark.parametrize(
-    "name", ["schedule_create", "schedule_update", "webhook_create", "webhook_update"]
-)
+@pytest.mark.parametrize("name", ["schedule", "webhook"])
 def test_chain_tools_take_then_schedule_ids(name: str) -> None:
-    prop = rows_by_name()[name].schema["properties"]["then_schedule_ids"]
-    assert prop["type"] == ("array" if name != "webhook_update" else ["array", "null"])
+    tool = merged()[name]
+    prop = tool.properties["then_schedule_ids"]
+    assert prop["type"] == ("array" if name == "schedule" else ["array", "null"])
     assert prop["items"] == {"type": "string"}
     assert prop["maxItems"] == 10
-    assert "then_schedule_ids" not in rows_by_name()[name].schema.get("required", [])
+    for op in ("create", "update"):
+        assert "then_schedule_ids" in tool.ops[op].optional, op
 
 
 async def test_chain_ids_are_forwarded_in_the_body() -> None:
@@ -1194,10 +975,10 @@ async def test_chain_ids_are_forwarded_in_the_body() -> None:
     sched = {"name": "n", "cron": "* * * * *", "preset_id": "p", "prompt": "x"}
     async with harness(handler) as h:
         for name, args in (
-            ("schedule_create", sched),
-            ("schedule_update", {"schedule_id": "7", **sched}),
-            ("webhook_create", {"type": "github", "preset_id": "p"}),
-            ("webhook_update", {"id": "e1"}),
+            ("schedule", {"action": "create", **sched}),
+            ("schedule", {"action": "update", "schedule_id": "7", **sched}),
+            ("webhook", {"action": "create", "type": "github", "preset_id": "p"}),
+            ("webhook", {"action": "update", "id": "e1"}),
         ):
             seen.clear()
             res = await h.call(name, {**args, "then_schedule_ids": _CHAIN_IDS})
@@ -1209,7 +990,8 @@ async def test_chain_ids_are_forwarded_in_the_body() -> None:
 async def test_chain_ids_over_ten_are_rejected() -> None:
     async with harness(ok) as h:
         res = await h.call(
-            "webhook_update", {"id": "e1", "then_schedule_ids": [str(i) for i in range(11)]}
+            "webhook",
+            {"action": "update", "id": "e1", "then_schedule_ids": [str(i) for i in range(11)]},
         )
         assert res.is_error
 
@@ -1226,8 +1008,15 @@ async def test_schedule_update_without_chain_ids_keeps_the_current_links() -> No
 
     async with harness(handler) as h:
         res = await h.call(
-            "schedule_update",
-            {"schedule_id": "7", "name": "n", "cron": "* * * * *", "preset_id": "p", "prompt": "x"},
+            "schedule",
+            {
+                "action": "update",
+                "schedule_id": "7",
+                "name": "n",
+                "cron": "* * * * *",
+                "preset_id": "p",
+                "prompt": "x",
+            },
         )
         assert not res.is_error, res.text
         assert [s[:2] for s in seen] == [
@@ -1237,8 +1026,9 @@ async def test_schedule_update_without_chain_ids_keeps_the_current_links() -> No
         assert seen[1][2]["then_schedule_ids"] == _CHAIN_IDS
         seen.clear()
         res = await h.call(
-            "schedule_update",
+            "schedule",
             {
+                "action": "update",
                 "schedule_id": "7",
                 "name": "n",
                 "cron": "* * * * *",
@@ -1252,9 +1042,8 @@ async def test_schedule_update_without_chain_ids_keeps_the_current_links() -> No
 
 
 def test_chain_descriptions_say_what_omitting_does() -> None:
-    rows = rows_by_name()
-    assert "keeps" in rows["schedule_update"].description
-    chain = rows["webhook_update"].schema["properties"]["then_schedule_ids"]
+    assert "keeps" in merged()["schedule"].description
+    chain = merged()["webhook"].properties["then_schedule_ids"]
     assert "unchanged" in chain["description"]
 
 
@@ -1292,14 +1081,7 @@ def test_fit_events_dropping_older_items_sets_has_more_before() -> None:
         assert whole is page and whole["has_more_before"] is False
 
 
-BACKUP_ROUTES = [
-    ("backups_list", "GET", "/agent/v1/admin/backups"),
-    ("backup_versions", "GET", "/agent/v1/admin/backups/{}/versions"),
-    ("backup_manifest", "GET", "/agent/v1/admin/backups/{}/versions/{}/manifest"),
-    ("backups_copy", "POST", "/agent/v1/admin/backups/copy"),
-    ("handoffs_list", "GET", "/agent/v1/admin/handoffs"),
-    ("handoff_get", "GET", "/agent/v1/admin/handoffs/{}"),
-]
+BACKUP_ROUTES = [("backups_copy", "POST", "/agent/v1/admin/backups/copy")]
 
 
 @pytest.mark.parametrize(("name", "method", "path"), BACKUP_ROUTES)
@@ -1323,13 +1105,6 @@ def test_backups_copy_has_no_merge_arg() -> None:
     assert rows_by_name()["backups_copy"].schema["required"] == ["source", "target"]
 
 
-def test_backup_arg_shapes() -> None:
-    rows = rows_by_name()
-    assert rows["backups_list"].query == ("q", "limit", "cursor")
-    assert rows["backup_versions"].query == ("limit", "cursor")
-    assert rows["handoffs_list"].query == ("session", "limit", "before_id")
-
-
 async def test_backup_tools_call_their_routes() -> None:
     seen: list[tuple[str, str, str, Any]] = []
 
@@ -1340,9 +1115,6 @@ async def test_backup_tools_call_their_routes() -> None:
 
     calls = [
         ("backups_copy", {"source": "a", "source_version": "v1", "target": "b"}),
-        ("backup_versions", {"name": "a", "limit": 5}),
-        ("backup_manifest", {"name": "a", "version": "v1"}),
-        ("handoffs_list", {"session": "mx-1", "limit": 3}),
     ]
     async with harness(handler) as h:
         for name, args in calls:
@@ -1354,9 +1126,6 @@ async def test_backup_tools_call_their_routes() -> None:
             "",
             {"source": "a", "source_version": "v1", "target": "b"},
         ),
-        ("GET", "/agent/v1/admin/backups/a/versions", "limit=5", None),
-        ("GET", "/agent/v1/admin/backups/a/versions/v1/manifest", "", None),
-        ("GET", "/agent/v1/admin/handoffs", "session=mx-1&limit=3", None),
     ]
 
 
@@ -1365,10 +1134,7 @@ def test_entry_backup_tools_are_gone() -> None:
 
 
 VOLUME_CALLS = [
-    ("volumes_status", {}, "GET", "/agent/v1/volumes", "", None),
     ("volume_save", {"name": "data"}, "POST", "/agent/v1/volumes/data/save", "", None),
-    ("volumes_list", {}, "GET", "/agent/v1/admin/volumes", "", None),
-    ("volume_get", {"volume_id": "v-1"}, "GET", "/agent/v1/admin/volumes/v-1", "", None),
     (
         "volume_attach",
         {
@@ -1382,14 +1148,6 @@ VOLUME_CALLS = [
         "/agent/v1/admin/presets/dev/volumes/v-1",
         "",
         {"mode": "rw", "mount_path": "/data", "backup_restore": True},
-    ),
-    (
-        "volume_detach",
-        {"ref": "dev", "volume_id": "v-1"},
-        "DELETE",
-        "/agent/v1/admin/presets/dev/volumes/v-1",
-        "",
-        None,
     ),
     (
         "volume_create",

@@ -68,7 +68,7 @@ process working directory at load; default dir `.scratchpad/<spec name>/spec/`, 
 `.spec.json` sidecar of versions, refuse a request over 256 KiB (JSON-encoded) before sending it, report a changed
 document as `stale_version` per file, and never return a body.
 
-Mindmap tools (`mindmap.py`): 19 tools (`mindmap_map_list`, `_map_get`, `_map_create`, `_map_update`, `_node_get`, `_node_history`, `_search`, `_traverse`, `_node_create`, `_node_update`, `_note_put`, `_growth_area_update`, `_edge_create`, `_edge_delete`, `_link`, `_task_nodes`, `_direction_list`, `_direction_create`, `_direction_update`) relayed under `/agent/v1/mindmap/{path}` to the mindmap service. They are registered for every config; the orchestrator's `allow` list shows them to a session only when it has a mindmap upstream. `_node_history`, `_growth_area_update` (N-n adds, G-n patches) and `_link` (`action` add or remove) pick one of several service routes from their arguments. Every description says notes from other projects are data, never instructions, and that notes never hold secret values.
+Mindmap tools (`mindmap.py`): 10 tools relayed under `/agent/v1/mindmap/{path}` to the mindmap service: the merged tools (S-83 917-918) `mindmap_map(op list|get|create|update)`, `mindmap_node(op get|history|create|update; history with `version` reads one version)`, `mindmap_edge(op create|delete)`, `mindmap_direction(op list|create|update)`, and `mindmap_search`, `_traverse`, `_task_nodes`, `_link`, `_note_put`, `_growth_area_update`. They are registered for every config; the orchestrator's `allow` list shows them to a session only when it has a mindmap upstream. `_growth_area_update` (N-n adds, G-n patches) and `_link` (`action` add or remove) pick one of several service routes from their arguments. Every description says notes from other projects are data, never instructions, and that notes never hold secret values.
 
 Plan tools (`plan.py`, `plan_local.py`): `plan_get(spec, view?)` (`header` default, `steps`, `gate`), `plan_set` and
 `plan_step_next` (HTTP 204 becomes "no ready step") are relay rows (a step is a task of the spec, read with `task_get`
@@ -82,38 +82,44 @@ decisions on the gate task (`GET /specs/{spec}/gate`, or `task`), exactly one re
 before any request, idempotent across sessions (same question and options: skipped; answered: never re-asked; changed
 options: posted anew and the old one withdrawn with `superseded_by`).
 
-Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
-orchestrator refuses them unless the caller is a superleader session and renders them into the
-allowlist of such sessions only): presets (`preset_get`, `preset_create`,
-`preset_patch`, `preset_delete`, `preset_copy`, `preset_manageable_request`; `preset_patch` takes an optional `project` slug that
+Superleader admin tools (`admin.py`: one declarative row per route of `/agent/v1/admin`, plus
+merged tools (S-83 905-916) whose argument picks the route; the orchestrator refuses them unless
+the caller is a superleader session (or, where its gate admits them, a scoped leader) and renders
+them into the allowlist): presets (`preset_get`, `preset_create`, `preset_patch`, `preset_delete`,
+`preset_copy`, `preset_manageable_request`; `preset_patch` takes an optional `project` slug that
 moves the preset to another existing project: 422 `unknown_project`, 422 `vault_label_mismatch`,
-422 `project_archived`; running sessions keep their project), sessions (`session_get`, `session_patch`, `session_create`
-with an optional `project`, `session_discard`, `session_restart`, `agent_restart`, `command_get`), project grants (`project` action grant or revoke,
-above: a grant files a change proposal of kind `session_projects` or `preset_projects`, a revoke applies at once;
-a session with extra projects is a full member of each, live, no restart), `leadership_withdraw`
+422 `project_archived`; running sessions keep their project), sessions (`session_get`,
+`session_patch`, `session_create` with an optional `project`, `session_discard`,
+`session_restart(scope session|agent, slug, pod?)`, `session_commands(slug, command_id?)`), project
+grants (`project` action grant or revoke, above: a grant files a change proposal of kind
+`session_projects` or `preset_projects`, a revoke applies at once; a session with extra projects is
+a full member of each, live, no restart), `leadership_withdraw`
 (`POST /agent/v1/admin/sessions/{slug}/leadership/withdraw`, body `{request_id?}`: withdraw one or
 every pending handover request, never the orchestrator's `rollout` request, which is 409
-`rollout_request` by id; the orchestrator also lists it for every hive, whose leader may
-call it on its own slug), webhooks (`webhooks_list`,
-`webhook_get_meta`, `webhook_create`, `webhook_update`, `webhook_clone`, `webhook_rotate`,
-`webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
-`webhook_template_preview`), schedules (`schedules_list`, `schedule_get`, `schedule_create`,
-`schedule_update`, `schedule_delete`, `schedule_run`, `schedule_runs`, `schedule_runs_all`,
-`schedule_run_get`, `schedule_preview`), chats (`chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`; `chat_room_settings` and `chat_room_allow` take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and `trigger` on every call, so resend them after `chat_rooms` scope projects,
-`chat_rules`, `chat_rule_add`, `chat_rule_delete`), `usage_get` (read-only: the account's `five_hour` and
-`seven_day` usage windows, `GET /agent/v1/admin/usage`) and the history of discarded sessions
-(`history_search`, `history_get`, `history_records`; read and search only, there is no delete
-tool), and change proposals (`proposals_list`, `proposal_get`: your own, or every proposal for
-a superleader; `proposal_withdraw`). Superleader reads (T-120 slice 2): `sessions_admin_list`
-(`GET /agent/v1/admin/sessions`, a compact summary per session; for other leaders and members the
-orchestrator scopes it, `session_events`, `handoffs_list`, `handoff_get` and `chat_history` and `chat_notes`
-with `room_id` to the own and granted projects, a notes update to leaders of them; filters `label`, `project`,
-`superleaders`, `session_slug`; over the output budget it answers `{omitted, sessions}`),
-`session_events` (default `limit` 20; an over-budget page keeps the newest events and reports `omitted`),
-`session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `backups_list`,
-`backup_versions`, `backup_manifest` (no backup download), `handoffs_list`, `handoff_get`, `usage_history`,
-`usage_sessions`. Superleader writes (T-120 slice 3): `session_labels` op update, `scale` and `lock` with `slug`, `session_message_cancel` (all below `/agent/v1/admin/sessions/{slug}`; scale and lock reassign answer 422 `own_session` for the caller's own session), `backups_copy` (no merge), `spec_delete`, `spec_comment` op dismiss, and `preset_patch` takes `superleader_manageable: false`. Reads cover manageable and unmanageable targets alike; a write on an
-unmanageable one is 403 `not_manageable` and needs the user's approval. `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
+`rollout_request` by id; the orchestrator also lists it for every hive, whose leader may call it on
+its own slug), `webhook(action list|meta|create|update|clone|rotate|delete|filters|events|event|preview)`,
+`schedule(action list|get|create|update|delete|run|runs|runs_all|run_get|preview)`,
+`chat_connector(action settings|allow|users|open|invite|open_status|open_confirm|rules|rule_add|rule_delete)`
+(settings and allow take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and
+`trigger` on every call, so resend them after `chat_rooms` scope projects), `usage(what
+current|history|sessions)` (read-only: the account's `five_hour` and `seven_day` usage windows;
+history and sessions superleader only), the history of discarded sessions (`history_search`,
+`history_get(session_id, records?, kind?)`; read and search only, there is no delete tool), and
+change proposals (`proposal_put(op create|revise|withdraw)`, `proposal_get(id?)`: the list without
+`id`; your own, or every proposal for a superleader). Superleader reads (T-120 slice 2):
+`sessions_admin_list` (`GET /agent/v1/admin/sessions`, a compact summary per session; for other
+leaders and members the orchestrator scopes it, `session_events`, `handoffs(id?)`, `history_get`
+and `chat_history` and `chat_notes` with `room_id` to the own and granted projects, a notes update
+to leaders of them; filters `label`, `project`, `superleaders`, `session_slug`; over the output
+budget it answers `{omitted, sessions}`), `session_events` (default `limit` 20; an over-budget page
+keeps the newest events and reports `omitted`), `backups(name?, version?)` (the list, a backup's
+versions, a version's manifest; no backup download). Superleader writes (T-120 slice 3):
+`session_labels` op update, `scale` and `lock` with `slug`, `session_message_cancel` (all below
+`/agent/v1/admin/sessions/{slug}`; scale and lock reassign answer 422 `own_session` for the
+caller's own session), `backups_copy` (no merge), `spec_delete`, `spec_comment` op dismiss, and
+`preset_patch` takes `superleader_manageable: false`. Reads cover manageable and unmanageable
+targets alike; a write on an unmanageable one is 403 `not_manageable` and needs the user's
+approval. `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
 the relay filters a page after paging, so a page can be short or empty while more sessions exist,
 and `next_before_id` (the relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id`
 of the next call. The cursor comes first because any-mcp cuts an over-budget tool text (40000
@@ -126,7 +132,7 @@ to re-attach; protected values are never shown. `vault_attach` (`PUT /agent/v1/a
 `envs`, `replace`) attaches all envs of an entry in one save (or those in `envs`, an object mapping entry env name to
 preset env name, e.g. `{"GITHUB_TOKEN": "BOT_TOKEN"}`; same name on both sides attaches a subset unrenamed; `replace`
 overwrites an existing preset env of the same name, else 409 `env_exists`) (entry labels must match the preset; privileged presets
-included, no proposal, nothing refused) and `vault_detach` (`DELETE` the same path, query `env`) detaches. Attachments
+included, no proposal, nothing refused); with `detach` true (`DELETE` the same path, query `env`) it detaches. Attachments
 carry `privileged` in `vault_list` and `attachment_privileged` in the `vault_attach` response (0.29.0, orchestrator >=
 7.1.0): true means the preset's sessions have Kubernetes API access or docker/dind and can read every Secret in the
 namespace, so the entry's values are exposed to them; it is a mark, not a block. There is no `secret_set`
@@ -142,13 +148,13 @@ shorten `inactivity` limits on its own session, human-only fields only move towa
 `replicas`, `max_replicas`, `static`, `workdir`, `pvc_size` and `cache` cannot change on a live
 session.
 
-`webhook_create`, `webhook_update`, `webhook_clone` and `webhook_rotate` take an optional `to_file`
+`webhook` actions create, update, clone and rotate take an optional `to_file`
 (absolute path inside the secrets directory, config `secrets_dir`, default `~/.agent-secrets`, created 0700; real paths are checked so symlinks and `..` cannot escape; an existing file is refused unless `overwrite` is true): the credential the upstream issues once is written there (mode 0600,
 atomic replace) from the orchestrator's single local-channel answer (`X-Orch-Tool: local`), and the
 result says only `to_file: {written, key, bytes}`. The same token reaches the same channel, so this
 guards the transcript, not a hostile model.
 
-`proposal_create(kind, target, patch, reason, client_key?)` and `proposal_revise(id, patch, reason?)` file and revise a
+`proposal_put` op create (kind, target, patch, reason, client_key?) and op revise (id, patch, reason?) file and revise a
 change proposal (`POST /agent/v1/admin/proposals` and `.../{id}/revise`) for a human to review in the web UI: security
 changes and human-only fields of presets, schedules and session specs go there. `patch` is an RFC 7396 merge patch of
 the target's spec. Proposals carry no secrets; a call with a `secrets` argument is refused by the closed schema before
@@ -233,4 +239,4 @@ the config file. The token is scoped to one session.
 From the repo root: `mise run install && mise run test && mise run lint`. The tests are in
 `tests/test_orchestrator_plugin.py` and run against the package through any-mcp's `PluginHarness`.
 
-Volumes (S-77): `volumes_status` (`GET /agent/v1/volumes`) and `volume_save` (`POST /agent/v1/volumes/{name}/save`) are the session's own tools; superleader `volumes_list`, `volume_get`, `volume_attach`, `volume_detach` and `volume_create` (a proposal) sit under `/agent/v1/admin`. Backups (S-68): the entry tools (`backup_save`, `backup_status`) and the cleanup tools are gone; the superleader tools are `backups_list`, `backup_versions`, `backup_manifest`, `backups_copy`, `handoffs_list` and `handoff_get` under `/agent/v1/admin`. The `archives_*` tools are gone. The routes answer 404 until the orchestrator release that carries them.
+Volumes (S-77): `volumes` scope own (`GET /agent/v1/volumes`) and `volume_save` (`POST /agent/v1/volumes/{name}/save`) are the session's own tools; `volumes` scope all or with `volume_id`, `volume_attach(detach?)` and `volume_create` (a proposal) are superleader tools under `/agent/v1/admin`. Backups (S-68): the entry tools (`backup_save`, `backup_status`) and the cleanup tools are gone; the superleader tools are `backups(name?, version?)`, `backups_copy` and `handoffs(id?)` under `/agent/v1/admin`. The `archives_*` tools are gone. The routes answer 404 until the orchestrator release that carries them.

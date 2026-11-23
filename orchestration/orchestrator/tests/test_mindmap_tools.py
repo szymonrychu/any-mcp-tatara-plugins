@@ -1,4 +1,5 @@
-"""research-mindmaps Task 16: the 19 mindmap tools relayed under /agent/v1/mindmap."""
+"""research-mindmaps Task 16: the mindmap tools relayed under /agent/v1/mindmap (S-83 917-918
+merged the map, node, edge and direction tools)."""
 
 from __future__ import annotations
 
@@ -24,17 +25,13 @@ CONFIG: dict[str, Any] = {
 # Copied from agents-orchestrator k8s/on_start.py MINDMAP_TOOLS on purpose, so a rename on either
 # side fails a test here (the orchestrator's own test_on_start holds the mirror copy).
 ALLOW_LIST = [
-    "mindmap_map_list", "mindmap_map_get", "mindmap_map_create", "mindmap_map_update",
-    "mindmap_node_get", "mindmap_node_history", "mindmap_search", "mindmap_traverse",
-    "mindmap_node_create", "mindmap_node_update", "mindmap_note_put",
-    "mindmap_growth_area_update", "mindmap_edge_create", "mindmap_edge_delete", "mindmap_link",
-    "mindmap_task_nodes", "mindmap_direction_list", "mindmap_direction_create",
-    "mindmap_direction_update",
+    "mindmap_map", "mindmap_node", "mindmap_search", "mindmap_traverse", "mindmap_note_put",
+    "mindmap_growth_area_update", "mindmap_edge", "mindmap_link", "mindmap_task_nodes",
+    "mindmap_direction",
 ]  # fmt: skip
 WRITES = {
-    "mindmap_map_create", "mindmap_map_update", "mindmap_node_create", "mindmap_node_update",
-    "mindmap_note_put", "mindmap_growth_area_update", "mindmap_edge_create",
-    "mindmap_edge_delete", "mindmap_link", "mindmap_direction_create", "mindmap_direction_update",
+    "mindmap_map", "mindmap_node", "mindmap_note_put", "mindmap_growth_area_update",
+    "mindmap_edge", "mindmap_link", "mindmap_direction",
 }  # fmt: skip
 P = "/agent/v1/mindmap"
 # Copied from agents-orchestrator api/mindmap.py _ALLOWED (the relay's route surface).
@@ -53,31 +50,33 @@ RELAY_ALLOWED = {
 }
 # (tool, arguments, method, path under /agent/v1/mindmap, query, body or None)
 CASES: list[tuple[str, dict[str, Any], str, str, dict[str, str], dict[str, Any] | None]] = [
-    ("mindmap_map_list", {"project": "p", "status": "active", "kind": "research"}, "GET",
+    ("mindmap_map", {"op": "list", "project": "p", "status": "active", "kind": "research"}, "GET",
      "/maps", {"project": "p", "status": "active", "kind": "research"}, None),
-    ("mindmap_map_get", {"key": "M-1", "depth": 3}, "GET", "/maps/M-1/graph", {"depth": "3"}, None),
-    ("mindmap_map_create",
-     {"project": "p", "slug": "s", "title": "T", "kind": "knowledge", "client_key": "ck"},
+    ("mindmap_map", {"op": "get", "key": "M-1", "depth": 3}, "GET", "/maps/M-1/graph",
+     {"depth": "3"}, None),
+    ("mindmap_map",
+     {"op": "create", "project": "p", "slug": "s", "title": "T", "kind": "knowledge",
+      "client_key": "ck"},
      "POST", "/maps", {},
      {"project": "p", "slug": "s", "title": "T", "kind": "knowledge", "client_key": "ck"}),
-    ("mindmap_map_update", {"key": "M-1", "version": 2, "status": "archived"}, "PATCH",
+    ("mindmap_map", {"op": "update", "key": "M-1", "version": 2, "status": "archived"}, "PATCH",
      "/maps/M-1", {}, {"version": 2, "status": "archived"}),
-    ("mindmap_node_get", {"key": "N-4"}, "GET", "/nodes/N-4", {}, None),
-    ("mindmap_node_history", {"key": "N-4"}, "GET", "/nodes/N-4/versions", {}, None),
-    ("mindmap_node_history", {"key": "N-4", "version": 2}, "GET", "/nodes/N-4/versions/2", {},
-     None),
+    ("mindmap_node", {"op": "get", "key": "N-4"}, "GET", "/nodes/N-4", {}, None),
+    ("mindmap_node", {"op": "history", "key": "N-4"}, "GET", "/nodes/N-4/versions", {}, None),
+    ("mindmap_node", {"op": "history", "key": "N-4", "version": 2}, "GET",
+     "/nodes/N-4/versions/2", {}, None),
     ("mindmap_search", {"q": "pgvector", "scope": "all", "mode": "lexical", "limit": 5}, "GET",
      "/search", {"q": "pgvector", "scope": "all", "mode": "lexical", "limit": "5"}, None),
     ("mindmap_traverse", {"key": "N-4", "depth": 1, "follow": "out", "tree": False}, "GET",
      "/nodes/N-4/traverse", {"depth": "1", "follow": "out", "tree": "false"}, None),
-    ("mindmap_node_create",
-     {"key": "M-1", "topic": "t", "notes": "n", "summary": "s", "growth_areas": ["g"],
-      "client_key": "ck"},
+    ("mindmap_node",
+     {"op": "create", "key": "M-1", "topic": "t", "notes": "n", "summary": "s",
+      "growth_areas": ["g"], "client_key": "ck"},
      "POST", "/maps/M-1/nodes", {},
      {"topic": "t", "notes": "n", "summary": "s", "growth_areas": ["g"], "client_key": "ck"}),
-    ("mindmap_node_update",
-     {"key": "N-4", "version": 3, "notes": "x", "summary": "why"}, "PATCH", "/nodes/N-4", {},
-     {"version": 3, "notes": "x", "summary": "why"}),
+    ("mindmap_node",
+     {"op": "update", "key": "N-4", "version": 3, "notes": "x", "summary": "why"}, "PATCH",
+     "/nodes/N-4", {}, {"version": 3, "notes": "x", "summary": "why"}),
     ("mindmap_note_put", {"topic": "t", "notes": "n", "summary": "s", "project": "p"}, "POST",
      "/knowledge/notes", {}, {"topic": "t", "notes": "n", "summary": "s", "project": "p"}),
     ("mindmap_growth_area_update", {"key": "N-4", "text": "dig"}, "POST",
@@ -85,9 +84,9 @@ CASES: list[tuple[str, dict[str, Any], str, str, dict[str, str], dict[str, Any] 
     ("mindmap_growth_area_update",
      {"key": "G-2", "version": 1, "status": "taken", "task_key": "T-9"}, "PATCH",
      "/growth-areas/G-2", {}, {"version": 1, "status": "taken", "task_key": "T-9"}),
-    ("mindmap_edge_create", {"src": "N-1", "dst": "N-2", "kind": "builds_on"}, "POST", "/edges",
-     {}, {"src": "N-1", "dst": "N-2", "kind": "builds_on"}),
-    ("mindmap_edge_delete", {"key": "E-3"}, "DELETE", "/edges/E-3", {}, None),
+    ("mindmap_edge", {"op": "create", "src": "N-1", "dst": "N-2", "kind": "builds_on"}, "POST",
+     "/edges", {}, {"src": "N-1", "dst": "N-2", "kind": "builds_on"}),
+    ("mindmap_edge", {"op": "delete", "key": "E-3"}, "DELETE", "/edges/E-3", {}, None),
     ("mindmap_link",
      {"action": "add", "target": "M-1", "ref": "T-7", "relation": "researched_by"}, "POST",
      "/maps/M-1/links", {}, {"ref_key": "T-7", "relation": "researched_by"}),
@@ -95,15 +94,16 @@ CASES: list[tuple[str, dict[str, Any], str, str, dict[str, str], dict[str, Any] 
      "/nodes/N-1/links", {}, {"ref_key": "S-2", "note": "n"}),
     ("mindmap_link", {"action": "remove", "link_id": 12}, "DELETE", "/links/12", {}, None),
     ("mindmap_task_nodes", {"key": "T-7"}, "GET", "/links", {"key": "T-7"}, None),
-    ("mindmap_direction_list", {"project": "p", "map": "M-1", "status": "open"}, "GET",
+    ("mindmap_direction", {"op": "list", "project": "p", "map": "M-1", "status": "open"}, "GET",
      "/directions", {"project": "p", "map": "M-1", "status": "open"}, None),
-    ("mindmap_direction_create",
-     {"key": "M-1", "text": "look at X", "node": "N-2", "task": "T-3", "growth_areas": ["a"]},
+    ("mindmap_direction",
+     {"op": "create", "key": "M-1", "text": "look at X", "node": "N-2", "task": "T-3",
+      "growth_areas": ["a"]},
      "POST", "/maps/M-1/directions", {},
      {"text": "look at X", "node": "N-2", "task": "T-3", "growth_areas": ["a"]}),
-    ("mindmap_direction_update",
-     {"key": "D-5", "version": 1, "action": "resolve", "resolution": "done"}, "PATCH",
-     "/directions/D-5", {}, {"version": 1, "action": "resolve", "resolution": "done"}),
+    ("mindmap_direction",
+     {"op": "update", "key": "D-5", "version": 1, "action": "resolve", "resolution": "done"},
+     "PATCH", "/directions/D-5", {}, {"version": 1, "action": "resolve", "resolution": "done"}),
 ]  # fmt: skip
 
 
@@ -189,7 +189,7 @@ async def test_edge_delete_and_link_remove_answer_204() -> None:
         return httpx.Response(204)
 
     async with harness(handler) as h:
-        a = await h.call("orchestrator_mindmap_edge_delete", {"key": "E-1"})
+        a = await h.call("orchestrator_mindmap_edge", {"op": "delete", "key": "E-1"})
         b = await h.call("orchestrator_mindmap_link", {"action": "remove", "link_id": 3})
     assert not a.is_error, a.text
     assert not b.is_error, b.text
@@ -215,7 +215,9 @@ async def test_upstream_error_code_surfaces() -> None:
         return httpx.Response(409, json={"error": {"code": "version_conflict", "message": "stale"}})
 
     async with harness(handler) as h:
-        res = await h.call("orchestrator_mindmap_node_update", {"key": "N-1", "version": 1})
+        res = await h.call(
+            "orchestrator_mindmap_node", {"op": "update", "key": "N-1", "version": 1}
+        )
     assert res.is_error
     assert "version_conflict" in res.text
 

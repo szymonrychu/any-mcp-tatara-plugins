@@ -3,7 +3,7 @@
 One row per route; ``__init__`` turns each into a ``ToolSpec``. The orchestrator refuses every
 route unless the caller is a superleader session, and the rendered allowlist offers these tools
 to such sessions only. Secret values never pass through a row: a preset env variable refers to a
-value that a user wrote into agents-vault (vault_list, vault_attach, vault_detach), and webhook
+value that a user wrote into agents-vault (vault_list, vault_attach), and webhook
 credentials are issued by the upstream and stored by the orchestrator (see ``secrets_local``).
 """
 
@@ -13,8 +13,11 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .fit import measure
+from .merged import Merged, Route
+from .secrets_local import OVERWRITE_SCHEMA, TO_FILE_SCHEMA
 
 __all__ = [
+    "ADMIN_MERGED",
     "ADMIN_TOOLS",
     "AdminRow",
     "CHAT_FROM",
@@ -165,16 +168,12 @@ _READ_ANY = (
 # Rows that write to a preset, session, webhook endpoint or schedule: they get _NOT_MANAGEABLE.
 _WRITE_NAMES = frozenset(
     {
-        "preset_patch", "preset_delete", "preset_copy", "vault_attach", "vault_detach",
-        "session_patch", "session_discard", "session_restart", "agent_restart",
-        "leadership_withdraw", "webhook_create", "webhook_update", "webhook_clone",
-        "webhook_rotate", "webhook_delete", "webhook_filters_set", "schedule_create",
-        "schedule_update", "schedule_delete", "schedule_run", "session_message_cancel",
+        "preset_patch", "preset_delete", "preset_copy", "session_patch", "session_discard",
+        "leadership_withdraw", "session_message_cancel",
     }
 )  # fmt: skip
 _SLUG = _str("Session slug.")
 _POD = _str("Agent pod name.")
-_EP = _str("Webhook endpoint id.")
 _SCHED = _str("Schedule id.")
 _LIMIT = {"type": "integer", "minimum": 1, "maximum": 200}
 _SPEC = {
@@ -265,7 +264,7 @@ _SCHED_FIELDS = {
     "then_schedule_ids": {
         **_CHAIN,
         "description": _CHAIN["description"]
-        + " On schedule_update, omitting it keeps the current links (resent by the plugin).",
+        + " On action update, omitting it keeps the current links (resent by the plugin).",
     },
 }
 _ROOM_ID = _str("Chat room id.")
@@ -359,7 +358,6 @@ _ROWS: tuple[AdminRow, ...] = (
         schema({"ref": _REF, "name": _NULL_STR}, ("ref",)),
         "*",
     ),
-    # extra projects of presets (copied to every session created from the preset)
     AdminRow(
         "preset_manageable_request",
         "POST",
@@ -378,7 +376,6 @@ _ROWS: tuple[AdminRow, ...] = (
         ),
         "*",
     ),
-    # projects
     # vault: users write the secret values in the web UI; superleaders only attach them
     AdminRow(
         "vault_list",
@@ -394,67 +391,6 @@ _ROWS: tuple[AdminRow, ...] = (
         schema({"q": _str("Filter entries by name or description.")}),
         None,
         ("q",),
-    ),
-    AdminRow(
-        "vault_attach",
-        "PUT",
-        f"{_A}/presets/{{ref}}/vault/{{entry_id}}",
-        "Attach a vault entry to a preset: all envs of the entry are attached in one save "
-        "under their own names, or only the envs you map (envs: entry env name to preset env "
-        "name, which also renames). The entry labels must match the preset (labels plus "
-        "project), else 422 vault_label_mismatch. Privileged presets included: no proposal is "
-        "needed and nothing is refused. The response has attachment_privileged (bool): true "
-        "means the preset's sessions have cluster access or docker/dind and can read every "
-        "Secret in the namespace, so attaching exposes the entry's values to them; weigh "
-        "that before attaching sensitive entries. A preset env of the same name that already "
-        "exists and is not a reference to the same entry env gives 409 env_exists unless "
-        "replace is true, which overwrites it. Read entry ids and env names from vault_list.",
-        schema(
-            {
-                "ref": _REF,
-                "entry_id": _str("Vault entry id (uuid), from vault_list."),
-                "envs": {
-                    "type": "object",
-                    "minProperties": 1,
-                    "propertyNames": {"pattern": "^[A-Z_][A-Z0-9_]{0,127}$"},
-                    "additionalProperties": {
-                        "type": "string",
-                        "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
-                    },
-                    "description": "Maps entry env name to preset env name, e.g. "
-                    '{"GITHUB_TOKEN": "BOT_TOKEN"}. Same name on both sides attaches a '
-                    "subset unrenamed. Omitted: all envs of the entry under their own names.",
-                },
-                "replace": {
-                    "type": "boolean",
-                    "description": "Overwrite an existing preset env of the same name "
-                    "(else 409 env_exists unless it already references the same entry env).",
-                },
-            },
-            ("ref", "entry_id"),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "vault_detach",
-        "DELETE",
-        f"{_A}/presets/{{ref}}/vault/{{entry_id}}",
-        "Detach a vault entry from a preset: one env of the entry when env is given, else "
-        "every env of the entry. Privileged presets included.",
-        schema(
-            {
-                "ref": _REF,
-                "entry_id": _str("Vault entry id (uuid), from vault_list."),
-                "env": {
-                    "type": "string",
-                    "pattern": "^[A-Z_][A-Z0-9_]{0,127}$",
-                    "description": "Entry env name to detach; omitted: all envs of the entry.",
-                },
-            },
-            ("ref", "entry_id"),
-        ),
-        None,
-        ("env",),
     ),
     # sessions
     AdminRow(
@@ -535,24 +471,6 @@ _ROWS: tuple[AdminRow, ...] = (
         query=("force",),
     ),
     AdminRow(
-        "session_restart",
-        "POST",
-        f"{_A}/sessions/{{slug}}/restart",
-        "Restart every agent of a session. Answers command ids; read them with command_get. "
-        "Restarting your own session is a self-restart: it has a cooldown (429 "
-        "restart_cooldown, with retry_after) and you get a note when you are back. Restarting "
-        "an agent that never bootstrapped reruns the same install and reports a warning; a "
-        "command may end failed with interrupted_by_restart.",
-        schema({"slug": _SLUG}, ("slug",)),
-    ),
-    AdminRow(
-        "agent_restart",
-        "POST",
-        f"{_A}/sessions/{{slug}}/agents/{{pod}}/restart",
-        "Restart one agent pod of a session. Same self-restart rules as session_restart.",
-        schema({"slug": _SLUG, "pod": _POD}, ("slug", "pod")),
-    ),
-    AdminRow(
         "leadership_withdraw",
         "POST",
         f"{_A}/sessions/{{slug}}/leadership/withdraw",
@@ -569,423 +487,6 @@ _ROWS: tuple[AdminRow, ...] = (
             ("slug",),
         ),
         "*",
-    ),
-    AdminRow(
-        "command_get",
-        "GET",
-        f"{_A}/commands/{{command_id}}",
-        "Show the status of any command (a superleader reads every command, see session_commands).",
-        schema({"command_id": _str("Command id.")}, ("command_id",)),
-    ),
-    # usage
-    AdminRow(
-        "usage_get",
-        "GET",
-        f"{_A}/usage",
-        "Read-only, superleader-only (any other session is refused with not_superleader). The "
-        "account's current Claude usage, from the same source the orchestrator's usage_quota "
-        "gate uses. The answer is {configured, available, source, updated_at, five_hour, "
-        "seven_day}; five_hour and seven_day are {utilization_pct, resets_at, stale, "
-        "observed_at, source} or null when the window is unknown. available false means the "
-        "usage service is not configured or not reachable (the gate allows starts then). "
-        "stale true means the reading is old; usage only grows until resets_at, so it is a "
-        "lower bound.",
-    ),
-    # change proposals
-    AdminRow(
-        "proposals_list",
-        "GET",
-        f"{_A}/proposals",
-        "List change proposals, newest first, current revision only: your own, or every proposal "
-        "when you are a superleader. status: active "
-        "(default: open, rework, stale), open, closed or all. kind session_projects or "
-        "preset_projects is a project grant (project action grant); kind "
-        "preset_manageable asks to make a preset manageable (preset_manageable_request). "
-        "Each shows its status, revision, "
-        "stale flag and per-item verdicts; read one with proposal_get.",
-        schema({"status": _str("active, open, closed or all."), "limit": _LIMIT}),
-        None,
-        ("status", "limit"),
-    ),
-    AdminRow(
-        "proposal_create",
-        "POST",
-        f"{_A}/proposals",
-        "File a change proposal for a human to review. " + _PROPOSAL_TEXT + "kind is preset, "
-        "schedule or session; target is the preset id or name, schedule id or session slug. "
-        "client_key makes a retry return the first proposal instead of a second one. The "
-        "answer is the proposal as the orchestrator shows it.",
-        schema(
-            {
-                "kind": {"type": "string", "enum": ["preset", "schedule", "session"]},
-                "target": _str("Preset id or name, schedule id or slug."),
-                "patch": _PROPOSAL_PATCH,
-                "reason": _PROPOSAL_REASON,
-                "client_key": {"type": "string", "maxLength": 200},
-            },
-            ("kind", "target", "patch", "reason"),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "proposal_revise",
-        "POST",
-        f"{_A}/proposals/{{id}}/revise",
-        "Send a new revision of one of your proposals after a rework verdict or a stale "
-        "notice: a full proposal against the target as it is now, not a delta (the patch "
-        "replaces the previous revision's). " + _PROPOSAL_TEXT + "The answer is the proposal "
-        "as the orchestrator shows it.",
-        schema(
-            {
-                "id": {"type": "integer", "description": "Proposal id."},
-                "patch": _PROPOSAL_PATCH,
-                "reason": _PROPOSAL_REASON,
-            },
-            ("id", "patch"),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "proposal_get",
-        "GET",
-        f"{_A}/proposals/{{proposal_id}}",
-        "Read a change proposal (a superleader sees every proposal) with every revision: per "
-        "item the before and after values, the human's verdict (pending, approved, rework, "
-        "denied) and note. "
-        "After a rework verdict or a stale notice, send a new revision with proposal_revise.",
-        schema({"proposal_id": {"type": "integer"}}, ("proposal_id",)),
-    ),
-    AdminRow(
-        "proposal_withdraw",
-        "POST",
-        f"{_A}/proposals/{{proposal_id}}/withdraw",
-        "Withdraw one of your open change proposals.",
-        schema({"proposal_id": {"type": "integer"}}, ("proposal_id",)),
-    ),
-    # webhooks
-    AdminRow("webhooks_list", "GET", f"{_A}/webhooks/endpoints", "List the webhook endpoints."),
-    AdminRow(
-        "webhook_get_meta",
-        "GET",
-        f"{_A}/webhooks/meta",
-        "Show what webhook endpoints support (types, auth modes, template fields).",
-    ),
-    AdminRow(
-        "webhook_create",
-        "POST",
-        f"{_A}/webhooks/endpoints",
-        "Create a webhook endpoint for a preset." + _CRED,
-        schema(
-            {
-                "type": {"type": "string"},
-                "preset_id": {"type": "string"},
-                "auth_mode": {"type": "string", "enum": ["basic", "header", "bearer", "hmac"]},
-                "filters": _FILTERS,
-                "prompt_template": _NULL_STR,
-                "suffix": _NULL_STR,
-                "then_schedule_ids": _CHAIN,
-                **_AUTH,
-            },
-            ("type", "preset_id"),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "webhook_update",
-        "PATCH",
-        f"{_A}/webhooks/endpoints/{{id}}",
-        "Edit a webhook endpoint; only the fields given change. Changing the auth mode "
-        "issues a new credential." + _CRED,
-        schema(
-            {
-                "id": _EP,
-                "auth_mode": {"type": "string", "enum": ["basic", "header", "bearer", "hmac"]},
-                "preset_id": _NULL_STR,
-                "filters": _FILTERS,
-                "prompt_template": _NULL_STR,
-                "suffix": _NULL_STR,
-                "then_schedule_ids": {**_CHAIN_PATCH, "type": ["array", "null"]},
-                **_AUTH,
-            },
-            ("id",),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "webhook_clone",
-        "POST",
-        f"{_A}/webhooks/endpoints/{{id}}/clone",
-        "Clone a webhook endpoint, optionally to another preset or suffix." + _CRED,
-        schema({"id": _EP, "preset_id": _NULL_STR, "suffix": _NULL_STR}, ("id",)),
-        "*",
-    ),
-    AdminRow(
-        "webhook_rotate",
-        "POST",
-        f"{_A}/webhooks/endpoints/{{id}}/rotate",
-        "Rotate the credential of a webhook endpoint." + _CRED,
-        schema({"id": _EP, "username": _NULL_STR}, ("id",)),
-        "*",
-    ),
-    AdminRow(
-        "webhook_delete",
-        "DELETE",
-        f"{_A}/webhooks/endpoints/{{id}}",
-        "Delete a webhook endpoint and its stored credential.",
-        schema({"id": _EP}, ("id",)),
-    ),
-    AdminRow(
-        "webhook_filters_set",
-        "PUT",
-        f"{_A}/webhooks/endpoints/{{id}}/filters",
-        "Replace the allow and deny filters of a webhook endpoint.",
-        schema(
-            {"id": _EP, "allow": {"type": "array"}, "deny": {"type": "array"}},
-            ("id",),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "webhook_events",
-        "GET",
-        f"{_A}/webhooks/events",
-        "List received webhook events, newest first; before_id pages back.",
-        schema(
-            {
-                "status": {"type": "string"},
-                "endpoint_id": {"type": "string"},
-                "limit": _LIMIT,
-                "before_id": {"type": "string"},
-            }
-        ),
-        None,
-        ("status", "endpoint_id", "limit", "before_id"),
-    ),
-    AdminRow(
-        "webhook_event",
-        "GET",
-        f"{_A}/webhooks/events/{{id}}",
-        "Show one received webhook event.",
-        schema({"id": _str("Event id.")}, ("id",)),
-    ),
-    AdminRow(
-        "webhook_template_preview",
-        "POST",
-        f"{_A}/webhooks/templates/preview",
-        "Render a prompt template against an example payload.",
-        schema(
-            {
-                "type": {"type": "string"},
-                "example": {},
-                "template": _NULL_STR,
-                "filters": _FILTERS,
-            },
-            ("type", "example"),
-        ),
-        "*",
-    ),
-    # schedules
-    AdminRow("schedules_list", "GET", f"{_A}/schedules/schedules", "List the schedules."),
-    AdminRow(
-        "schedule_get",
-        "GET",
-        f"{_A}/schedules/schedules/{{schedule_id}}",
-        "Show a schedule.",
-        schema({"schedule_id": _SCHED}, ("schedule_id",)),
-    ),
-    AdminRow(
-        "schedule_create",
-        "POST",
-        f"{_A}/schedules/schedules",
-        "Create a schedule: a cron expression that starts a session from a preset with a prompt.",
-        schema(_SCHED_FIELDS, ("name", "cron", "preset_id", "prompt")),
-        "*",
-    ),
-    AdminRow(
-        "schedule_update",
-        "PUT",
-        f"{_A}/schedules/schedules/{{schedule_id}}",
-        "Replace a schedule (all required fields again; then_schedule_ids omitted keeps the "
-        "current links).",
-        schema(
-            {"schedule_id": _SCHED, **_SCHED_FIELDS},
-            ("schedule_id", "name", "cron", "preset_id", "prompt"),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "schedule_delete",
-        "DELETE",
-        f"{_A}/schedules/schedules/{{schedule_id}}",
-        "Delete a schedule.",
-        schema({"schedule_id": _SCHED}, ("schedule_id",)),
-    ),
-    AdminRow(
-        "schedule_run",
-        "POST",
-        f"{_A}/schedules/schedules/{{schedule_id}}/run",
-        "Fire a schedule now.",
-        schema({"schedule_id": _SCHED}, ("schedule_id",)),
-    ),
-    AdminRow(
-        "schedule_runs",
-        "GET",
-        f"{_A}/schedules/schedules/{{schedule_id}}/runs",
-        "List the runs of one schedule, newest first.",
-        schema({"schedule_id": _SCHED, "limit": _LIMIT}, ("schedule_id",)),
-        None,
-        ("limit",),
-    ),
-    AdminRow(
-        "schedule_runs_all",
-        "GET",
-        f"{_A}/schedules/runs",
-        "List the runs of all schedules, newest first.",
-        schema({"status": {"type": "string"}, "limit": _LIMIT}),
-        None,
-        ("status", "limit"),
-    ),
-    AdminRow(
-        "schedule_run_get",
-        "GET",
-        f"{_A}/schedules/runs/{{run_id}}",
-        "Show one schedule run.",
-        schema({"run_id": _str("Run id.")}, ("run_id",)),
-    ),
-    AdminRow(
-        "schedule_preview",
-        "POST",
-        f"{_A}/schedules/schedules/preview",
-        "Preview the next fire times of a cron expression and the rendered prompt.",
-        schema(
-            {
-                "cron": {"type": "string"},
-                "preset_id": _NULL_STR,
-                "prompt": _NULL_STR,
-                "schedule_name": _NULL_STR,
-                "timezone": _NULL_STR,
-            },
-            ("cron",),
-        ),
-        "*",
-    ),
-    # chats
-    AdminRow(
-        "chat_room_settings",
-        "PUT",
-        f"{_A}/chats/rooms/{{room_id}}/settings",
-        "Set a chat room's settings: trigger (all or mention), the preset that serves it and "
-        "whether agents may start a chat there. agent_aliases: names that wake the agent in a "
-        "mention room besides a tag of the bot or a reply to it. preset_id and trigger are "
-        "replaced on every call (omitted or null clears them): to change only aliases, read "
-        "the room with chat_rooms scope projects first and resend its preset_id and trigger.",
-        schema(
-            {
-                "room_id": _ROOM_ID,
-                "trigger": {"type": ["string", "null"], "enum": ["all", "mention", None]},
-                "preset_id": _NULL_STR,
-                "agents_may_initiate": {"type": ["boolean", "null"]},
-                "agent_aliases": _ALIASES,
-            },
-            ("room_id",),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "chat_users",
-        "GET",
-        f"{_A}/chats/users",
-        "Look up people the connector knows by name or Facebook id (q); use the Facebook id "
-        "as the target of chat_open.",
-        schema({"q": _str("Name part or Facebook id."), "limit": _LIMIT}),
-        None,
-        ("q", "limit"),
-    ),
-    AdminRow(
-        "chat_room_allow",
-        "POST",
-        f"{_A}/chats/rooms/{{room_id}}/allow",
-        "Allow a chat room and configure it (preset_id, trigger, agents_may_initiate). Also "
-        "accepts a Messenger message request; an invited room is joined on the next sync. "
-        "preset_id and trigger are replaced on every call (omitted or null clears them): to "
-        "change only aliases, read the room with chat_rooms scope projects first and resend its "
-        "preset_id and trigger.",
-        schema(
-            {
-                "room_id": _ROOM_ID,
-                "preset_id": _NULL_STR,
-                "trigger": {"type": ["string", "null"], "enum": ["all", "mention", None]},
-                "agents_may_initiate": {"type": ["boolean", "null"]},
-                "agent_aliases": _ALIASES,
-            },
-            ("room_id",),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "chat_open",
-        "POST",
-        f"{_A}/chats/room-requests",
-        "Ask to open a Messenger chat with a person (action open) or invite them to a room "
-        "(action invite, with room_id). It asks the user on the taskboard under task_key; "
-        "when you get 'Task T-n was updated', call chat_open_confirm; then poll "
-        "chat_open_status until done; chat_room_allow the new room; session_create, "
-        "then message it with a <session-send> envelope; it posts there with a <chat-send> "
-        "envelope. target is a "
-        "Facebook id, a profile.php?id= link or a name. When several people match, the "
-        "answer has candidates: call again with the chosen Facebook id. A vanity link "
-        "(facebook.com/some.name) cannot be resolved: pass the person's name instead.",
-        schema(
-            {
-                "target": _str("Facebook id, profile link or name of the person."),
-                "task_key": _str("Taskboard task key (T-n) the question is asked under."),
-                "action": {"type": "string", "enum": ["open", "invite"]},
-                "room_id": _str("Room to invite the person to (action invite)."),
-            },
-            ("target", "task_key"),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "chat_open_status",
-        "GET",
-        f"{_A}/chats/room-requests/{{request_id}}",
-        "Show the status of a chat_open request (poll it until done).",
-        schema({"request_id": _str("Room request id.")}, ("request_id",)),
-    ),
-    AdminRow(
-        "chat_open_confirm",
-        "POST",
-        f"{_A}/chats/room-requests/{{request_id}}/confirm",
-        "Confirm a chat_open request after the taskboard decision was answered ('Task T-n was "
-        "updated'). Only the user's answer to the decision the orchestrator attached counts.",
-        schema({"request_id": _str("Room request id.")}, ("request_id",)),
-        "*",
-    ),
-    AdminRow("chat_rules", "GET", f"{_A}/chats/rules", "List the chat allow and deny rules."),
-    AdminRow(
-        "chat_rule_add",
-        "POST",
-        f"{_A}/chats/rules",
-        "Add a chat rule: list (allow or deny), kind and value select the chats it covers.",
-        schema(
-            {
-                "list": {"type": "string"},
-                "kind": {"type": "string"},
-                "value": {"type": "string"},
-                "note": _NULL_STR,
-                "preamble": _NULL_STR,
-            },
-            ("list", "kind", "value"),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "chat_rule_delete",
-        "DELETE",
-        f"{_A}/chats/rules/{{rule_id}}",
-        "Delete a chat rule.",
-        schema({"rule_id": _str("Rule id.")}, ("rule_id",)),
     ),
     # history
     AdminRow(
@@ -1014,42 +515,6 @@ _ROWS: tuple[AdminRow, ...] = (
         ),
         None,
         ("q", "regex", "from", "to", "preset", "session", "limit", "before_id"),
-    ),
-    AdminRow(
-        "history_get",
-        "GET",
-        f"{_A}/history/sessions/{{session_id}}",
-        "Show one stored session of the history: provenance, preset, timestamps and record "
-        "counts." + _HISTORY_SCOPE,
-        schema({"session_id": _HISTORY_SESSION_ID}, ("session_id",)),
-    ),
-    AdminRow(
-        "history_records",
-        "GET",
-        f"{_A}/history/sessions/{{session_id}}/records",
-        "Page the stored records (chat events, commands and so on) of one session in id order. "
-        "Filter by kind and by text: "
-        + _HISTORY_MATCH
-        + " Page forward with after_id (the last id seen) or backward with before_id."
-        + _HISTORY_SCOPE,
-        schema(
-            {
-                "session_id": _HISTORY_SESSION_ID,
-                "kind": _str("Only records of this kind."),
-                "q": _HISTORY_Q,
-                "regex": _HISTORY_REGEX,
-                "before_id": _HISTORY_BEFORE,
-                "after_id": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Return rows with an id above this one.",
-                },
-                "limit": _LIMIT,
-            },
-            ("session_id",),
-        ),
-        None,
-        ("kind", "q", "regex", "before_id", "after_id", "limit"),
     ),
     # superleader reads of any session's live work, the deploy and the backups
     AdminRow(
@@ -1112,98 +577,15 @@ _ROWS: tuple[AdminRow, ...] = (
         ("before_id", "after_id", "limit", "agent_id", "types"),
     ),
     AdminRow(
-        "session_commands",
-        "GET",
-        f"{_A}/sessions/{{slug}}/commands",
-        "Superleader only: the recent commands (restarts and so on) of any session, manageable "
-        "or not; read one with command_get.",
-        schema({"slug": _SLUG, "limit": _LIMIT}, ("slug",)),
-        None,
-        ("limit",),
-    ),
-    AdminRow(
-        "volumes_status",
-        "GET",
-        "/volumes",
-        "The shared volumes mounted in this session: name, mount path, mode (ro or rw), "
-        "whether backup_restore is on, the volume state and its last save and restore result. "
-        "Names, sizes and states only, never file listings.",
-    ),
-    AdminRow(
         "volume_save",
         "POST",
         "/volumes/{name}/save",
         "Save a mounted volume as a new version of its backup now (answers 202, the save runs "
-        "in the background; volumes_status shows the result). Only for a volume attached with "
+        "in the background; volumes shows the result). Only for a volume attached with "
         "backup_restore true, else 403 backup_not_enabled. 404 for a name that is not mounted "
         "in this session, 409 volume_busy while the volume is not ready (saving, restoring or "
         "resizing).",
-        schema({"name": _str("Volume name (from volumes_status).")}, ("name",)),
-    ),
-    AdminRow(
-        "volumes_list",
-        "GET",
-        f"{_A}/volumes",
-        "List the volumes that share a project with you: id, name, projects, size, state and "
-        "the number of attached presets and mounted sessions. Names, ids, sizes and states "
-        "only, never descriptions, file listings or manifests. Read ids for volume_get, "
-        "volume_attach and volume_detach here.",
-    ),
-    AdminRow(
-        "volume_get",
-        "GET",
-        f"{_A}/volumes/{{volume_id}}",
-        "One volume of your projects with the presets that attach it (preset, mode, mount "
-        "path, backup_restore). 404 volume_not_found for an unknown volume or one of other "
-        "projects.",
-        schema({"volume_id": _str("Volume id (uuid), from volumes_list.")}, ("volume_id",)),
-    ),
-    AdminRow(
-        "volume_attach",
-        "POST",
-        f"{_A}/presets/{{ref}}/volumes/{{volume_id}}",
-        "Attach a volume to a manageable preset; it is mounted in new sessions of the preset. "
-        "mode ro or rw, mount_path absolute (default /volumes/<name>), backup_restore true "
-        "opts the attachment into the automatic restore and save-on-last-release. An attach "
-        "that would share the volume between a privileged preset (cluster access, namespace "
-        "access, docker) and any other preset, or that is RW on a privileged preset, is a "
-        "cross-trust attach: nothing is applied and the answer is 202 with a proposal the "
-        "user approves (follow it with proposal_get); any other attach answers 200 with the "
-        "preset. Errors: 403 volume_cross_trust for a cross-trust attach (file a proposal "
-        "instead), 409 when the volume is busy or the attach conflicts, 422 for an invalid "
-        "mount path or attachment.",
-        schema(
-            {
-                "ref": _REF,
-                "volume_id": _str("Volume id (uuid), from volumes_list."),
-                "mode": {
-                    "type": "string",
-                    "enum": ["ro", "rw"],
-                    "description": "Read-only or read-write mount.",
-                },
-                "mount_path": _str(
-                    "Absolute mount path, at most 200 characters; default /volumes/<name>."
-                ),
-                "backup_restore": {
-                    "type": "boolean",
-                    "description": "Restore the volume from its backup on start and save it "
-                    "when the last session releases it. Default false.",
-                },
-            },
-            ("ref", "volume_id", "mode"),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "volume_detach",
-        "DELETE",
-        f"{_A}/presets/{{ref}}/volumes/{{volume_id}}",
-        "Detach a volume from a manageable preset; sessions already running keep the mount, "
-        "new sessions do not get it. The volume and its content stay.",
-        schema(
-            {"ref": _REF, "volume_id": _str("Volume id (uuid), from volumes_list.")},
-            ("ref", "volume_id"),
-        ),
+        schema({"name": _str("Volume name (from volumes).")}, ("name",)),
     ),
     AdminRow(
         "volume_create",
@@ -1243,55 +625,6 @@ _ROWS: tuple[AdminRow, ...] = (
         "*",
     ),
     AdminRow(
-        "backups_list",
-        "GET",
-        f"{_A}/backups",
-        "Superleader only: list the named backups (name, current version, sizes, times), one "
-        "page at a time. Filter by q (substring of the name); pass the cursor of the previous "
-        "page to continue. There is no download: an archive link carries a credential. 400 "
-        "bad_request for a bad cursor, 503 unavailable when backups are not configured.",
-        schema(
-            {
-                "q": _str("Only names containing this text."),
-                "limit": _LIMIT,
-                "cursor": _str("Cursor of the previous page."),
-            }
-        ),
-        None,
-        ("q", "limit", "cursor"),
-    ),
-    AdminRow(
-        "backup_versions",
-        "GET",
-        f"{_A}/backups/{{name}}/versions",
-        "Superleader only: the versions of one backup, newest first (version id, actor, size, "
-        "time, which one is current), one page at a time. 404 backup_not_found.",
-        schema(
-            {
-                "name": _str("Backup name (from backups_list)."),
-                "limit": _LIMIT,
-                "cursor": _str("Cursor of the previous page."),
-            },
-            ("name",),
-        ),
-        None,
-        ("limit", "cursor"),
-    ),
-    AdminRow(
-        "backup_manifest",
-        "GET",
-        f"{_A}/backups/{{name}}/versions/{{version}}/manifest",
-        "Superleader only: the file list (paths, sizes) of one backup version, without any "
-        "file content. 404 backup_not_found or version_not_found.",
-        schema(
-            {
-                "name": _str("Backup name."),
-                "version": _str("Version id (from backup_versions)."),
-            },
-            ("name", "version"),
-        ),
-    ),
-    AdminRow(
         "backups_copy",
         "POST",
         f"{_A}/backups/copy",
@@ -1308,36 +641,6 @@ _ROWS: tuple[AdminRow, ...] = (
         ),
         "*",
     ),
-    AdminRow(
-        "handoffs_list",
-        "GET",
-        f"{_A}/handoffs",
-        "The handoff history of the sessions of your own and granted projects (a superleader: "
-        "every session), newest first (id, session, "
-        "created_at, a short head), paged by before_id. Filter by session (id or slug); "
-        "read one in full with handoff_get.",
-        schema(
-            {
-                "session": _str("Only handoffs of this session (id or slug)."),
-                "limit": _LIMIT,
-                "before_id": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Only handoffs older than this id.",
-                },
-            }
-        ),
-        None,
-        ("session", "limit", "before_id"),
-    ),
-    AdminRow(
-        "handoff_get",
-        "GET",
-        f"{_A}/handoffs/{{id}}",
-        "One handoff in full by id (from handoffs_list), of a session of your own or granted "
-        "projects (a superleader: any). 404 handoff_not_found.",
-        schema({"id": {"type": "integer", "minimum": 1, "description": "Handoff id."}}, ("id",)),
-    ),
     # superleader spec admin on the task board (accept stays the user's)
     AdminRow(
         "spec_delete",
@@ -1347,42 +650,602 @@ _ROWS: tuple[AdminRow, ...] = (
         "user's decision in the web UI.",
         schema({"key": {"type": "string", "pattern": "^S-[0-9]+$"}}, ("key",)),
     ),
-    # usage history and the session start and end marks (relayed from agents-usage)
-    AdminRow(
-        "usage_history",
-        "GET",
-        f"{_A}/usage/history",
-        "Superleader only: the account's Claude usage over time (five_hour and seven_day "
-        "utilization points) between from and to (ISO 8601). metric picks the window; "
-        "max_points downsamples the series. usage_get shows the current reading.",
-        schema(
-            {
-                "from": _str("Start, ISO 8601."),
-                "to": _str("End, ISO 8601."),
-                "metric": _str("Usage window: five_hour or seven_day."),
-                "max_points": {
-                    "type": "integer",
-                    "minimum": 10,
-                    "description": "Most points (at least 10).",
-                },
-            }
-        ),
-        None,
-        ("from", "to", "metric", "max_points"),
-    ),
-    AdminRow(
-        "usage_sessions",
-        "GET",
-        f"{_A}/usage/sessions",
-        "Superleader only: the session start and end marks recorded for usage, between from "
-        "and to (ISO 8601), to relate usage to sessions.",
-        schema({"from": _str("Start, ISO 8601."), "to": _str("End, ISO 8601."), "limit": _LIMIT}),
-        None,
-        ("from", "to", "limit"),
-    ),
 )
 
 ADMIN_TOOLS: tuple[AdminRow, ...] = tuple(
     replace(r, description=r.description + _NOT_MANAGEABLE) if r.name in _WRITE_NAMES else r
     for r in _ROWS
+)
+
+# Merged admin tools (S-83 905-916): an argument picks the route (``merged.py``).
+_W = f"{_A}/webhooks"
+_SC = f"{_A}/schedules"
+_CH = f"{_A}/chats"
+_VAULT = f"{_A}/presets/{{ref}}/vault/{{entry_id}}"
+_VOLUME = f"{_A}/presets/{{ref}}/volumes/{{volume_id}}"
+_ISSUED = ("to_file", "overwrite")
+_HOOK_EDIT = ("filters", "prompt_template", "suffix", "then_schedule_ids", *_AUTH, *_ISSUED)
+_ROOM_SET = ("trigger", "preset_id", "agents_may_initiate", "agent_aliases")
+_SCHED_SET = ("enabled", "timezone", "then_schedule_ids")
+_SCHED_REQ = ("name", "cron", "preset_id", "prompt")
+_RECORDS = ("kind", "q", "regex", "before_id", "after_id", "limit")
+_ROOM_REPLACED = (
+    " preset_id and trigger are replaced on every call (omitted or null clears them): to change "
+    "only aliases, read the room with chat_rooms scope projects first and resend its preset_id "
+    "and trigger."
+)
+_VOLUME_ID = _str("Volume id (uuid), from volumes scope all.")
+_ENTRY_ID = _str("Vault entry id (uuid), from vault_list.")
+_ENV_NAME = {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]{0,127}$"}
+
+ADMIN_MERGED: tuple[Merged, ...] = (
+    Merged(
+        "volumes",
+        "Shared volumes. scope own (default): the volumes mounted in this session (name, mount "
+        "path, mode ro or rw, backup_restore, state, last save and restore result). scope all "
+        "(superleader only): the volumes that share a project with you (id, name, projects, size, "
+        "state, attached presets and mounted sessions); with volume_id one volume with the "
+        "presets that attach it (preset, mode, mount path, backup_restore); 404 volume_not_found. "
+        "Names, ids, sizes and states only, never file listings or manifests.",
+        {
+            "scope": {"type": "string", "enum": ["own", "all"]},
+            "volume_id": _VOLUME_ID,
+        },
+        {
+            "own": Route("GET", "/volumes"),
+            "all": Route("GET", f"{_A}/volumes"),
+            "all+volume_id": Route("GET", f"{_A}/volumes/{{volume_id}}", ("volume_id",)),
+            "own+volume_id": Route("GET", f"{_A}/volumes/{{volume_id}}", ("volume_id",)),
+        },
+        selectors=("scope",),
+        scopes=("volume_id",),
+        defaults={"scope": "own"},
+    ),
+    Merged(
+        "vault_attach",
+        "Attach a vault entry to a preset, or with detach true detach it. Attach: all envs of "
+        "the entry under their own names, or only the envs you map (envs: entry env name to "
+        "preset env name, which also renames). The entry labels must match the preset (labels "
+        "plus project), else 422 vault_label_mismatch. Privileged presets included: no proposal "
+        "is needed and nothing is refused. The response has attachment_privileged (bool): true "
+        "means the preset's sessions have cluster access or docker/dind and can read every "
+        "Secret in the namespace, so attaching exposes the entry's values to them; weigh that "
+        "before attaching sensitive entries. A preset env of the same name that is not a "
+        "reference to the same entry env gives 409 env_exists unless replace is true. Detach: "
+        "one env of the entry when env is given, else every env of the entry. Read entry ids "
+        "and env names from vault_list." + _NOT_MANAGEABLE,
+        {
+            "ref": _REF,
+            "entry_id": _ENTRY_ID,
+            "detach": {"type": "boolean", "description": "Detach instead of attach."},
+            "envs": {
+                "type": "object",
+                "minProperties": 1,
+                "propertyNames": {"pattern": _ENV_NAME["pattern"]},
+                "additionalProperties": _ENV_NAME,
+                "description": "Maps entry env name to preset env name, e.g. "
+                '{"GITHUB_TOKEN": "BOT_TOKEN"}. Same name on both sides attaches a subset '
+                "unrenamed. Omitted: all envs of the entry under their own names.",
+            },
+            "replace": {
+                "type": "boolean",
+                "description": "Overwrite an existing preset env of the same name.",
+            },
+            "env": {**_ENV_NAME, "description": "detach: entry env name; omitted: all envs."},
+        },
+        {
+            "": Route("PUT", _VAULT, ("ref", "entry_id"), ("envs", "replace"), body=True),
+            "detach": Route("DELETE", _VAULT, ("ref", "entry_id"), ("env",), query=("env",)),
+        },
+        scopes=("detach",),
+        required=("ref", "entry_id"),
+    ),
+    Merged(
+        "volume_attach",
+        "Attach a volume to a manageable preset (mounted in its new sessions), or with detach "
+        "true detach it (running sessions keep the mount; the volume and its content stay). "
+        "mode ro or rw, mount_path absolute (default /volumes/<name>), backup_restore true opts "
+        "into the automatic restore and save-on-last-release. An attach that would share the "
+        "volume between a privileged preset (cluster access, namespace access, docker) and any "
+        "other preset, or that is RW on a privileged preset, is a cross-trust attach: nothing "
+        "is applied and the answer is 202 with a proposal the user approves (follow it with "
+        "proposal_get); any other attach answers 200 with the preset. Errors: 403 "
+        "volume_cross_trust, 409 when the volume is busy or the attach conflicts, 422 for an "
+        "invalid mount path or attachment.",
+        {
+            "ref": _REF,
+            "volume_id": _VOLUME_ID,
+            "detach": {"type": "boolean", "description": "Detach instead of attach."},
+            "mode": {"type": "string", "enum": ["ro", "rw"]},
+            "mount_path": _str("Absolute mount path, at most 200 characters."),
+            "backup_restore": {"type": "boolean"},
+        },
+        {
+            "": Route(
+                "POST",
+                _VOLUME,
+                ("ref", "volume_id", "mode"),
+                ("mount_path", "backup_restore"),
+                body=True,
+            ),
+            "detach": Route("DELETE", _VOLUME, ("ref", "volume_id")),
+        },
+        scopes=("detach",),
+        required=("ref", "volume_id"),
+    ),
+    Merged(
+        "proposal_put",
+        "File, revise or withdraw a change proposal for a human to review. "
+        + _PROPOSAL_TEXT
+        + "op create: kind preset, schedule or session; target the preset id or name, schedule "
+        "id or session slug; patch, reason; client_key makes a retry return the first proposal. "
+        "op revise (id, patch, reason): a new revision after a rework verdict or a stale notice, "
+        "a full proposal against the target as it is now, not a delta. op withdraw (id): "
+        "withdraw one of your open proposals. Answers the proposal.",
+        {
+            "op": {"type": "string", "enum": ["create", "revise", "withdraw"]},
+            "id": {"type": "integer", "description": "Proposal id."},
+            "kind": {"type": "string", "enum": ["preset", "schedule", "session"]},
+            "target": _str("Preset id or name, schedule id or slug."),
+            "patch": _PROPOSAL_PATCH,
+            "reason": _PROPOSAL_REASON,
+            "client_key": {"type": "string", "maxLength": 200},
+        },
+        {
+            "create": Route(
+                "POST",
+                f"{_A}/proposals",
+                ("kind", "target", "patch", "reason"),
+                ("client_key",),
+                body=True,
+            ),
+            "revise": Route(
+                "POST", f"{_A}/proposals/{{id}}/revise", ("id", "patch"), ("reason",), body=True
+            ),
+            "withdraw": Route("POST", f"{_A}/proposals/{{id}}/withdraw", ("id",)),
+        },
+        selectors=("op",),
+        required=("op",),
+    ),
+    Merged(
+        "proposal_get",
+        "Change proposals (your own; a superleader sees every proposal). Without id: list them, "
+        "newest first, current revision only, filtered by status active (default: open, rework, "
+        "stale), open, closed or all; kind session_projects or preset_projects is a project "
+        "grant, preset_manageable asks to make a preset manageable. With id: one proposal with "
+        "every revision: per item the before and after values, the human's verdict (pending, "
+        "approved, rework, denied) and note; after a rework verdict or a stale notice send a "
+        "new revision with proposal_put op revise.",
+        {
+            "id": {"type": "integer", "description": "Proposal id; omitted: the list."},
+            "status": _str("active, open, closed or all."),
+            "limit": _LIMIT,
+        },
+        {
+            "": Route("GET", f"{_A}/proposals", (), ("status", "limit"), query=("status", "limit")),
+            "id": Route("GET", f"{_A}/proposals/{{id}}", ("id",)),
+        },
+        scopes=("id",),
+    ),
+    Merged(
+        "session_restart",
+        "Restart every agent of a session (scope session, default) or one agent pod (scope "
+        "agent, pod). Answers command ids; read them with session_commands command_id. "
+        "Restarting your own session is a self-restart: it has a cooldown (429 "
+        "restart_cooldown, with retry_after) and you get a note when you are back. Restarting "
+        "an agent that never bootstrapped reruns the same install and reports a warning; a "
+        "command may end failed with interrupted_by_restart." + _NOT_MANAGEABLE,
+        {
+            "scope": {"type": "string", "enum": ["session", "agent"]},
+            "slug": _SLUG,
+            "pod": _POD,
+        },
+        {
+            "session": Route("POST", f"{_A}/sessions/{{slug}}/restart", ("slug",)),
+            "agent": Route(
+                "POST", f"{_A}/sessions/{{slug}}/agents/{{pod}}/restart", ("slug", "pod")
+            ),
+        },
+        selectors=("scope",),
+        defaults={"scope": "session"},
+    ),
+    Merged(
+        "session_commands",
+        "Superleader only: the recent commands (restarts and so on) of any session (slug), "
+        "manageable or not; with command_id the status of any command.",
+        {"slug": _SLUG, "limit": _LIMIT, "command_id": _str("Command id.")},
+        {
+            "": Route(
+                "GET", f"{_A}/sessions/{{slug}}/commands", ("slug",), ("limit",), query=("limit",)
+            ),
+            "command_id": Route("GET", f"{_A}/commands/{{command_id}}", ("command_id",)),
+        },
+        scopes=("command_id",),
+    ),
+    Merged(
+        "usage",
+        "The account's Claude usage, read-only. what current (default): the current reading, "
+        "from the same source the usage_quota gate uses: {configured, available, source, "
+        "updated_at, five_hour, seven_day}; each window is {utilization_pct, resets_at, stale, "
+        "observed_at, source} or null when unknown. available false means the usage service is "
+        "not configured or not reachable (the gate allows starts then); stale true means an old "
+        "reading, a lower bound. Superleader only: what history (five_hour and seven_day points "
+        "between from and to, ISO 8601; metric picks the window, max_points downsamples) and "
+        "what sessions (the session start and end marks between from and to).",
+        {
+            "what": {"type": "string", "enum": ["current", "history", "sessions"]},
+            "from": _str("Start, ISO 8601."),
+            "to": _str("End, ISO 8601."),
+            "metric": _str("Usage window: five_hour or seven_day."),
+            "max_points": {"type": "integer", "minimum": 10, "description": "At least 10."},
+            "limit": _LIMIT,
+        },
+        {
+            "current": Route("GET", f"{_A}/usage"),
+            "history": Route(
+                "GET",
+                f"{_A}/usage/history",
+                (),
+                ("from", "to", "metric", "max_points"),
+                query=("from", "to", "metric", "max_points"),
+            ),
+            "sessions": Route(
+                "GET",
+                f"{_A}/usage/sessions",
+                (),
+                ("from", "to", "limit"),
+                query=("from", "to", "limit"),
+            ),
+        },
+        selectors=("what",),
+        defaults={"what": "current"},
+    ),
+    Merged(
+        "webhook",
+        "Webhook endpoints (superleader only). action list; meta (supported types, auth modes, "
+        "template fields); create (type, preset_id); update (id; only the fields given change, "
+        "a new auth mode issues a new credential); clone (id, optionally to another preset_id "
+        "or suffix); rotate (id) the credential; delete (id) with its stored credential; filters "
+        "(id, allow, deny) replaces the filters; events (received events, newest first, "
+        "before_id pages back); event (id) one event; preview (type, example, template) "
+        "renders a prompt template."
+        + _CRED
+        + " to_file writes it to a file instead."
+        + _NOT_MANAGEABLE,
+        {
+            "action": {
+                "type": "string",
+                "enum": [
+                    "list",
+                    "meta",
+                    "create",
+                    "update",
+                    "clone",
+                    "rotate",
+                    "delete",
+                    "filters",
+                    "events",
+                    "event",
+                    "preview",
+                ],
+            },  # fmt: skip
+            "id": _str("Webhook endpoint id (action event: the event id)."),
+            "type": {"type": "string"},
+            "preset_id": _NULL_STR,
+            "auth_mode": {"type": "string", "enum": ["basic", "header", "bearer", "hmac"]},
+            "filters": _FILTERS,
+            "prompt_template": _NULL_STR,
+            "suffix": _NULL_STR,
+            "then_schedule_ids": {**_CHAIN_PATCH, "type": ["array", "null"]},
+            **_AUTH,
+            "allow": {"type": "array"},
+            "deny": {"type": "array"},
+            "status": {"type": "string"},
+            "endpoint_id": {"type": "string"},
+            "limit": _LIMIT,
+            "before_id": {"type": "string"},
+            "example": {},
+            "template": _NULL_STR,
+            "to_file": TO_FILE_SCHEMA,
+            "overwrite": OVERWRITE_SCHEMA,
+        },
+        {
+            "list": Route("GET", f"{_W}/endpoints"),
+            "meta": Route("GET", f"{_W}/meta"),
+            "create": Route(
+                "POST",
+                f"{_W}/endpoints",
+                ("type", "preset_id"),
+                ("auth_mode", *_HOOK_EDIT),
+                body=True,
+            ),
+            "update": Route(
+                "PATCH",
+                f"{_W}/endpoints/{{id}}",
+                ("id",),
+                ("auth_mode", "preset_id", *_HOOK_EDIT),
+                body=True,
+            ),
+            "clone": Route(
+                "POST",
+                f"{_W}/endpoints/{{id}}/clone",
+                ("id",),
+                ("preset_id", "suffix", *_ISSUED),
+                body=True,
+            ),
+            "rotate": Route(
+                "POST", f"{_W}/endpoints/{{id}}/rotate", ("id",), ("username", *_ISSUED), body=True
+            ),
+            "delete": Route("DELETE", f"{_W}/endpoints/{{id}}", ("id",)),
+            "filters": Route(
+                "PUT", f"{_W}/endpoints/{{id}}/filters", ("id",), ("allow", "deny"), body=True
+            ),
+            "events": Route(
+                "GET",
+                f"{_W}/events",
+                (),
+                ("status", "endpoint_id", "limit", "before_id"),
+                query=("status", "endpoint_id", "limit", "before_id"),
+            ),
+            "event": Route("GET", f"{_W}/events/{{id}}", ("id",)),
+            "preview": Route(
+                "POST",
+                f"{_W}/templates/preview",
+                ("type", "example"),
+                ("template", "filters"),
+                body=True,
+            ),
+        },
+        selectors=("action",),
+        required=("action",),
+    ),
+    Merged(
+        "schedule",
+        "Schedules (superleader only): a cron expression that starts a session from a preset "
+        "with a prompt. action list; get (schedule_id); create (name, cron, preset_id, prompt); "
+        "update (schedule_id and all required fields again; then_schedule_ids omitted keeps the "
+        "current links); delete; run (fire it now); runs (the runs of one schedule, newest "
+        "first); runs_all (the runs of all schedules); run_get (run_id); preview (cron: the "
+        "next fire times and the rendered prompt)." + _NOT_MANAGEABLE,
+        {
+            "action": {
+                "type": "string",
+                "enum": [
+                    "list",
+                    "get",
+                    "create",
+                    "update",
+                    "delete",
+                    "run",
+                    "runs",
+                    "runs_all",
+                    "run_get",
+                    "preview",
+                ],
+            },  # fmt: skip
+            "schedule_id": _SCHED,
+            "run_id": _str("Run id."),
+            **_SCHED_FIELDS,
+            "preset_id": _NULL_STR,
+            "prompt": _NULL_STR,
+            "schedule_name": _NULL_STR,
+            "status": {"type": "string"},
+            "limit": _LIMIT,
+        },
+        {
+            "list": Route("GET", f"{_SC}/schedules"),
+            "get": Route("GET", f"{_SC}/schedules/{{schedule_id}}", ("schedule_id",)),
+            "create": Route("POST", f"{_SC}/schedules", _SCHED_REQ, _SCHED_SET, body=True),
+            "update": Route(
+                "PUT",
+                f"{_SC}/schedules/{{schedule_id}}",
+                ("schedule_id", *_SCHED_REQ),
+                _SCHED_SET,
+                body=True,
+            ),
+            "delete": Route("DELETE", f"{_SC}/schedules/{{schedule_id}}", ("schedule_id",)),
+            "run": Route("POST", f"{_SC}/schedules/{{schedule_id}}/run", ("schedule_id",)),
+            "runs": Route(
+                "GET",
+                f"{_SC}/schedules/{{schedule_id}}/runs",
+                ("schedule_id",),
+                ("limit",),
+                query=("limit",),
+            ),
+            "runs_all": Route(
+                "GET", f"{_SC}/runs", (), ("status", "limit"), query=("status", "limit")
+            ),
+            "run_get": Route("GET", f"{_SC}/runs/{{run_id}}", ("run_id",)),
+            "preview": Route(
+                "POST",
+                f"{_SC}/schedules/preview",
+                ("cron",),
+                ("preset_id", "prompt", "schedule_name", "timezone"),
+                body=True,
+            ),
+        },
+        selectors=("action",),
+        required=("action",),
+    ),
+    Merged(
+        "chat_connector",
+        "The chat connector (superleader only). action settings (room_id): a room's trigger "
+        "(all or mention), the preset that serves it, agents_may_initiate and agent_aliases; "
+        "allow (room_id): allow and configure a room, also accepts a Messenger message request "
+        "(an invited room is joined on the next sync)." + _ROOM_REPLACED + " action users (q): "
+        "people the connector knows by name or Facebook id. action open (target, task_key) "
+        "asks to open a Messenger chat with a person, invite (target, task_key, room_id) to "
+        "invite them to a room: it asks the user on the taskboard under task_key; when you get "
+        "'Task T-n was updated', call open_confirm (request_id), then poll open_status "
+        "(request_id) until done; allow the new room; session_create, then message it with a "
+        "<session-send> envelope; it posts there with a <chat-send> envelope. target is a "
+        "Facebook id, a profile.php?id= link or a name; when several people match, the answer "
+        "has candidates: call again with the chosen Facebook id. A vanity link "
+        "(facebook.com/some.name) cannot be resolved: pass the name instead. action rules "
+        "lists the allow and deny rules, rule_add (list allow or deny, kind, value) adds one, "
+        "rule_delete (rule_id) deletes one.",
+        {
+            "action": {
+                "type": "string",
+                "enum": [
+                    "settings",
+                    "allow",
+                    "users",
+                    "open",
+                    "invite",
+                    "open_status",
+                    "open_confirm",
+                    "rules",
+                    "rule_add",
+                    "rule_delete",
+                ],
+            },  # fmt: skip
+            "room_id": _ROOM_ID,
+            "trigger": {"type": ["string", "null"], "enum": ["all", "mention", None]},
+            "preset_id": _NULL_STR,
+            "agents_may_initiate": {"type": ["boolean", "null"]},
+            "agent_aliases": _ALIASES,
+            "q": _str("Name part or Facebook id."),
+            "limit": _LIMIT,
+            "target": _str("Facebook id, profile link or name of the person."),
+            "task_key": _str("Taskboard task key (T-n) the question is asked under."),
+            "request_id": _str("Room request id."),
+            "list": {"type": "string", "enum": ["allow", "deny"]},
+            "kind": {"type": "string"},
+            "value": {"type": "string"},
+            "note": _NULL_STR,
+            "preamble": _NULL_STR,
+            "rule_id": _str("Rule id."),
+        },
+        {
+            "settings": Route(
+                "PUT", f"{_CH}/rooms/{{room_id}}/settings", ("room_id",), _ROOM_SET, body=True
+            ),
+            "allow": Route(
+                "POST", f"{_CH}/rooms/{{room_id}}/allow", ("room_id",), _ROOM_SET, body=True
+            ),
+            "users": Route("GET", f"{_CH}/users", (), ("q", "limit"), query=("q", "limit")),
+            "open": Route(
+                "POST", f"{_CH}/room-requests", ("target", "task_key"), ("action",), body=True
+            ),
+            "invite": Route(
+                "POST",
+                f"{_CH}/room-requests",
+                ("target", "task_key", "room_id"),
+                ("action",),
+                body=True,
+            ),
+            "open_status": Route("GET", f"{_CH}/room-requests/{{request_id}}", ("request_id",)),
+            "open_confirm": Route(
+                "POST", f"{_CH}/room-requests/{{request_id}}/confirm", ("request_id",), body=True
+            ),
+            "rules": Route("GET", f"{_CH}/rules"),
+            "rule_add": Route(
+                "POST",
+                f"{_CH}/rules",
+                ("list", "kind", "value"),
+                ("note", "preamble"),
+                body=True,
+            ),
+            "rule_delete": Route("DELETE", f"{_CH}/rules/{{rule_id}}", ("rule_id",)),
+        },
+        selectors=("action",),
+        required=("action",),
+    ),
+    Merged(
+        "history_get",
+        "One stored session of the history of discarded sessions: provenance, preset, "
+        "timestamps and record counts. With records true: page its stored records (chat "
+        "events, commands and so on) in id order, filtered by kind and by text: "
+        + _HISTORY_MATCH
+        + " Page forward with after_id (the last id seen) or backward with before_id."
+        + _HISTORY_SCOPE,
+        {
+            "session_id": _HISTORY_SESSION_ID,
+            "records": {"type": "boolean", "description": "Page the session's records."},
+            "kind": _str("records: only records of this kind."),
+            "q": _HISTORY_Q,
+            "regex": _HISTORY_REGEX,
+            "before_id": _HISTORY_BEFORE,
+            "after_id": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Return rows with an id above this one.",
+            },
+            "limit": _LIMIT,
+        },
+        {
+            "": Route("GET", f"{_A}/history/sessions/{{session_id}}", ("session_id",)),
+            "records": Route(
+                "GET",
+                f"{_A}/history/sessions/{{session_id}}/records",
+                ("session_id",),
+                _RECORDS,
+                query=_RECORDS,
+            ),
+        },
+        scopes=("records",),
+        required=("session_id",),
+    ),
+    Merged(
+        "handoffs",
+        "The handoff history of the sessions of your own and granted projects (a superleader: "
+        "every session). Without id: newest first (id, session, created_at, a short head), "
+        "paged by before_id, filtered by session (id or slug). With id: one handoff in full; "
+        "404 handoff_not_found.",
+        {
+            "id": {"type": "integer", "minimum": 1, "description": "Handoff id."},
+            "session": _str("Only handoffs of this session (id or slug)."),
+            "limit": _LIMIT,
+            "before_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Only handoffs older than this id.",
+            },
+        },
+        {
+            "": Route(
+                "GET",
+                f"{_A}/handoffs",
+                (),
+                ("session", "limit", "before_id"),
+                query=("session", "limit", "before_id"),
+            ),
+            "id": Route("GET", f"{_A}/handoffs/{{id}}", ("id",)),
+        },
+        scopes=("id",),
+    ),
+    Merged(
+        "backups",
+        "Superleader only: the named backups. Without name: the backups (name, current version, "
+        "sizes, times), filtered by q (substring of the name). With name: its versions, newest "
+        "first (version id, actor, size, time, which one is current). With name and version: "
+        "the file list (paths, sizes) of that version, without any file content. Lists page "
+        "with the cursor of the previous page. There is no download. 400 bad_request for a bad "
+        "cursor, 404 backup_not_found or version_not_found, 503 unavailable when backups are "
+        "not configured.",
+        {
+            "name": _str("Backup name."),
+            "version": _str("Version id."),
+            "q": _str("Only names containing this text."),
+            "limit": _LIMIT,
+            "cursor": _str("Cursor of the previous page."),
+        },
+        {
+            "": Route(
+                "GET", f"{_A}/backups", (), ("q", "limit", "cursor"), query=("q", "limit", "cursor")
+            ),
+            "name": Route(
+                "GET",
+                f"{_A}/backups/{{name}}/versions",
+                ("name",),
+                ("limit", "cursor"),
+                query=("limit", "cursor"),
+            ),
+            "name+version": Route(
+                "GET", f"{_A}/backups/{{name}}/versions/{{version}}/manifest", ("name", "version")
+            ),
+        },
+        scopes=("name", "version"),
+    ),
 )

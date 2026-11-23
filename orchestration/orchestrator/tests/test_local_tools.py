@@ -26,12 +26,13 @@ CONFIG: dict[str, Any] = {
     "slug": "my-hive",
 }
 OPENAPI = json.loads((Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text())
-CRED_TOOLS = ("webhook_create", "webhook_update", "webhook_clone", "webhook_rotate")
+# The webhook actions whose answer may carry an issued credential.
+CRED_ACTIONS = ("create", "update", "clone", "rotate")
 ARGS: dict[str, dict[str, Any]] = {
-    "webhook_create": {"type": "github", "preset_id": "p"},
-    "webhook_update": {"id": "w1", "auth_mode": "bearer"},
-    "webhook_clone": {"id": "w1"},
-    "webhook_rotate": {"id": "w1"},
+    "create": {"action": "create", "type": "github", "preset_id": "p"},
+    "update": {"action": "update", "id": "w1", "auth_mode": "bearer"},
+    "clone": {"action": "clone", "id": "w1"},
+    "rotate": {"action": "rotate", "id": "w1"},
 }
 
 
@@ -63,15 +64,15 @@ def fake(seen: list[httpx.Request], *, with_credential: bool = True) -> Any:
     return handler
 
 
-@pytest.mark.parametrize("tool", CRED_TOOLS)
+@pytest.mark.parametrize("action", CRED_ACTIONS)
 async def test_to_file_writes_the_credential_and_the_result_is_metadata_only(
-    tool: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    action: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.DEBUG)
     target = tmp_path / "root" / "cred"
     seen: list[httpx.Request] = []
     async with harness(fake(seen), tmp_path / "root") as h:
-        res = await h.call(tool, {**ARGS[tool], "to_file": str(target)})
+        res = await h.call("webhook", {**ARGS[action], "to_file": str(target)})
     assert not res.is_error, res.text
     assert target.read_text() == CANARY
     assert stat.S_IMODE(os.stat(target).st_mode) == 0o600
@@ -91,7 +92,7 @@ async def test_without_to_file_the_local_header_is_not_sent_and_a_credential_is_
         return httpx.Response(201, json={"id": "w1", "credential": {"key": "k", "value": CANARY}})
 
     async with harness(handler) as h:
-        res = await h.call("webhook_create", ARGS["webhook_create"])
+        res = await h.call("webhook", ARGS["create"])
     assert not res.is_error
     assert "x-orch-tool" not in seen[0].headers
     assert CANARY not in blob(res)
@@ -104,12 +105,10 @@ async def test_existing_file_is_refused_unless_overwrite(tmp_path: Path) -> None
     target.write_text("old")
     seen: list[httpx.Request] = []
     async with harness(fake(seen), root) as h:
-        res = await h.call("webhook_rotate", {"id": "w1", "to_file": str(target)})
+        res = await h.call("webhook", {**ARGS["rotate"], "to_file": str(target)})
         assert res.is_error and "to_file_exists" in res.text
         assert target.read_text() == "old" and seen == []
-        res = await h.call(
-            "webhook_rotate", {"id": "w1", "to_file": str(target), "overwrite": True}
-        )
+        res = await h.call("webhook", {**ARGS["rotate"], "to_file": str(target), "overwrite": True})
     assert not res.is_error and target.read_text() == CANARY
     assert sorted(p.name for p in root.iterdir()) == ["cred"]
     assert b"overwrite" not in seen[0].content
@@ -119,7 +118,7 @@ async def test_default_root_is_created_0700_under_home(tmp_path: Path, monkeypat
     monkeypatch.setenv("HOME", str(tmp_path))
     target = tmp_path / ".agent-secrets" / "cred"
     async with harness(fake([])) as h:
-        res = await h.call("webhook_create", {**ARGS["webhook_create"], "to_file": str(target)})
+        res = await h.call("webhook", {**ARGS["create"], "to_file": str(target)})
     assert not res.is_error, res.text
     assert stat.S_IMODE(os.stat(target.parent).st_mode) == 0o700
     assert target.read_text() == CANARY
@@ -146,8 +145,8 @@ async def test_paths_outside_the_root_are_refused(tmp_path: Path) -> None:
     async with harness(fake(seen), root) as h:
         for path in bad:
             res = await h.call(
-                "webhook_create",
-                {**ARGS["webhook_create"], "to_file": str(path), "overwrite": True},
+                "webhook",
+                {**ARGS["create"], "to_file": str(path), "overwrite": True},
             )
             assert res.is_error and "to_file_invalid" in res.text, path
     assert seen == [] and list(outside.iterdir()) == []
@@ -158,7 +157,7 @@ async def test_to_file_without_a_credential_in_the_answer_reports_not_written(
 ) -> None:
     target = tmp_path / "root" / "cred"
     async with harness(fake([], with_credential=False), tmp_path / "root") as h:
-        res = await h.call("webhook_update", {"id": "w1", "to_file": str(target)})
+        res = await h.call("webhook", {**ARGS["update"], "to_file": str(target)})
     assert not res.is_error
     assert res.structured["to_file"] == {"written": False}
     assert not target.exists()
@@ -173,7 +172,7 @@ async def test_a_failed_file_write_leaks_nothing(tmp_path: Path, monkeypatch: An
     monkeypatch.setattr(secrets_local.os, "fsync", boom)
     root = tmp_path / "root"
     async with harness(fake([]), root) as h:
-        res = await h.call("webhook_create", {**ARGS["webhook_create"], "to_file": str(root / "c")})
+        res = await h.call("webhook", {**ARGS["create"], "to_file": str(root / "c")})
     assert res.is_error and "to_file_failed" in res.text
     assert CANARY not in blob(res)
     assert list(root.iterdir()) == []
@@ -186,15 +185,12 @@ async def test_upstream_errors_of_credential_tools_keep_their_code(tmp_path: Pat
         )
 
     async with harness(handler, tmp_path / "root") as h:
-        res = await h.call(
-            "webhook_create", {**ARGS["webhook_create"], "to_file": str(tmp_path / "root" / "c")}
-        )
+        res = await h.call("webhook", {**ARGS["create"], "to_file": str(tmp_path / "root" / "c")})
     assert res.is_error and "credential_not_stored" in res.text
 
 
-async def test_credential_tools_offer_to_file_and_others_do_not() -> None:
+async def test_only_the_webhook_tool_offers_to_file() -> None:
     async with harness(fake([])) as h:
         tools = {t["name"]: t for t in await h.list_tools()}
-    for name in CRED_TOOLS:
-        assert "to_file" in tools[f"orchestrator_{name}"]["inputSchema"]["properties"]
-    assert "to_file" not in tools["orchestrator_webhook_delete"]["inputSchema"]["properties"]
+    offering = {n for n, t in tools.items() if "to_file" in t["inputSchema"]["properties"]}
+    assert offering == {"orchestrator_webhook"}

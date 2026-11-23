@@ -28,6 +28,7 @@ from any_mcp.plugin import Plugin
 from any_mcp.types import HttpBinding, RawResponse, ToolCall, ToolResult, ToolSpec
 
 from .admin import (
+    ADMIN_MERGED,
     ADMIN_TOOLS,
     CHAT_FROM,
     CHAT_HISTORY_LIMIT,
@@ -43,7 +44,7 @@ from .common import HANDLED
 from .fit import fit_task, summarize_tasks
 from .memory import MEMORY_MERGED
 from .merged import Merged, Route
-from .mindmap import mindmap_tools
+from .mindmap import MINDMAP_MERGED, mindmap_tools
 from .mindmap import route as mindmap_route
 from .plan import PLAN_MERGED, plan_tools
 from .plan_local import local_plan_specs, plan_export, plan_questions_ask, plan_steps_push
@@ -51,8 +52,6 @@ from .project_chat import PROJECT_CHAT_READ_LIMIT, project_chat_tools
 from .projects import PROJECT_MERGED
 from .secrets_local import (
     CREDENTIAL_TOOLS,
-    OVERWRITE_SCHEMA,
-    TO_FILE_SCHEMA,
     SecretResolveError,
     secret_error_result,
     secrets_root,
@@ -126,17 +125,6 @@ def _schema(properties: dict[str, Any], required: Sequence[str] = ()) -> dict[st
     if required:
         schema["required"] = list(required)
     return schema
-
-
-def _with_to_file(schema: dict[str, Any]) -> dict[str, Any]:
-    return {
-        **schema,
-        "properties": {
-            **schema["properties"],
-            "to_file": TO_FILE_SCHEMA,
-            "overwrite": OVERWRITE_SCHEMA,
-        },
-    }
 
 
 _PATHS = {"type": "array", "items": {"type": "string"}, "description": "File paths in the workdir."}
@@ -314,6 +302,8 @@ _MERGED: dict[str, Merged] = {
         *MEMORY_MERGED,
         *SPEC_MERGED,
         *PLAN_MERGED,
+        *ADMIN_MERGED,
+        *MINDMAP_MERGED,
     )
 }
 
@@ -408,6 +398,12 @@ class OrchestratorPlugin(Plugin):
 
     async def call(self, call: ToolCall) -> RawResponse:
         merged = _MERGED.get(call.spec.name)
+        # A schedule update replaces every field: resend the stored chain links when omitted.
+        keep_chain = (
+            call.spec.name == "schedule"
+            and call.arguments.get("action") == "update"
+            and "then_schedule_ids" not in call.arguments
+        )
         if merged is not None:
             call = merged.resolve(call, self.cfg.base_url)
         if call.spec.name in _ROLE_CALLS:
@@ -424,7 +420,7 @@ class OrchestratorPlugin(Plugin):
             return RawResponse.from_value(await local(self.ctx.http, self.cfg, call.arguments))
         if call.spec.name == "spec_push":
             return RawResponse.from_value(await spec_push(self.ctx.http, self.cfg, call.arguments))
-        if call.spec.name == "schedule_update" and "then_schedule_ids" not in call.arguments:
+        if keep_chain:
             call = await self._keep_chain(call)
         if call.spec.name == "session_discard" and not call.arguments.get("force"):
             # Send force only when set: a plain discard keeps the unchanged route.
@@ -844,7 +840,7 @@ class OrchestratorPlugin(Plugin):
             ToolSpec(
                 name=r.name,
                 description=r.description,
-                input_schema=_with_to_file(r.schema) if r.name in CREDENTIAL_TOOLS else r.schema,
+                input_schema=r.schema,
                 http=HttpBinding(
                     r.method, f"{_BASE}{r.path}", query=r.query, body=r.body, base_url=base
                 ),

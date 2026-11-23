@@ -2,7 +2,7 @@
 
 ``to_file`` receives the credential the upstream issues once: it is confined to the secrets
 directory and written 0600; it never appears in a tool result. Errors carry a fixed class name
-only. Secret values of presets live in agents-vault (vault_list, vault_attach, vault_detach).
+only. Secret values of presets live in agents-vault (vault_list, vault_attach).
 """
 
 from __future__ import annotations
@@ -22,11 +22,10 @@ __all__ = [
     "write_credential",
 ]
 
-# Webhook tools whose answer may carry a credential the upstream issues once; each takes an
-# optional ``to_file`` that receives it (see ``write_credential``).
-CREDENTIAL_TOOLS = frozenset(
-    {"webhook_create", "webhook_update", "webhook_clone", "webhook_rotate"}
-)
+# Tools whose answer may carry a credential the upstream issues once (webhook actions create,
+# update, clone and rotate); they take an optional ``to_file`` that receives it
+# (see ``write_credential``).
+CREDENTIAL_TOOLS = frozenset({"webhook"})
 TO_FILE_SCHEMA = {
     "type": "string",
     "description": (
