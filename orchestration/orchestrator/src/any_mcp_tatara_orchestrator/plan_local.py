@@ -98,7 +98,7 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
                     "steps_version": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "steps_version the file is based on (plan_steps).",
+                        "description": "steps_version the file is based on (plan_get view steps).",
                     },
                 },
                 ("spec", "file"),
@@ -112,7 +112,7 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
                 "Write the plan header and every step, in order, with bodies and todo, as one "
                 f"markdown file {EXPORT_FILE} under dir (default .scratchpad/<spec name>/spec/, "
                 "inside the workdir) for reading with your file tools. It is a view: never push "
-                "it back; edit steps with plan_step_edit or plan_steps_push. Records the "
+                "it back; edit steps with task_update or plan_steps_push. Records the "
                 "steps_version next to it for plan_steps_push. Answers the path, the step "
                 "count and the steps_version, never the text."
             ),
@@ -139,7 +139,7 @@ def local_plan_specs(base_url: str) -> list[ToolSpec]:
                 "the old one withdrawn as superseded. Answers a row per question: question, "
                 "decision_id, action (posted, skipped, revised, answered or failed) and a note "
                 "when something needs attention (a failed question does not stop the others). "
-                "The user answers in the web UI; read the outcome with plan_gate."
+                "The user answers in the web UI; read the outcome with plan_get view gate."
             ),
             input_schema=_schema(
                 {

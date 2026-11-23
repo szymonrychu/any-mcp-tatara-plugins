@@ -3,8 +3,9 @@ board, relayed by the orchestrator under ``/agent/v1/specs...``.
 
 Document bodies never pass through these rows: they move through the local ``spec_pull`` and
 ``spec_push`` tools (``specs_local.py``), which read and write files in the working copy so a body
-is never in the model's context. Deleting a spec and dismissing a suggestion are superleader admin
-tools (``spec_delete``, ``spec_suggestion_dismiss``); accept is the user's in the web UI.
+is never in the model's context. ``spec_get``, ``spec_comment`` and ``spec_queue`` are merged tools
+(``merged.py``). Deleting a spec (``spec_delete``) and dismissing a suggestion (``spec_comment`` op
+dismiss) are superleader only; accept is the user's in the web UI.
 """
 
 from __future__ import annotations
@@ -13,7 +14,9 @@ from typing import Any
 
 from any_mcp.types import HttpBinding, ToolSpec
 
-__all__ = ["SPEC_KEY_PATTERN", "SPEC_PARAM", "spec_tools"]
+from .merged import Merged, Route
+
+__all__ = ["SPEC_KEY_PATTERN", "SPEC_MERGED", "SPEC_PARAM", "spec_tools"]
 
 _BASE = "/agent/v1"
 SPEC_KEY_PATTERN = "^S-[1-9][0-9]{0,17}$"
@@ -22,7 +25,7 @@ _LABEL_RULE = (
     "Labels are trimmed and lowercased by the server and must then match ^[a-z0-9-_.:]{1,40}$."
 )
 _PROJECT_RULE = (
-    "Project slug; see project_list. Agents work in their own projects only (home plus any "
+    "Project slug; see project. Agents work in their own projects only (home plus any "
     "extra projects granted to the session); "
     "a superleader may use any project."
 )
@@ -114,16 +117,6 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             query=("project", "status", "label", "name", "limit", "cursor"),
         ),
         row(
-            "spec_get",
-            "GET",
-            "/specs/{spec}",
-            "Read one spec: key, project, name, title, status, labels, version, url, its "
-            "documents (path, version, size, note, author; never the bodies), linked task keys "
-            "and the open comment count. Use spec_pull to copy the document bodies to files.",
-            _schema({"spec": SPEC_PARAM}, ("spec",)),
-            _hints(read_only=True, idempotent=True),
-        ),
-        row(
             "spec_create",
             "POST",
             "/specs",
@@ -158,11 +151,11 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             "Edit a spec: title, status, labels, project, or assign it to your session with "
             "assignee_self. version is the version you last read (spec_get); a stale one is "
             "refused (HTTP 412 stale_version): read it again and retry. Status moves between "
-            "draft, review, approved and archived. An agent sets approved once plan_gate says "
-            "approvable (no open decision on the spec's open or in_progress tasks); otherwise it "
-            "is refused 409 decisions_open listing the open decisions (answer or withdraw them "
-            "first). A superleader and the user may always approve. Archive the spec after its "
-            "retro. Document edits go through spec_push.",
+            "draft, review, approved and archived. An agent sets approved once plan_get view "
+            "gate says approvable (no open decision on the spec's open or in_progress "
+            "tasks); otherwise it is refused 409 decisions_open listing the open decisions "
+            "(answer or withdraw them first). A superleader and the user may always approve. "
+            "Archive the spec after its retro. Document edits go through spec_push.",
             _schema(
                 {
                     "spec": SPEC_PARAM,
@@ -179,47 +172,6 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
                 ("spec", "version"),
             ),
             _hints(idempotent=True),
-            "*",
-        ),
-        row(
-            "spec_versions",
-            "GET",
-            "/specs/{spec}/docs/{path}/versions",
-            "List the versions of one document, newest first: version, size, note, author, "
-            "time (never the bodies). Pages of limit; pass next_cursor as cursor for older "
-            "ones. Read a body with spec_pull and its version argument.",
-            _schema(
-                {
-                    "spec": SPEC_PARAM,
-                    "path": _PATH,
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 200},
-                    "cursor": {"type": "integer", "description": "next_cursor of the last page."},
-                },
-                ("spec", "path"),
-            ),
-            _hints(read_only=True, idempotent=True),
-            query=("limit", "cursor"),
-        ),
-        row(
-            "spec_comment",
-            "POST",
-            "/specs/{spec}/comments",
-            "Comment on a spec, on one document (path, optionally a version and an anchor "
-            "inside it), or give a replacement text as suggestion; the user accepts or "
-            "dismisses a suggestion in the web UI. Safe to retry with the same client_key.",
-            _schema(
-                {
-                    "spec": SPEC_PARAM,
-                    "body": {"type": "string", "minLength": 1},
-                    "path": {"type": "string", "maxLength": 200},
-                    "version": {"type": "integer", "minimum": 1},
-                    "anchor": {"type": "string", "minLength": 1, "maxLength": 200},
-                    "suggestion": {"type": "string", "description": "Replacement text."},
-                    "client_key": {"type": "string", "description": "Idempotency key."},
-                },
-                ("spec", "body"),
-            ),
-            _hints(),
             "*",
         ),
         row(
@@ -240,45 +192,116 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             _hints(read_only=True, idempotent=True),
             query=("path", "open"),
         ),
-        row(
-            "spec_comment_resolve",
-            "POST",
-            "/specs/{spec}/comments/{id}/resolve",
-            "Mark a comment resolved once it is handled.",
-            _schema({"spec": SPEC_PARAM, "id": {"type": "integer", "minimum": 1}}, ("spec", "id")),
-            _hints(idempotent=True),
-        ),
-        row(
-            "spec_queue_list",
-            "GET",
-            "/specs/queue",
-            "List the implementation start queue of approved specs per project (FIFO by "
-            "position, no expiry): the project's autostart limits, state (off = autostart off "
-            "until the user sets both limits, idle, usage_unknown, usage_refused, at_limit, "
-            "usage_high, orchestrator_unavailable, ready) and queued specs. position is a dense "
-            "1-based rank. Any agent may read it; only a superleader or the user may reorder; "
-            "ask a superleader to rearrange.",
-            _schema({"project": {"type": "string", "description": _PROJECT_RULE}}),
-            _hints(read_only=True, idempotent=True),
-            query=("project",),
-        ),
-        row(
-            "spec_queue_move",
-            "POST",
-            "/specs/queue/{id}/move",
-            "Superleader only: move one queued spec in the start queue, to a 1-based position "
-            "or before another queue item (before is that item's id); give exactly one of "
-            "position and before. The server answers 403 superleader_only to other sessions and "
-            "409 not_queued once a start began. Removing an item is the user's, in the web UI.",
-            _schema(
-                {
-                    "id": {"type": "integer", "minimum": 1, "description": "Queue item id."},
-                    "position": {"type": "integer", "minimum": 1},
-                    "before": {"type": "integer", "minimum": 1},
-                },
-                ("id",),
-            ),
-            _hints(idempotent=True),
-            "*",
-        ),
     ]
+
+
+_READ = _hints(read_only=True, idempotent=True)
+SPEC_MERGED = (
+    Merged(
+        "spec_get",
+        "Read one spec: key, project, name, title, status, labels, version, url, its documents "
+        "(path, version, size, note, author; never the bodies), linked task keys and the open "
+        "comment count. With path and versions true: the versions of that document, newest "
+        "first (pages of limit; pass next_cursor as cursor). With path and section (a heading "
+        "slug): that section of the document under the tool output budget (truncated true when "
+        "cut; version picks an older document version). spec_pull copies whole bodies to files.",
+        {
+            "spec": SPEC_PARAM,
+            "path": _PATH,
+            "versions": {"type": "boolean", "description": "List the versions of path."},
+            "section": {"type": "string", "description": "Heading slug of a section of path."},
+            "version": {"type": "integer", "minimum": 1, "description": "Document version."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            "cursor": {"type": "integer", "description": "next_cursor of the last page."},
+        },
+        {
+            "": Route("GET", "/specs/{spec}", ("spec",)),
+            "versions": Route(
+                "GET",
+                "/specs/{spec}/docs/{path}/versions",
+                ("spec", "path"),
+                ("limit", "cursor"),
+                query=("limit", "cursor"),
+            ),
+            "section": Route(
+                "GET",
+                "/specs/{spec}/docs/{path}/section",
+                ("spec", "path", "section"),
+                ("version",),
+                query=("heading", "version"),
+                rename={"section": "heading"},
+            ),
+        },
+        scopes=("versions", "section"),
+        required=("spec",),
+        annotations=_READ,
+    ),
+    Merged(
+        "spec_comment",
+        "Comment on a spec (op comment, default): on the spec or one document (path, optionally "
+        "a version and an anchor inside it), or give a replacement text as suggestion; the user "
+        "accepts or dismisses a suggestion in the web UI; safe to retry with the same "
+        "client_key. op resolve marks comment id resolved once handled. op dismiss (superleader "
+        "only) dismisses suggestion comment id; accepting stays the user's.",
+        {
+            "op": {"type": "string", "enum": ["comment", "resolve", "dismiss"]},
+            "spec": SPEC_PARAM,
+            "id": {"type": "integer", "minimum": 1, "description": "Comment id."},
+            "body": {"type": "string", "minLength": 1},
+            "path": {"type": "string", "maxLength": 200},
+            "version": {"type": "integer", "minimum": 1},
+            "anchor": {"type": "string", "minLength": 1, "maxLength": 200},
+            "suggestion": {"type": "string", "description": "Replacement text."},
+            "client_key": {"type": "string", "description": "Idempotency key."},
+        },
+        {
+            "comment": Route(
+                "POST",
+                "/specs/{spec}/comments",
+                ("spec", "body"),
+                ("path", "version", "anchor", "suggestion", "client_key"),
+                body=True,
+            ),
+            "resolve": Route("POST", "/specs/{spec}/comments/{id}/resolve", ("spec", "id")),
+            "dismiss": Route(
+                "POST",
+                "/admin/specs/{key}/comments/{comment_id}/dismiss",
+                ("spec", "id"),
+                rename={"spec": "key", "id": "comment_id"},
+            ),
+        },
+        selectors=("op",),
+        defaults={"op": "comment"},
+        required=("spec",),
+        annotations=_hints(),
+    ),
+    Merged(
+        "spec_queue",
+        "The implementation start queue of approved specs per project (FIFO by position, no "
+        "expiry): the project's autostart limits, state (off = autostart off until the user "
+        "sets both limits, idle, usage_unknown, usage_refused, at_limit, usage_high, "
+        "orchestrator_unavailable, ready) and queued specs; position is a dense 1-based rank. "
+        "With move (a queue item id, superleader only): move it to position or before another "
+        "queue item id; give exactly one of them (422 otherwise; 403 superleader_only, 409 "
+        "not_queued once a start began). Removing an item is the user's, in the web UI.",
+        {
+            "project": {"type": "string", "description": _PROJECT_RULE},
+            "move": {"type": "integer", "minimum": 1, "description": "Queue item id to move."},
+            "position": {"type": "integer", "minimum": 1},
+            "before": {"type": "integer", "minimum": 1},
+        },
+        {
+            "": Route("GET", "/specs/queue", (), ("project",), query=("project",)),
+            "move": Route(
+                "POST",
+                "/specs/queue/{id}/move",
+                ("move",),
+                ("position", "before"),
+                body=True,
+                rename={"move": "id"},
+            ),
+        },
+        scopes=("move",),
+        annotations=_hints(idempotent=True),
+    ),
+)

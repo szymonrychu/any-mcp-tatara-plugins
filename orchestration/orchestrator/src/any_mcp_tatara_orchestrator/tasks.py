@@ -1,8 +1,9 @@
-"""Task board tools: tasks, decisions, todo lists and session labels.
+"""Task board tools: tasks (plan steps too), decisions, todo lists and session labels.
 
 Agents call the orchestrator's agent API, which relays ``/tasks/...`` to the taskboard service
 and injects the verified session identity. ``/session/labels`` is answered by the orchestrator
-itself. Every tool is a declarative row turned into a ``ToolSpec`` by ``task_tools``.
+itself. Every tool is a declarative row turned into a ``ToolSpec`` by ``task_tools``; ``todo``
+and ``session_labels`` are merged tools (``merged.py``).
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from typing import Any
 
 from any_mcp.types import HttpBinding, ToolSpec
 
+from .merged import Merged, Route
 from .specs import SPEC_KEY_PATTERN
 from .views import TASK_VIEWS
 
@@ -20,6 +22,7 @@ __all__ = [
     "TASK_LIST_MAX",
     "TASK_WINDOW_DEFAULT",
     "TASK_WINDOW_MAX",
+    "TASK_MERGED",
     "task_tools",
 ]
 
@@ -48,6 +51,16 @@ _OMITTED = {
 }
 
 _BASE = "/agent/v1"
+_MODELS = ["haiku", "sonnet", "opus", "fable"]
+_REF = {
+    "type": "object",
+    "properties": {
+        "kind": {"type": "string", "enum": ["pr", "commit", "branch", "tag", "url"]},
+        "value": {"type": "string", "minLength": 1, "maxLength": 2000},
+    },
+    "required": ["kind", "value"],
+    "additionalProperties": False,
+}
 _TASK_STATUS = ["idea", "open", "in_progress", "done", "dropped"]
 _TODO_STATUS = ["todo", "inprogress", "done"]
 _LABEL_PATTERN = "^[a-z0-9-_.:]{1,40}$"
@@ -65,7 +78,7 @@ _ANSWER = (
     "task, then read it with task_get."
 )
 _PROJECT_RULE = (
-    "Project slug; see project_list. Agents work in their own projects only (home plus any "
+    "Project slug; see project. Agents work in their own projects only (home plus any "
     "extra projects granted to the session); "
     "a superleader may use any project."
 )
@@ -94,7 +107,7 @@ _ACK_OUT = {
         "comments_total": {"type": "integer", "description": "task_comment: comments on the task."},
         "todo": {
             "type": "array",
-            "description": "todo_set: the new items as [id, text cut to 60 chars], in order.",
+            "description": "todo: the items as [id, text cut to 60 chars], in order.",
             "items": {"type": "array"},
         },
     },
@@ -152,13 +165,6 @@ _LIST_OUT = {
         "next_cursor": {"type": ["string", "null"]},
     },
 }
-_LABELS_OUT = {
-    "type": "object",
-    "properties": {
-        "labels": {"type": "array", "items": {"type": "string"}},
-        "url": {"type": "string"},
-    },
-}
 
 
 def _schema(properties: dict[str, Any], required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -210,6 +216,13 @@ _OPTION = {
     },
     "required": ["label", "recommended"],
     "additionalProperties": False,
+}
+_LABELS_OUT = {
+    "type": "object",
+    "properties": {
+        "labels": {"type": "array", "items": {"type": "string"}},
+        "url": {"type": "string"},
+    },
 }
 _TODO_ITEM = {
     "type": "object",
@@ -283,8 +296,11 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "task_update",
             "PATCH",
             "/tasks/{key}",
-            "Edit a task. version is the version you last read (task_get); a stale one is "
-            "refused (HTTP 412 stale_version): read the task again and retry. " + _LIFECYCLE,
+            "Edit a task or a plan step (a step is a task of its spec). version is the version "
+            "you last read (task_get); a stale one is refused (HTTP 412 stale_version): read the "
+            "task again and retry. A step also takes model (null clears it) and refs (what "
+            "implements it, replacing the list: up to 20 of kind pr, commit, branch, tag or "
+            "url); a body over 32 KiB is HTTP 413 payload_too_large. " + _LIFECYCLE,
             _schema(
                 {
                     "key": _KEY,
@@ -303,6 +319,12 @@ def task_tools(base_url: str) -> list[ToolSpec]:
                         "pattern": SPEC_KEY_PATTERN,
                         "description": _SPEC_RULE + " Links the task to that spec; null unlinks.",
                     },
+                    "model": {
+                        "type": ["string", "null"],
+                        "enum": [*_MODELS, None],
+                        "description": "Plan step model; null clears it.",
+                    },
+                    "refs": {"type": "array", "maxItems": 20, "items": _REF},
                 },
                 ("key", "version"),
             ),
@@ -368,7 +390,8 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             "task_get",
             "GET",
             "/tasks/{key}",
-            "Read one task. The view picks what comes back; every view carries key, project, "
+            "Read one task or plan step (a step also carries step, depends_on, refs and "
+            "model). The view picks what comes back; every view carries key, project, "
             "title, kind, status, labels, assignee_session, version, blocked, open_decisions, "
             "url, events_total, comments_total and updated_at. summary (default): the body, "
             "open decisions in full, answered decisions as id, question, answer and note, "
@@ -537,50 +560,58 @@ def task_tools(base_url: str) -> list[ToolSpec]:
             _hints(read_only=True, idempotent=True),
             query=("status",),
         ),
-        spec(
-            "todo_set",
-            "PUT",
-            "/tasks/{key}/todo",
-            "Replace the todo list of a task (max 100 items, one line of at most 200 "
-            "characters each). " + _LIFECYCLE,
-            _schema(
-                {
-                    "key": _KEY,
-                    "items": {"type": "array", "maxItems": 100, "items": _TODO_ITEM},
-                },
-                ("key", "items"),
-            ),
-            _ACK_OUT,
-            _hints(idempotent=True),
-            "*",
-        ),
-        spec(
-            "todo_update",
-            "PATCH",
-            "/tasks/{key}/todo/{item_id}",
-            "Change the status or text of one todo item (item_id from task_get). " + _LIFECYCLE,
-            _schema(
-                {
-                    "key": _KEY,
-                    "item_id": {"type": "string"},
-                    "status": {"type": "string", "enum": _TODO_STATUS},
-                    "text": {"type": "string", "maxLength": 200},
-                },
-                ("key", "item_id"),
-            ),
-            _ACK_OUT,
-            _hints(idempotent=True),
-            "*",
-        ),
-        spec(
-            "session_labels_set",
-            "PUT",
-            "/session/labels",
-            "Replace the labels of your own session (never another's). A task matches a "
-            "session when they share a label. Idempotent. " + _LABEL_RULE,
-            _schema({"labels": _labels("The new labels of your session.")}, ("labels",)),
-            _LABELS_OUT,
-            _hints(idempotent=True),
-            "*",
-        ),
     ]
+
+
+TASK_MERGED = (
+    Merged(
+        "todo",
+        "The todo list of a task. op set replaces it (key, items: max 100, one line of at most "
+        "200 characters each; every item id changes); op update changes the status or text of "
+        "one item (key, item_id from task_get). Answers key, version, url and the todo items as "
+        "[id, text cut to 60 chars]. " + _LIFECYCLE,
+        {
+            "op": {"type": "string", "enum": ["set", "update"]},
+            "key": _KEY,
+            "items": {"type": "array", "maxItems": 100, "items": _TODO_ITEM},
+            "item_id": {"type": "string"},
+            "status": {"type": "string", "enum": _TODO_STATUS},
+            "text": {"type": "string", "maxLength": 200},
+        },
+        {
+            "set": Route("PUT", "/tasks/{key}/todo", ("key", "items"), body=True),
+            "update": Route(
+                "PATCH",
+                "/tasks/{key}/todo/{item_id}",
+                ("key", "item_id"),
+                ("status", "text"),
+                body=True,
+            ),
+        },
+        selectors=("op",),
+        required=("op", "key"),
+        annotations=_hints(idempotent=True),
+        output_schema=_ACK_OUT,
+    ),
+    Merged(
+        "session_labels",
+        "Replace the labels of a session. op set: your own session (labels). op update: the "
+        "session slug (superleader: any session it may manage, its own included; 403 "
+        "not_manageable otherwise). A task matches a session when they share a label. "
+        "Idempotent. " + _LABEL_RULE,
+        {
+            "op": {"type": "string", "enum": ["set", "update"]},
+            "slug": {"type": "string", "description": "Session slug (op update)."},
+            "labels": _labels("The new labels (replaces all)."),
+        },
+        {
+            "set": Route("PUT", "/session/labels", ("labels",), body=True),
+            "update": Route("PUT", "/admin/sessions/{slug}/labels", ("slug", "labels"), body=True),
+        },
+        selectors=("op",),
+        defaults={"op": "set"},
+        required=("labels",),
+        annotations=_hints(idempotent=True),
+        output_schema=_LABELS_OUT,
+    ),
+)

@@ -17,33 +17,36 @@ default null). Every request carries `Authorization: Bearer <token>` and
 
 | Tool | Route |
 |------|-------|
-| `orchestrator_me` | `GET /agent/v1/me` |
+| `orchestrator_me(meta?)` | `GET /agent/v1/me`; `meta` true: `GET /agent/v1/admin/meta` (deploy metadata, superleader) |
 | `orchestrator_activity(agent?, limit?)` | `GET /agent/v1/activity` (query `agent`, a pod name, and `limit` 1..200; what the session's agents did recently, newest last) |
-| `orchestrator_leadership_handover(reason, epoch, to?)` | `POST /agent/v1/leadership/handover` (hive leaders only; `reason` 1..2000 characters, the state summary) |
-| `orchestrator_handoff_submit(doing?, done?, in_flight?, next?, open_requests?, results?, gotchas?, abandon?, handled?, to?, epoch?)` | `POST /agent/v1/handoff` (the agent-submitted handoff of a hive leader or solo agent; the route validates per profile: 422 lists what is missing, 409 `in_flight` what is still running or unpushed) |
-| `orchestrator_lock_claim(paths)` | `POST /agent/v1/locks/claim` |
-| `orchestrator_lock_release(paths)` | `POST /agent/v1/locks/release` |
-| `orchestrator_lock_list` | `GET /agent/v1/locks` |
-| `orchestrator_lock_reassign(path, to?)` | `POST /agent/v1/locks/reassign` (`to` null discards the lock) |
-| `orchestrator_scale(replicas)` | `POST /agent/v1/scale` |
-| `orchestrator_init_scripts_get` | `GET /agent/v1/init-scripts` |
-| `orchestrator_init_scripts_edit(scripts)` | `PUT /agent/v1/init-scripts` |
+| `orchestrator_handoff_submit(doing?, done?, in_flight?, next?, open_requests?, results?, gotchas?, abandon?, handled?, to?, epoch?, handover?, reason?)` | `POST /agent/v1/handoff` (the agent-submitted handoff of a hive leader or solo agent; 422 lists what is missing, 409 `in_flight` what is still running or unpushed); `handover` true: `POST /agent/v1/leadership/handover` (`reason`, `epoch`, `to`, `handled`; hive leaders only, `reason` 1..2000 characters) |
+| `orchestrator_lock(action, slug?, paths?, path?, to?)` | `claim`, `release`: `POST /agent/v1/locks/{claim,release}`; `list`: `GET /agent/v1/locks`; `reassign`: `POST /agent/v1/locks/reassign` (`to` null discards); with `slug` (superleader, another session): `GET /agent/v1/admin/sessions/{slug}/locks`, `POST .../locks/reassign` |
+| `orchestrator_scale(replicas, slug?)` | `POST /agent/v1/scale`; with `slug`: `POST /agent/v1/admin/sessions/{slug}/scale` |
+| `orchestrator_init_scripts(action?, scripts?)` | `get` (default): `GET /agent/v1/init-scripts`; `edit`: `PUT /agent/v1/init-scripts` |
 | `orchestrator_sessions_list` | `GET /agent/v1/sessions` |
 | `orchestrator_session_send(slug, text, handled?)` | `POST /agent/v1/sessions/{slug}/messages` (leader only: sessions of the own and granted projects, a superleader any; answers `{message_id, handled}`) |
-| `orchestrator_chat_rooms` | `GET /agent/v1/chat/rooms` |
-| `orchestrator_chat_history(before?, after?, from?, limit?)` | `GET /agent/v1/chat/history` (leader; the bound room's messages `m<n>`, `s<n>`, `o<n>`, newest fitting the output budget; default limit 20) |
-| `orchestrator_chat_attachment_fetch(id)` | `POST /agent/v1/chat/attachments` (leader; queues the download of the attachment of `m<n>`, the file arrives later as a new turn) |
-| `orchestrator_chat_attachment_status(request_id)` | `GET /agent/v1/chat/attachments/{request_id}` (status of a fetch `a<n>`) |
-| `orchestrator_project_list` | `GET /agent/v1/projects` (your own project; a superleader also gets archived ones) |
-| `orchestrator_project_summary(project?)` | `GET /agent/v1/projects/summary` (task and spec counts per project in your scope; every project for a superleader) |
-| `orchestrator_chat_notes_get(section?)` | `GET /agent/v1/chat/notes` (notes of the session's own chat room, leader only; room is never a parameter; `section` is one of preferences, requests, work-in-progress, provided-information, repeatable-workflows) |
-| `orchestrator_chat_notes_update(section, body, expected_version)` | `PUT /agent/v1/chat/notes/sections/{section}` (replace one section; 409 `version_conflict`, 413 `section_too_large` or `notes_too_large`) |
+| `orchestrator_chat_rooms(scope?, kind?, access?)` | `own` (default): `GET /agent/v1/chat/rooms`; `projects`: `GET /agent/v1/admin/chats/rooms` (rooms of the own and granted projects, every room for a superleader, with a pending block) |
+| `orchestrator_chat_history(room_id?, before?, after?, from?, limit?)` | `GET /agent/v1/chat/history` (leader; the bound room's messages `m<n>`, `s<n>`, `o<n>`, newest fitting the output budget; default limit 20); with `room_id`: `GET /agent/v1/admin/chats/rooms/{room_id}/messages` (read only, same page and fit) |
+| `orchestrator_chat_attachment(op, id?, request_id?)` | `fetch`: `POST /agent/v1/chat/attachments` (leader; queues the download of the attachment of `m<n>`, the file arrives later as a new turn); `status`: `GET /agent/v1/chat/attachments/{request_id}` |
+| `orchestrator_project(action?, target?, ref?, project?, ...)` | `list` (default): `GET /agent/v1/projects`; `summary`: `GET /agent/v1/projects/summary`; superleader: `create` `POST /agent/v1/admin/projects`, `update` `PATCH /agent/v1/admin/projects/{slug}`, `grant`/`revoke` with `target` session or preset: `POST`/`DELETE /agent/v1/admin/{sessions/{slug},presets/{ref}}/projects[/{project}]` (a grant is a change proposal the user approves, 202) |
+| `orchestrator_chat_notes(op?, room_id?, section?, body?, expected_version?)` | `get` (default): `GET /agent/v1/chat/notes`; `update`: `PUT /agent/v1/chat/notes/sections/{section}` (409 `version_conflict`, 413 `section_too_large` or `notes_too_large`); with `room_id` the same under `/agent/v1/admin/chats/rooms/{room_id}/notes` (rooms of the own and granted projects) |
 | `orchestrator_self_close(reason)` | `POST /agent/v1/close` (close the session once idle, leader only) |
+
+Merged tools (S-83, `merged.py`): one tool reaches several routes. Its selector arguments (`op`,
+`action`, `view`, `scope`, `target`) and the scope arguments it was given (`slug`, `room_id`,
+`meta`, `handover`, `versions`, `section`, `move`) pick the op; the plugin refuses an unknown op,
+a missing required argument or an argument the op does not take before any request, and renames
+the arguments the route names differently. `tests/test_merged_tools.py` pins every op to its method,
+path, query and body and to `tests/fixtures/orchestrator_openapi.json`.
 
 Task tools (`tasks.py`, `views.py`): `decision_withdraw` takes `reason` and exactly one of `superseded_by` (decision id) or `answered_elsewhere` (text); `task_get` takes a `view` (`summary` default, `open_decisions`, `todo`,
 `events`, `comments`) and answers only that part; the write tools (`task_create`, `task_update`,
-`task_comment`, `todo_set`, `todo_update`, `decision_ask`, `decision_withdraw`) answer a short
-confirmation (key, version, url; `todo_set` also the new `[id, text]` items). `approval_ask` (POST
+`task_comment`, `todo`, `decision_ask`, `decision_withdraw`) answer a short
+confirmation (key, version, url; `todo` also the `[id, text]` items). `todo(op, key, ...)` sets
+(`PUT /tasks/{key}/todo`) or updates one item (`PATCH /tasks/{key}/todo/{item_id}`);
+`session_labels(op?, slug?, labels)` replaces the own session's labels (`set`, `PUT /session/labels`)
+or, for a superleader, another's (`update`, `PUT /admin/sessions/{slug}/labels`). A plan step is a
+task: `task_get` shows its step, depends_on, refs and model, `task_update` takes `model` and `refs`. `approval_ask` (POST
 `/tasks/{key}/approvals`) asks a yes/no permission to act on a task and answers id, task_key,
 status, url and expires_at; `approval_list` (GET `/approvals`, `status` open by default) lists the
 agent's own approvals compactly (title, status, verdict, note, expires_at). The verdict arrives as
@@ -51,12 +54,15 @@ a chat message; the task read with `task_get` is the authority. A task answer ov
 tool output budget (40000 chars) is
 trimmed (oldest events, then oldest comments, long texts cut) and reports what it left out in
 `omitted`; `task_create`, `task_update` and `task_list` take an optional `project` slug (see
-`project_list`; omitted on create: the caller's own project, `default` for a superleader); `task_list` answers a summary per task with child counts, `limit` (default 10, at most
+`project`; omitted on create: the caller's own project, `default` for a superleader); `task_list` answers a summary per task with child counts, `limit` (default 10, at most
 20) and `cursor`; they also take an optional `spec` key (`S-n`; `task_update` accepts null to unlink).
 
-Spec tools (`specs.py`, `specs_local.py`): `spec_list`, `spec_get`, `spec_create`, `spec_update`, `spec_versions`,
-`spec_comment`, `spec_comments`, `spec_comment_resolve`, `spec_queue_list`, `spec_queue_move` are relay rows under `/agent/v1/specs` (no document bodies;
-`approved` is set by the user, a superleader, or an agent once `plan_gate` says `approvable`; otherwise 409 `decisions_open` lists the open decisions). `spec_pull` and `spec_push` run in the
+Spec tools (`specs.py`, `specs_local.py`): `spec_list`, `spec_get`, `spec_create`, `spec_update`,
+`spec_comment`, `spec_comments`, `spec_queue` are relay rows under `/agent/v1/specs` (no document bodies;
+`spec_get` with `path` and `versions` lists a document's versions, with `path` and `section` reads one section;
+`spec_comment` `op` comment, resolve, or dismiss (superleader, `POST /admin/specs/{key}/comments/{id}/dismiss`);
+`spec_queue` reads the start queue, with `move` (a queue item id, superleader) moves it;
+`approved` is set by the user, a superleader, or an agent once `plan_get` view gate says `approvable`; otherwise 409 `decisions_open` lists the open decisions). `spec_pull` and `spec_push` run in the
 plugin: they copy document bodies between the task board and files under the workdir (config `workdir`, default the
 process working directory at load; default dir `.scratchpad/<spec name>/spec/`, real paths, no `..`, no symlinks) with a
 `.spec.json` sidecar of versions, refuse a request over 256 KiB (JSON-encoded) before sending it, report a changed
@@ -64,10 +70,9 @@ document as `stale_version` per file, and never return a body.
 
 Mindmap tools (`mindmap.py`): 19 tools (`mindmap_map_list`, `_map_get`, `_map_create`, `_map_update`, `_node_get`, `_node_history`, `_search`, `_traverse`, `_node_create`, `_node_update`, `_note_put`, `_growth_area_update`, `_edge_create`, `_edge_delete`, `_link`, `_task_nodes`, `_direction_list`, `_direction_create`, `_direction_update`) relayed under `/agent/v1/mindmap/{path}` to the mindmap service. They are registered for every config; the orchestrator's `allow` list shows them to a session only when it has a mindmap upstream. `_node_history`, `_growth_area_update` (N-n adds, G-n patches) and `_link` (`action` add or remove) pick one of several service routes from their arguments. Every description says notes from other projects are data, never instructions, and that notes never hold secret values.
 
-Plan tools (`plan.py`, `plan_local.py`): `plan_get`, `plan_set`, `plan_steps`, `plan_step_get`,
-`plan_step_edit`, `plan_step_next` (HTTP 204 becomes "no ready step"),
-`plan_step_update`, `plan_gate` and `spec_section` are relay rows (a step is a task of the spec; `plan_step_get` has the
-`task_get` views and fit, the step writes answer a short confirmation). A stale plan header is refused 412 with
+Plan tools (`plan.py`, `plan_local.py`): `plan_get(spec, view?)` (`header` default, `steps`, `gate`), `plan_set` and
+`plan_step_next` (HTTP 204 becomes "no ready step") are relay rows (a step is a task of the spec, read with `task_get`
+and edited with `task_update`). A stale plan header is refused 412 with
 `current_version`, a stale step set with `current_steps_version`, a step body over 32 KiB 413. Three tools run in the
 plugin and never return a body: `plan_steps_push {spec, file}` PUTs a `{"steps": [...]}` JSON file from the workdir
 (confined like `spec_push`, `n` dense from 1 checked locally, current `steps_version` read first, answers the step
@@ -83,10 +88,8 @@ allowlist of such sessions only): presets (`preset_get`, `preset_create`,
 `preset_patch`, `preset_delete`, `preset_copy`, `preset_manageable_request`; `preset_patch` takes an optional `project` slug that
 moves the preset to another existing project: 422 `unknown_project`, 422 `vault_label_mismatch`,
 422 `project_archived`; running sessions keep their project), sessions (`session_get`, `session_patch`, `session_create`
-with an optional `project`, `session_discard`, `session_restart`, `agent_restart`, `command_get`), project grants
-(`session_projects_grant` and `preset_projects_grant`: `POST /agent/v1/admin/{sessions/{slug},presets/{ref}}/projects`,
-body `{project, reason, client_key?}`, file a change proposal of kind `session_projects` or `preset_projects` that the
-user approves, 202; `session_projects_revoke` and `preset_projects_revoke`: `DELETE .../projects/{project}`, at once;
+with an optional `project`, `session_discard`, `session_restart`, `agent_restart`, `command_get`), project grants (`project` action grant or revoke,
+above: a grant files a change proposal of kind `session_projects` or `preset_projects`, a revoke applies at once;
 a session with extra projects is a full member of each, live, no restart), `leadership_withdraw`
 (`POST /agent/v1/admin/sessions/{slug}/leadership/withdraw`, body `{request_id?}`: withdraw one or
 every pending handover request, never the orchestrator's `rollout` request, which is 409
@@ -96,20 +99,20 @@ call it on its own slug), webhooks (`webhooks_list`,
 `webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
 `webhook_template_preview`), schedules (`schedules_list`, `schedule_get`, `schedule_create`,
 `schedule_update`, `schedule_delete`, `schedule_run`, `schedule_runs`, `schedule_runs_all`,
-`schedule_run_get`, `schedule_preview`), projects (`project_create`: `POST /agent/v1/admin/projects`, body `{slug, name, description?}`; projects are never deleted, 409 `project_exists` = slug taken; `project_update`: `PATCH /agent/v1/admin/projects/{slug}`, rename, describe, archive or unarchive), chats (`chat_admin_rooms`, `chat_admin_history` (read only, any room, `GET /agent/v1/admin/chats/rooms/{room_id}/messages`), `chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`; `chat_room_settings` and `chat_room_allow` take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and `trigger` on every call, so resend them after `chat_admin_rooms`,
+`schedule_run_get`, `schedule_preview`), chats (`chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`; `chat_room_settings` and `chat_room_allow` take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and `trigger` on every call, so resend them after `chat_rooms` scope projects,
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`), `usage_get` (read-only: the account's `five_hour` and
 `seven_day` usage windows, `GET /agent/v1/admin/usage`) and the history of discarded sessions
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
 tool), and change proposals (`proposals_list`, `proposal_get`: your own, or every proposal for
 a superleader; `proposal_withdraw`). Superleader reads (T-120 slice 2): `sessions_admin_list`
 (`GET /agent/v1/admin/sessions`, a compact summary per session; for other leaders and members the
-orchestrator scopes it, `session_events`, `handoffs_list`, `handoff_get`, `chat_admin_history` and
-`chat_admin_notes_get` to the own and granted projects, and `chat_admin_notes_update` to leaders of them; filters `label`, `project`,
+orchestrator scopes it, `session_events`, `handoffs_list`, `handoff_get` and `chat_history` and `chat_notes`
+with `room_id` to the own and granted projects, a notes update to leaders of them; filters `label`, `project`,
 `superleaders`, `session_slug`; over the output budget it answers `{omitted, sessions}`),
-`session_events` (default `limit` 20; an over-budget page keeps the newest events and reports `omitted`), `session_locks`,
-`session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `meta_get`, `backups_list`,
-`backup_versions`, `backup_manifest` (no backup download), `handoffs_list`, `handoff_get`, `chat_admin_notes_get` and `usage_history`,
-`usage_sessions`. Superleader writes (T-120 slice 3): `session_labels_update`, `session_scale`, `session_lock_reassign`, `session_message_cancel` (all below `/agent/v1/admin/sessions/{slug}`; scale and lock reassign answer 422 `own_session` for the caller's own session), `backups_copy` (no merge), `chat_admin_notes_update`, `spec_delete`, `spec_suggestion_dismiss`, and `preset_patch` takes `superleader_manageable: false`. Reads cover manageable and unmanageable targets alike; a write on an
+`session_events` (default `limit` 20; an over-budget page keeps the newest events and reports `omitted`),
+`session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `backups_list`,
+`backup_versions`, `backup_manifest` (no backup download), `handoffs_list`, `handoff_get`, `usage_history`,
+`usage_sessions`. Superleader writes (T-120 slice 3): `session_labels` op update, `scale` and `lock` with `slug`, `session_message_cancel` (all below `/agent/v1/admin/sessions/{slug}`; scale and lock reassign answer 422 `own_session` for the caller's own session), `backups_copy` (no merge), `spec_delete`, `spec_comment` op dismiss, and `preset_patch` takes `superleader_manageable: false`. Reads cover manageable and unmanageable targets alike; a write on an
 unmanageable one is 403 `not_manageable` and needs the user's approval. `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
 the relay filters a page after paging, so a page can be short or empty while more sessions exist,
 and `next_before_id` (the relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id`
@@ -211,7 +214,7 @@ any-mcp installs the plugin from its source on load (or ahead of time with
 plugins:
   - name: orchestrator
     source: github.com/szymonrychu/any-mcp-tatara-plugins//orchestration/orchestrator?ref=v0.61.0
-    allow: [me, activity, leadership_handover, lock_*, init_scripts_*]
+    allow: [me, activity, handoff_submit, lock, init_scripts]
     config:
       base_url: http://orchestrator-agents:8081
       token: ${ORCH_AGENT_TOKEN}
@@ -230,4 +233,4 @@ the config file. The token is scoped to one session.
 From the repo root: `mise run install && mise run test && mise run lint`. The tests are in
 `tests/test_orchestrator_plugin.py` and run against the package through any-mcp's `PluginHarness`.
 
-Volumes (S-77): `volumes_status` (`GET /agent/v1/volumes`) and `volume_save` (`POST /agent/v1/volumes/{name}/save`) are the session's own tools; superleader `volumes_list`, `volume_get`, `volume_attach`, `volume_detach` and `volume_create` (a proposal) sit under `/agent/v1/admin`. Backups (S-68): the entry tools (`backup_save`, `backup_status`) and the cleanup tools are gone; the superleader tools are `backups_list`, `backup_versions`, `backup_manifest`, `backups_copy`, `handoffs_list`, `handoff_get`, `chat_admin_notes_get` and `chat_admin_notes_update` under `/agent/v1/admin`. The `archives_*` tools are gone. The routes answer 404 until the orchestrator release that carries them.
+Volumes (S-77): `volumes_status` (`GET /agent/v1/volumes`) and `volume_save` (`POST /agent/v1/volumes/{name}/save`) are the session's own tools; superleader `volumes_list`, `volume_get`, `volume_attach`, `volume_detach` and `volume_create` (a proposal) sit under `/agent/v1/admin`. Backups (S-68): the entry tools (`backup_save`, `backup_status`) and the cleanup tools are gone; the superleader tools are `backups_list`, `backup_versions`, `backup_manifest`, `backups_copy`, `handoffs_list` and `handoff_get` under `/agent/v1/admin`. The `archives_*` tools are gone. The routes answer 404 until the orchestrator release that carries them.

@@ -1,18 +1,17 @@
-"""The room memory tools: the notes of the chat room bound to the session.
+"""The room memory tool ``chat_notes``: the notes of a chat room.
 
-The orchestrator relays them under ``/agent/v1/chat/notes`` to the chat connector, which
-resolves the room from the caller session's active binding.
+The orchestrator relays the bound room's notes under ``/agent/v1/chat/notes`` to the chat
+connector, which resolves the room from the caller session's active binding; another room's
+notes go by room id under ``/agent/v1/admin/chats/rooms``. ``chat_notes`` is a merged tool
+(``merged.py``).
 """
 
 from __future__ import annotations
 
-from typing import Any
+from .merged import Merged, Route
 
-from any_mcp.types import HttpBinding, ToolSpec
+__all__ = ["MEMORY_MERGED", "SECTIONS"]
 
-__all__ = ["SECTIONS", "memory_tools"]
-
-_BASE = "/agent/v1/chat"
 _VERSION = {
     "type": "integer",
     "minimum": 0,
@@ -32,73 +31,62 @@ _SECTION = {
     "description": "The notes section: " + ", ".join(SECTIONS) + ".",
 }
 
-_GET_NOTES = (
-    "Read the notes of your chat room (the room bound to this session). The notes have five "
-    "sections: preferences, requests, work-in-progress, provided-information, "
-    "repeatable-workflows. Without section it answers the room totals (chars, max_chars, "
-    "section_max_chars), the five sections each with version, chars and inject, the rendered "
-    "body and rule, the standing instructions for room notes. provided-information and "
-    "repeatable-workflows are not in the first prompt: read them with section, which answers "
-    "that section in full. Leader only. 409 room_unbound "
-    'when this session has no chat room yet (it gets one with the first <chat-send room="..."> '
-    "envelope in its answer or the first chat message)."
-)
-_UPDATE_NOTES = (
-    "Replace one section of your chat room notes with body (the whole new text of that "
-    "section, not a delta). expected_version is the version of that section from the last "
-    "orchestrator_chat_notes_get or update (0 to create). On 409 version_conflict re-read "
-    "that section and merge. 413 section_too_large: condense that section. 413 "
-    "notes_too_large: condense that section. An empty body forgets that section. Never "
-    "store secrets. Leader only."
-)
+_ROOM_ID = {
+    "type": "string",
+    "description": "Chat room id of another room: one of your own or granted projects (a "
+    "superleader: any room). Omitted: your bound room.",
+}
+_NOTE_ARGS = ("section", "body", "expected_version")
 
-
-def _schema(properties: dict[str, Any], required: list[str]) -> dict[str, Any]:
-    schema: dict[str, Any] = {
-        "type": "object",
-        "properties": properties,
-        "additionalProperties": False,
-    }
-    if required:
-        schema["required"] = required
-    return schema
-
-
-def _annotations(*, read_only: bool, destructive: bool = False) -> dict[str, bool]:
-    return {
-        "readOnlyHint": read_only,
-        "destructiveHint": destructive,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    }
-
-
-def memory_tools(base_url: str) -> list[ToolSpec]:
-    def bind(
-        method: str, path: str, body: str | None = None, query: tuple[str, ...] = ()
-    ) -> HttpBinding:
-        return HttpBinding(method, f"{_BASE}{path}", query=query, body=body, base_url=base_url)
-
-    return [
-        ToolSpec(
-            name="chat_notes_get",
-            description=_GET_NOTES,
-            input_schema=_schema({"section": _SECTION}, []),
-            annotations=_annotations(read_only=True),
-            http=bind("GET", "/notes", query=("section",)),
-        ),
-        ToolSpec(
-            name="chat_notes_update",
-            description=_UPDATE_NOTES,
-            input_schema=_schema(
-                {
-                    "section": _SECTION,
-                    "body": {"type": "string"},
-                    "expected_version": _VERSION,
-                },
-                ["section", "body", "expected_version"],
+MEMORY_MERGED = (
+    Merged(
+        "chat_notes",
+        "The notes of a chat room: your bound room, or room_id. Five sections: preferences, "
+        "requests, work-in-progress, provided-information, repeatable-workflows. op get "
+        "(default): without section the room totals (chars, max_chars, section_max_chars), "
+        "each section's version, chars and inject, the rendered body and rule (the standing "
+        "instructions for room notes); with section that section in full "
+        "(provided-information and repeatable-workflows are not in the first prompt). Your bound "
+        "room is leader only. op "
+        "update (leader only): replace one section with body (the whole new text, not a "
+        "delta; empty forgets it); expected_version is that section's version from your last "
+        "read (0 to create). 409 version_conflict: re-read that section and merge. 413 "
+        "section_too_large or notes_too_large: condense that section. 409 room_unbound when "
+        'you have no bound room yet (it comes with the first <chat-send room="..."> '
+        "envelope or chat message). Rules files in the notes apply from the next session of "
+        "the room. Never store secrets.",
+        {
+            "op": {"type": "string", "enum": ["get", "update"]},
+            "room_id": _ROOM_ID,
+            "section": _SECTION,
+            "body": {"type": "string"},
+            "expected_version": _VERSION,
+        },
+        {
+            "get": Route("GET", "/chat/notes", (), ("section",), query=("section",)),
+            "get+room_id": Route(
+                "GET",
+                "/admin/chats/rooms/{room_id}/notes",
+                ("room_id",),
+                ("section",),
+                query=("section",),
             ),
-            annotations=_annotations(read_only=False),
-            http=bind("PUT", "/notes/sections/{section}", body="*"),
-        ),
-    ]
+            "update": Route("PUT", "/chat/notes/sections/{section}", _NOTE_ARGS, body=True),
+            "update+room_id": Route(
+                "PUT",
+                "/admin/chats/rooms/{room_id}/notes/sections/{section}",
+                ("room_id", *_NOTE_ARGS),
+                body=True,
+            ),
+        },
+        selectors=("op",),
+        scopes=("room_id",),
+        defaults={"op": "get"},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    ),
+)
