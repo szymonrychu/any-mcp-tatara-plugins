@@ -1059,6 +1059,38 @@ async def test_listing_follows_role(trigger: str, monkeypatch: pytest.MonkeyPatc
     assert set(seen) == {"/agent/v1/me"}
 
 
+@pytest.mark.parametrize("unknown", ["read_fails", "vacant"])
+async def test_unknown_role_lists_both_role_lists(
+    unknown: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed /me read or a vacant leader slot never leaves a stale member or leader list."""
+    answers: list[httpx.Response] = [
+        httpx.Response(200, json={"pod_name": "agent-0", "leader": "agent-1"})
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return answers[0]
+
+    lists = {"member_tools": MEMBER_LIST, "leader_tools": LEADER_LIST}
+    async with legacy_server(handler, **lists) as (server, client):
+        names = {t["name"] for t in await client.list_tools()}
+        assert names == {f"orchestrator_{n}" for n in MEMBER_LIST}
+        answers[0] = (
+            httpx.Response(500)
+            if unknown == "read_fails"
+            else httpx.Response(200, json={"pod_name": "agent-0", "leader": None})
+        )
+        clock = any_mcp_tatara_orchestrator.time.monotonic
+        monkeypatch.setattr(
+            any_mcp_tatara_orchestrator.time,
+            "monotonic",
+            lambda: clock() + any_mcp_tatara_orchestrator.ROLE_TTL,
+        )
+        await server.registry.reload()
+        names = {t["name"] for t in await client.list_tools()}
+    assert names == {f"orchestrator_{n}" for n in {*MEMBER_LIST, *LEADER_LIST}}
+
+
 async def test_session_send_tool_posts_route() -> None:
     seen: list[tuple[str, str, Any]] = []
 

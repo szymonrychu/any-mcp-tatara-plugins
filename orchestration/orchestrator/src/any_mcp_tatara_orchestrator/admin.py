@@ -827,6 +827,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
                 ("type", "preset_id"),
                 ("auth_mode", *_HOOK_EDIT),
                 body=True,
+                omit_null=("then_schedule_ids",),
             ),
             "update": Route(
                 "PATCH",
@@ -916,6 +917,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
                 ("schedule_id",),
                 ("limit",),
                 query=("limit",),
+                fill=_PAGE,
             ),
             "runs_all": Route(
                 "GET",

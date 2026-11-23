@@ -79,7 +79,14 @@ _ROOM = (
     "member_count",
     "access",
     "preset_id",
+    "trigger",
     "effective_trigger",
+    "agents_may_initiate",
+    "anonymize_names",
+    "agent_aliases",
+    "agents_may_send_files",
+    "session",
+    "binding",
     "last_event_at",
     "queued",
     "pending",
@@ -203,9 +210,12 @@ def fit_records(page: Any, budget: int) -> Any:
         return page
 
     def shaped(keep: int) -> dict[str, Any]:
-        rest = {k: v for k, v in page.items() if k != "records"}
+        # The upstream continue id is past every record of the page: it is only valid whole.
+        rest = {k: v for k, v in page.items() if k not in ("records", "next_after_id")}
         last = records[keep - 1].get("id") if keep and isinstance(records[keep - 1], dict) else None
-        if last is not None:
+        if keep == len(records):
+            rest.update({k: v for k, v in page.items() if k == "next_after_id"})
+        elif last is not None:
             rest["next_after_id"] = last
         return {"omitted": len(records) - keep, **rest, "records": records[:keep]}
 
