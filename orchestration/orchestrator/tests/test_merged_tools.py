@@ -371,8 +371,19 @@ ADMIN_CASES: list[tuple[str, dict[str, Any], tuple[str, str, str, Any]]] = [
     ),
     (
         "schedule",
-        {"action": "update", "schedule_id": "7", **_SCHED, "then_schedule_ids": []},
-        ("PUT", f"{_ADM}/schedules/schedules/7", "", {**_SCHED, "then_schedule_ids": []}),
+        {
+            "action": "update",
+            "schedule_id": "7",
+            **_SCHED,
+            "then_schedule_ids": [],
+            "session_overrides": None,
+        },
+        (
+            "PUT",
+            f"{_ADM}/schedules/schedules/7",
+            "",
+            {**_SCHED, "then_schedule_ids": [], "session_overrides": None},
+        ),
     ),
     (
         "schedule",

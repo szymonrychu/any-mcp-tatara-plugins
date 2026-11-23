@@ -438,11 +438,12 @@ class OrchestratorPlugin(Plugin):
     async def _call(self, call: ToolCall, whole: bool) -> RawResponse:
         merged = _MERGED.get(call.spec.name)
         key = merged.key_of(call.arguments) if merged is not None else ""
-        # A schedule update replaces every field: resend the stored chain links when omitted.
+        # A schedule update replaces every field: resend stored chain links and session
+        # overrides when omitted.
         keep_chain = (
             call.spec.name == "schedule"
             and call.arguments.get("action") == "update"
-            and "then_schedule_ids" not in call.arguments
+            and not {"then_schedule_ids", "session_overrides"} <= call.arguments.keys()
         )
         if merged is not None:
             call = merged.resolve(call, self.cfg.base_url)
@@ -531,7 +532,8 @@ class OrchestratorPlugin(Plugin):
         return RawResponse.from_value(body)
 
     async def _keep_chain(self, call: ToolCall) -> ToolCall:
-        """The schedule PUT replaces every field: resend the stored chain links when omitted."""
+        """The schedule PUT replaces every field: resend the stored chain links and session
+        overrides when omitted."""
         binding = dataclasses.replace(call.spec.http, method="GET", body=None)
         get = dataclasses.replace(
             call,
@@ -543,10 +545,16 @@ class OrchestratorPlugin(Plugin):
             current = raw.json()
         except ValueError:
             return call
-        links = current.get("then_schedule_ids") if isinstance(current, dict) else None
-        if not isinstance(links, list):
+        if not isinstance(current, dict):
             return call
-        return call.with_arguments({**call.arguments, "then_schedule_ids": links})
+        kept = {}
+        links = current.get("then_schedule_ids")
+        if "then_schedule_ids" not in call.arguments and isinstance(links, list):
+            kept["then_schedule_ids"] = links
+        overrides = current.get("session_overrides")
+        if "session_overrides" not in call.arguments and isinstance(overrides, dict):
+            kept["session_overrides"] = overrides
+        return call.with_arguments({**call.arguments, **kept})
 
     async def _read_whole(self, call: ToolCall) -> RawResponse:
         """Read an answer the plugin shrinks itself: the default read cap is the output budget
