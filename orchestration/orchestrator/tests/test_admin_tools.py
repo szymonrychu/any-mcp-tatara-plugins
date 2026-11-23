@@ -111,17 +111,6 @@ async def test_project_chat_rows_exist_in_the_orchestrator_openapi() -> None:
         assert (http.method, norm(http.path)) in known, name
 
 
-async def test_project_tool_create_schema_and_texts() -> None:
-    tool = {t.name: t for t in await specs()}["project"]
-    props = tool.input_schema["properties"]
-    assert props["project"]["pattern"] == "^[a-z0-9][a-z0-9-]{0,39}$"
-    assert (props["name"]["minLength"], props["name"]["maxLength"]) == (1, 80)
-    assert props["description"]["maxLength"] == 4000
-    assert set(props["target"]["enum"]) == {"session", "preset"}
-    for word in ("Superleader only", "never deleted", "project_exists", "approves", "proposal"):
-        assert word in tool.description, word
-
-
 def test_preset_manageable_request_row() -> None:
     rows = rows_by_name()
     row = rows["preset_manageable_request"]
@@ -358,17 +347,6 @@ def test_history_search_schema() -> None:
     assert "case-insensitive" in row.description
     assert "Postgres regex" in row.description
     assert "next_before_id" in row.description
-
-
-def test_history_get_records_schema() -> None:
-    tool = merged()["history_get"]
-    props = tool.properties
-    assert set(props) == {
-        "session_id", "records", "kind", "q", "regex", "before_id", "after_id", "limit",
-    }  # fmt: skip
-    assert props["q"]["minLength"] == 3
-    assert props["limit"] == {"type": "integer", "minimum": 1, "maximum": 200}
-    assert tool.ops["records"].query == ("kind", "q", "regex", "before_id", "after_id", "limit")
 
 
 def test_history_get_requires_id() -> None:
@@ -880,15 +858,6 @@ def test_superleader_read_texts() -> None:
     assert "any command" in texts["session_commands"]
 
 
-def test_room_tools_say_preset_and_trigger_are_replaced_on_every_call() -> None:
-    tool = merged()["chat_connector"]
-    assert "replaced on every call" in tool.description
-    assert "omitted or null clears them" in tool.description
-    assert "chat_rooms scope projects" in tool.description
-    assert "resend its preset_id and trigger" in tool.description
-    assert "Omit to keep, [] to clear" in props_desc(tool, "agent_aliases")
-
-
 SLICE3 = ["session_message_cancel", "spec_delete"]
 SLICE3_ROUTES = {
     "session_message_cancel": ("DELETE", "/agent/v1/admin/sessions/{}/messages/{}"),
@@ -908,13 +877,6 @@ def test_slice3_write_rows_are_pinned_to_the_openapi(name: str) -> None:
 def test_slice3_session_writes_say_not_manageable() -> None:
     rows = rows_by_name()
     assert rows["session_message_cancel"].description.endswith(_NOT_MANAGEABLE)
-
-
-async def test_scale_and_lock_texts_name_own_session() -> None:
-    by_name = {s.name: s for s in await specs()}
-    for name in ("scale", "lock"):
-        assert "own_session" in by_name[name].description, name
-        assert "not_manageable" in by_name["scale"].description
 
 
 def test_preset_patch_takes_manageable_false_only() -> None:

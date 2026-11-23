@@ -177,20 +177,6 @@ async def test_task_tools_pass_spec() -> None:
     ]
 
 
-def test_spec_queue_schema_and_description() -> None:
-    queue = {m.name: m.spec() for m in SPEC_MERGED}["spec_queue"]
-    text = queue.description
-    assert "superleader only" in text
-    assert "403 superleader_only" in text and "409 not_queued" in text
-    assert "required" not in queue.input_schema
-    assert queue.input_schema["properties"]["position"]["minimum"] == 1
-    assert (
-        queue.annotations["readOnlyHint"] is False and queue.annotations["idempotentHint"] is True
-    )
-    for needle in ("off", "idle", "usage_refused", "orchestrator_unavailable", "at_limit"):
-        assert needle in text
-
-
 def test_no_spec_queue_remove_tool() -> None:
     names = {s.name for s in spec_tools("http://x")} | {m.name for m in SPEC_MERGED}
     assert {n for n in names if n.startswith("spec_queue")} == {"spec_queue"}

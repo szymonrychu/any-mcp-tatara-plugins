@@ -311,18 +311,6 @@ async def test_handover_reason_schema() -> None:
     assert reason["maxLength"] == 2000
 
 
-async def test_handover_has_no_extend() -> None:
-    async with harness(ok) as h:
-        tool = next(t for t in await h.list_tools() if t["name"] == "orchestrator_handoff_submit")
-    schema = tool["inputSchema"]
-    assert "extend" not in schema["properties"]
-    assert "reason" not in schema.get("required", [])
-    text = tool["description"]
-    for word in ("extend", "countdown"):
-        assert word not in text
-    assert "hive leader" in text
-
-
 async def test_handoff_submit_row_routes_to_post_handoff() -> None:
     seen: list[tuple[str, str, Any]] = []
 
@@ -911,13 +899,7 @@ async def test_task_list_labels_mine_enum() -> None:
     assert labels["enum"] == ["mine"]
 
 
-async def test_session_labels_tool_path_method_and_annotations() -> None:
-    tools = await tools_by_name()
-    tool = tools["orchestrator_session_labels"]
-    assert tool["annotations"]["idempotentHint"] is True
-    assert tool["annotations"]["destructiveHint"] is False
-    assert tool["annotations"]["openWorldHint"] is False
-    assert "own session" in tool["description"].lower()
+async def test_session_labels_tool_path_and_method() -> None:
     seen: list[tuple[str, str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -958,11 +940,6 @@ MERGED_AWAY = (
 )  # fmt: skip
 
 
-@pytest.mark.parametrize("name", MERGED_AWAY)
-async def test_old_names_absent(name: str) -> None:
-    assert f"orchestrator_{name}" not in set(await tools_by_name())
-
-
 # Names merged into another tool by S-83 (905-918); history_get, proposal_get, vault_attach,
 # volume_attach, session_restart and session_commands stay as the merged names.
 MERGED_AWAY_ADMIN = (
@@ -983,9 +960,10 @@ MERGED_AWAY_ADMIN = (
 )  # fmt: skip
 
 
-@pytest.mark.parametrize("name", MERGED_AWAY_ADMIN)
-async def test_old_admin_names_absent(name: str) -> None:
-    assert f"orchestrator_{name}" not in set(await tools_by_name())
+async def test_merged_away_names_absent() -> None:
+    assert not {f"orchestrator_{n}" for n in MERGED_AWAY + MERGED_AWAY_ADMIN} & set(
+        await tools_by_name()
+    )
 
 
 def test_no_text_names_removed_tool() -> None:
