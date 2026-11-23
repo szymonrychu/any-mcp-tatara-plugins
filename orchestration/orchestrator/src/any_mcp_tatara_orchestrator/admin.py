@@ -144,10 +144,6 @@ def _str(text: str) -> dict[str, Any]:
     return {"type": "string", "description": text}
 
 
-def _bounded_int(low: int, high: int, text: str) -> dict[str, Any]:
-    return {"type": "integer", "minimum": low, "maximum": high, "description": text}
-
-
 _OBJ = {"type": "object"}
 _REF = _str("Preset id or name.")
 _PROJECT = _str("Project slug of an existing project (see project).")
