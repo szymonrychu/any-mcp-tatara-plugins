@@ -26,40 +26,10 @@ __all__ = [
     "fit_events",
     "fit_sessions",
     "schema",
-    "summarize_presets",
     "summarize_sessions",
 ]
 
 _A = "/admin"
-
-
-# Spec keys kept in the presets_list summary; the kube flags, session_messaging and docker are
-# privilege flags (absent means false), inactivity is shown only when set.
-# kube_namespace_access is a map: it counts as true when non-empty.
-_FLAGS = ("kube_cluster_access", "kube_namespace_access", "session_messaging", "docker")
-
-
-def summarize_presets(presets: list[Any]) -> list[Any]:
-    """Compact presets_list answer: the full specs of all presets exceed the 40000 char tool
-    output budget, so each preset keeps its name, labels, superleader_manageable (when the
-    upstream sends it) and the privilege flags of its spec; preset_get shows one in full."""
-    out: list[Any] = []
-    for preset in presets:
-        if not isinstance(preset, dict):
-            out.append(preset)
-            continue
-        spec = preset.get("spec")
-        spec = spec if isinstance(spec, dict) else {}
-        row: dict[str, Any] = {"name": preset.get("name"), "labels": preset.get("labels", [])}
-        if "superleader_manageable" in preset:
-            row["superleader_manageable"] = preset["superleader_manageable"]
-        for flag in _FLAGS:
-            value = spec.get(flag)
-            row[flag] = bool(value) if isinstance(value, dict | list) else value is True
-        if spec.get("inactivity") is not None:
-            row["inactivity"] = spec["inactivity"]
-        out.append(row)
-    return out
 
 
 # Spec keys kept in the sessions_admin_list summary; "superleader" is spec.session_messaging.
@@ -206,7 +176,7 @@ _READ_ANY = (
 # Rows that write to a preset, session, webhook endpoint or schedule: they get _NOT_MANAGEABLE.
 _WRITE_NAMES = frozenset(
     {
-        "preset_replace", "preset_patch", "preset_delete", "preset_copy",
+        "preset_patch", "preset_delete", "preset_copy",
         "preset_projects_grant", "preset_projects_revoke", "vault_attach", "vault_detach",
         "session_patch", "session_discard", "session_restart", "agent_restart",
         "session_projects_grant", "session_projects_revoke", "leadership_withdraw",
@@ -272,7 +242,7 @@ _ALIASES = {
         "case-insensitive, optional leading @. Omit to keep, [] to clear. The bot's own tag "
         "and replies to it always count. Unlike agent_aliases, preset_id and trigger are "
         "replaced on every call (omitted or null clears them): to change only aliases, read "
-        "the room with chat_admin_room first and resend its preset_id and trigger."
+        "the room with chat_admin_rooms first and resend its preset_id and trigger."
     ),
 }
 _AUTH = {
@@ -341,12 +311,6 @@ _HISTORY_BEFORE = {
 _ROWS: tuple[AdminRow, ...] = (
     # presets
     AdminRow(
-        "presets_list",
-        "GET",
-        f"{_A}/presets",
-        "List the presets: name, labels and privilege flags; use preset_get for the full spec.",
-    ),
-    AdminRow(
         "preset_get",
         "GET",
         f"{_A}/presets/{{ref}}",
@@ -364,24 +328,12 @@ _ROWS: tuple[AdminRow, ...] = (
         "*",
     ),
     AdminRow(
-        "preset_replace",
-        "PUT",
-        f"{_A}/presets/{{ref}}",
-        "Replace a preset (name and spec). Secret values come from the vault: change them "
-        "with vault_attach and vault_detach, not here. An omitted project keeps the stored one.",
-        schema(
-            {"ref": _REF, "name": {"type": "string"}, "spec": _SPEC, "project": _PROJECT},
-            ("ref", "name"),
-        ),
-        "*",
-    ),
-    AdminRow(
         "preset_patch",
         "PATCH",
         f"{_A}/presets/{{ref}}",
-        "Change part of a preset (name, labels, project, spec) by id or name. Prefer this over "
-        "preset_replace: read-modify-write is not needed. Set project to move the preset to "
-        "another existing project (422 unknown_project; 422 vault_label_mismatch when its vault "
+        "Change part of a preset (name, labels, project, spec) by id or name. "
+        "Set project to move the preset to another existing project (422 unknown_project; "
+        "422 vault_label_mismatch when its vault "
         "refs no longer match the project label; 422 project_archived when the target project "
         "is archived); running sessions keep their project. Example: "
         '{"ref": "webhook", "spec": {"usage_quota": {"five_hour_pct": 80}}}.',
@@ -676,7 +628,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "session_message_cancel",
         "DELETE",
         f"{_A}/sessions/{{slug}}/messages/{{message_id}}",
-        "Superleader only: cancels a QUEUED message of that session (see session_messages). "
+        "Superleader only: cancels a QUEUED message of that session. "
         "404 not_found for an id of another session; 409 not_queued once it was delivered.",
         schema({"slug": _SLUG, "message_id": {"type": "integer"}}, ("slug", "message_id")),
     ),
@@ -1096,7 +1048,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "whether agents may start a chat there. agent_aliases: names that wake the agent in a "
         "mention room besides a tag of the bot or a reply to it. preset_id and trigger are "
         "replaced on every call (omitted or null clears them): to change only aliases, read "
-        "the room with chat_admin_room first and resend its preset_id and trigger.",
+        "the room with chat_admin_rooms first and resend its preset_id and trigger.",
         schema(
             {
                 "room_id": _ROOM_ID,
@@ -1108,13 +1060,6 @@ _ROWS: tuple[AdminRow, ...] = (
             ("room_id",),
         ),
         "*",
-    ),
-    AdminRow(
-        "chat_admin_room",
-        "GET",
-        f"{_A}/chats/rooms/{{room_id}}",
-        "Show one chat room: its settings, members and the access of each member.",
-        schema({"room_id": _ROOM_ID}, ("room_id",)),
     ),
     AdminRow(
         "chat_admin_notes_get",
@@ -1204,7 +1149,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "Allow a chat room and configure it (preset_id, trigger, agents_may_initiate). Also "
         "accepts a Messenger message request; an invited room is joined on the next sync. "
         "preset_id and trigger are replaced on every call (omitted or null clears them): to "
-        "change only aliases, read the room with chat_admin_room first and resend its "
+        "change only aliases, read the room with chat_admin_rooms first and resend its "
         "preset_id and trigger.",
         schema(
             {
@@ -1379,18 +1324,6 @@ _ROWS: tuple[AdminRow, ...] = (
         ("label", "project", "superleaders", "session_slug"),
     ),
     AdminRow(
-        "session_activity",
-        "GET",
-        f"{_A}/sessions/{{slug}}/activity",
-        "Superleader only: the recent activity of any session (what its agents did), "
-        "manageable or not; redacted like the web UI. Filter by agent (pod name).",
-        schema(
-            {"slug": _SLUG, "agent": _str("Pod name; omitted: all."), "limit": _LIMIT}, ("slug",)
-        ),
-        None,
-        ("agent", "limit"),
-    ),
-    AdminRow(
         "session_events",
         "GET",
         f"{_A}/sessions/{{slug}}/events",
@@ -1418,16 +1351,6 @@ _ROWS: tuple[AdminRow, ...] = (
         ),
         None,
         ("before_id", "after_id", "limit", "agent_id", "types"),
-    ),
-    AdminRow(
-        "session_messages",
-        "GET",
-        f"{_A}/sessions/{{slug}}/messages",
-        "Superleader only: the message queue of any session (queued, delivered, failed), "
-        "manageable or not. Filter by status. session_message_cancel cancels a queued one.",
-        schema({"slug": _SLUG, "status": _str("Message status."), "limit": _LIMIT}, ("slug",)),
-        None,
-        ("status", "limit"),
     ),
     AdminRow(
         "session_locks",
@@ -1640,52 +1563,6 @@ _ROWS: tuple[AdminRow, ...] = (
                 "target": _str("Target backup name."),
             },
             ("source", "target"),
-        ),
-        "*",
-    ),
-    AdminRow(
-        "backups_cleanup_get",
-        "GET",
-        f"{_A}/backups/cleanup/settings",
-        "Superleader only: the backup cleanup settings (retention and schedule). "
-        "backups_cleanup_set replaces them; read them here first. "
-        "503 unavailable when backups are not configured.",
-    ),
-    AdminRow(
-        "backups_cleanup_preview",
-        "GET",
-        f"{_A}/backups/cleanup/preview",
-        "Superleader only: what the next backup cleanup would delete, without deleting "
-        "anything. 503 unavailable when backups are not configured.",
-    ),
-    AdminRow(
-        "backups_cleanup_set",
-        "PUT",
-        f"{_A}/backups/cleanup/settings",
-        "Superleader only: replaces the WHOLE backup cleanup policy; read the current one "
-        "with backups_cleanup_get first and send every field. dry_run false deletes backup "
-        "versions for real; backups_cleanup_preview shows what the next cleanup would delete. "
-        "422 for an out-of-bounds value; 503 unavailable when backups are not configured.",
-        schema(
-            {
-                "enabled": {"type": "boolean", "description": "Run the cleanup on its schedule."},
-                "dry_run": {
-                    "type": "boolean",
-                    "description": "true: only record what would be deleted; false: delete.",
-                },
-                "retention_days": _bounded_int(1, 3650, "Delete backup versions older than this."),
-                "keep_newest": _bounded_int(1, 1000, "Always keep this many newest versions."),
-                "interval_seconds": _bounded_int(60, 2592000, "Seconds between cleanup runs."),
-                "grace_seconds": _bounded_int(0, 604800, "Versions younger than this are kept."),
-            },
-            (
-                "enabled",
-                "dry_run",
-                "retention_days",
-                "keep_newest",
-                "interval_seconds",
-                "grace_seconds",
-            ),
         ),
         "*",
     ),

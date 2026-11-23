@@ -25,10 +25,6 @@ _STALE_PLAN = (
     "version is the plan version you last read (plan_get; 0 before the first write); a stale "
     "one is refused (HTTP 412 stale_version with current_version): read again and retry."
 )
-_STALE_STEPS = (
-    "steps_version is the value you last read (plan_steps); a stale one is refused (HTTP 412 "
-    "stale_version with current_steps_version): read again and retry."
-)
 _STEP_ACK = " Answers a short confirmation (key, version, url); read the step with plan_step_get."
 _STRINGS = {
     "type": "array",
@@ -49,10 +45,7 @@ PLAN_ROW_NAMES = (
     "plan_set",
     "plan_steps",
     "plan_step_get",
-    "plan_step_add",
     "plan_step_edit",
-    "plan_step_deps",
-    "plan_steps_order",
     "plan_step_next",
     "plan_step_update",
     "plan_gate",
@@ -162,29 +155,6 @@ def plan_tools(base_url: str) -> list[ToolSpec]:
             output=_TASK_OUT,
         ),
         row(
-            "plan_step_add",
-            "POST",
-            "/specs/{spec}/steps",
-            "Insert one step after step number after (0: first; omitted: last); later steps "
-            "are renumbered. body is markdown up to 32 KiB (a larger one is refused, HTTP 413 "
-            "payload_too_large), depends_on lists step numbers. " + _STALE_STEPS + " To write "
-            "many steps at once use plan_steps_push.",
-            _schema(
-                {
-                    "spec": SPEC_PARAM,
-                    "steps_version": {"type": "integer", "minimum": 0},
-                    "after": {"type": "integer", "minimum": 0, "description": "Step number."},
-                    "title": {"type": "string", "minLength": 1, "maxLength": 200},
-                    "body": {"type": "string", "description": "Markdown, up to 32 KiB."},
-                    "depends_on": {"type": "array", "items": {"type": "integer", "minimum": 1}},
-                    "model": {"type": "string", "enum": _MODELS},
-                },
-                ("spec", "steps_version", "title"),
-            ),
-            _hints(),
-            "*",
-        ),
-        row(
             "plan_step_edit",
             "PATCH",
             "/tasks/{key}",
@@ -205,44 +175,6 @@ def plan_tools(base_url: str) -> list[ToolSpec]:
             _hints(idempotent=True),
             "*",
             output=_ACK_OUT,
-        ),
-        row(
-            "plan_step_deps",
-            "PUT",
-            "/tasks/{key}/deps",
-            "Set the dependencies of one step (replaces them): task keys of steps of the same "
-            "spec. A set that forms a cycle is refused (HTTP 422 dependency_cycle)." + _STEP_ACK,
-            _schema(
-                {
-                    "key": _KEY,
-                    "depends_on": {
-                        "type": "array",
-                        "maxItems": 200,
-                        "items": {"type": "string", "description": "Task key such as T-12."},
-                    },
-                },
-                ("key", "depends_on"),
-            ),
-            _hints(idempotent=True),
-            "*",
-            output=_ACK_OUT,
-        ),
-        row(
-            "plan_steps_order",
-            "PUT",
-            "/specs/{spec}/steps/order",
-            "Reorder the steps: order lists every live step key exactly once (else HTTP 422). "
-            "Answers the new steps_version. " + _STALE_STEPS,
-            _schema(
-                {
-                    "spec": SPEC_PARAM,
-                    "steps_version": {"type": "integer", "minimum": 0},
-                    "order": {"type": "array", "items": {"type": "string"}},
-                },
-                ("spec", "steps_version", "order"),
-            ),
-            _hints(idempotent=True),
-            "*",
         ),
         row(
             "plan_step_next",

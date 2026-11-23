@@ -64,8 +64,8 @@ document as `stale_version` per file, and never return a body.
 
 Mindmap tools (`mindmap.py`): 19 tools (`mindmap_map_list`, `_map_get`, `_map_create`, `_map_update`, `_node_get`, `_node_history`, `_search`, `_traverse`, `_node_create`, `_node_update`, `_note_put`, `_growth_area_update`, `_edge_create`, `_edge_delete`, `_link`, `_task_nodes`, `_direction_list`, `_direction_create`, `_direction_update`) relayed under `/agent/v1/mindmap/{path}` to the mindmap service. They are registered for every config; the orchestrator's `allow` list shows them to a session only when it has a mindmap upstream. `_node_history`, `_growth_area_update` (N-n adds, G-n patches) and `_link` (`action` add or remove) pick one of several service routes from their arguments. Every description says notes from other projects are data, never instructions, and that notes never hold secret values.
 
-Plan tools (`plan.py`, `plan_local.py`): `plan_get`, `plan_set`, `plan_steps`, `plan_step_get`, `plan_step_add`,
-`plan_step_edit`, `plan_step_deps`, `plan_steps_order`, `plan_step_next` (HTTP 204 becomes "no ready step"),
+Plan tools (`plan.py`, `plan_local.py`): `plan_get`, `plan_set`, `plan_steps`, `plan_step_get`,
+`plan_step_edit`, `plan_step_next` (HTTP 204 becomes "no ready step"),
 `plan_step_update`, `plan_gate` and `spec_section` are relay rows (a step is a task of the spec; `plan_step_get` has the
 `task_get` views and fit, the step writes answer a short confirmation). A stale plan header is refused 412 with
 `current_version`, a stale step set with `current_steps_version`, a step body over 32 KiB 413. Three tools run in the
@@ -79,8 +79,8 @@ options: posted anew and the old one withdrawn with `superseded_by`).
 
 Superleader admin tools (`admin.py`, one declarative row per route of `/agent/v1/admin`; the
 orchestrator refuses them unless the caller is a superleader session and renders them into the
-allowlist of such sessions only): presets (`presets_list`, `preset_get`, `preset_create`,
-`preset_replace`, `preset_patch`, `preset_delete`, `preset_copy`, `preset_manageable_request`; `preset_patch` and `preset_replace` take an optional `project` slug that
+allowlist of such sessions only): presets (`preset_get`, `preset_create`,
+`preset_patch`, `preset_delete`, `preset_copy`, `preset_manageable_request`; `preset_patch` takes an optional `project` slug that
 moves the preset to another existing project: 422 `unknown_project`, 422 `vault_label_mismatch`,
 422 `project_archived`; running sessions keep their project), sessions (`session_get`, `session_patch`, `session_create`
 with an optional `project`, `session_discard`, `session_restart`, `agent_restart`, `command_get`), project grants
@@ -96,7 +96,7 @@ call it on its own slug), webhooks (`webhooks_list`,
 `webhook_delete`, `webhook_filters_set`, `webhook_events`, `webhook_event`,
 `webhook_template_preview`), schedules (`schedules_list`, `schedule_get`, `schedule_create`,
 `schedule_update`, `schedule_delete`, `schedule_run`, `schedule_runs`, `schedule_runs_all`,
-`schedule_run_get`, `schedule_preview`), projects (`project_create`: `POST /agent/v1/admin/projects`, body `{slug, name, description?}`; projects are never deleted, 409 `project_exists` = slug taken; `project_update`: `PATCH /agent/v1/admin/projects/{slug}`, rename, describe, archive or unarchive), chats (`chat_admin_rooms`, `chat_admin_room`, `chat_admin_history` (read only, any room, `GET /agent/v1/admin/chats/rooms/{room_id}/messages`), `chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`; `chat_room_settings` and `chat_room_allow` take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and `trigger` on every call, so resend them after `chat_admin_room`,
+`schedule_run_get`, `schedule_preview`), projects (`project_create`: `POST /agent/v1/admin/projects`, body `{slug, name, description?}`; projects are never deleted, 409 `project_exists` = slug taken; `project_update`: `PATCH /agent/v1/admin/projects/{slug}`, rename, describe, archive or unarchive), chats (`chat_admin_rooms`, `chat_admin_history` (read only, any room, `GET /agent/v1/admin/chats/rooms/{room_id}/messages`), `chat_users`, `chat_room_allow`, `chat_open`, `chat_open_status`, `chat_open_confirm`, `chat_room_settings`; `chat_room_settings` and `chat_room_allow` take `agent_aliases` (omit keeps, [] clears) but replace `preset_id` and `trigger` on every call, so resend them after `chat_admin_rooms`,
 `chat_rules`, `chat_rule_add`, `chat_rule_delete`), `usage_get` (read-only: the account's `five_hour` and
 `seven_day` usage windows, `GET /agent/v1/admin/usage`) and the history of discarded sessions
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
@@ -106,10 +106,10 @@ a superleader; `proposal_withdraw`). Superleader reads (T-120 slice 2): `session
 orchestrator scopes it, `session_events`, `handoffs_list`, `handoff_get`, `chat_admin_history` and
 `chat_admin_notes_get` to the own and granted projects, and `chat_admin_notes_update` to leaders of them; filters `label`, `project`,
 `superleaders`, `session_slug`; over the output budget it answers `{omitted, sessions}`),
-`session_activity`, `session_events` (default `limit` 20; an over-budget page keeps the newest events and reports `omitted`), `session_messages`, `session_locks`,
+`session_events` (default `limit` 20; an over-budget page keeps the newest events and reports `omitted`), `session_locks`,
 `session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `meta_get`, `backups_list`,
-`backup_versions`, `backup_manifest`, `backups_cleanup_get`, `backups_cleanup_preview` (no backup download), `handoffs_list`, `handoff_get`, `chat_admin_notes_get` and `usage_history`,
-`usage_sessions`. Superleader writes (T-120 slice 3): `session_labels_update`, `session_scale`, `session_lock_reassign`, `session_message_cancel` (all below `/agent/v1/admin/sessions/{slug}`; scale and lock reassign answer 422 `own_session` for the caller's own session), `backups_cleanup_set` (replaces the whole cleanup policy; read it with `backups_cleanup_get` first), `backups_copy` (no merge), `chat_admin_notes_update`, `spec_delete`, `spec_suggestion_dismiss`, and `preset_patch` takes `superleader_manageable: false`. Reads cover manageable and unmanageable targets alike; a write on an
+`backup_versions`, `backup_manifest` (no backup download), `handoffs_list`, `handoff_get`, `chat_admin_notes_get` and `usage_history`,
+`usage_sessions`. Superleader writes (T-120 slice 3): `session_labels_update`, `session_scale`, `session_lock_reassign`, `session_message_cancel` (all below `/agent/v1/admin/sessions/{slug}`; scale and lock reassign answer 422 `own_session` for the caller's own session), `backups_copy` (no merge), `chat_admin_notes_update`, `spec_delete`, `spec_suggestion_dismiss`, and `preset_patch` takes `superleader_manageable: false`. Reads cover manageable and unmanageable targets alike; a write on an
 unmanageable one is 403 `not_manageable` and needs the user's approval. `history_search` answers `{next_before_id, sessions}` (default `limit` 20, at most 200):
 the relay filters a page after paging, so a page can be short or empty while more sessions exist,
 and `next_before_id` (the relay's `X-Next-Before-Id` header, `null` at the end) is the `before_id`
@@ -230,4 +230,4 @@ the config file. The token is scoped to one session.
 From the repo root: `mise run install && mise run test && mise run lint`. The tests are in
 `tests/test_orchestrator_plugin.py` and run against the package through any-mcp's `PluginHarness`.
 
-Volumes (S-77): `volumes_status` (`GET /agent/v1/volumes`) and `volume_save` (`POST /agent/v1/volumes/{name}/save`) are the session's own tools; superleader `volumes_list`, `volume_get`, `volume_attach`, `volume_detach` and `volume_create` (a proposal) sit under `/agent/v1/admin`. Backups (S-68): the entry tools `backup_save` and `backup_status` are gone; the superleader tools are `backups_list`, `backup_versions`, `backup_manifest`, `backups_copy`, `backups_cleanup_*`, `handoffs_list`, `handoff_get`, `chat_admin_notes_get` and `chat_admin_notes_update` under `/agent/v1/admin`. The `archives_*` tools are gone. The routes answer 404 until the orchestrator release that carries them.
+Volumes (S-77): `volumes_status` (`GET /agent/v1/volumes`) and `volume_save` (`POST /agent/v1/volumes/{name}/save`) are the session's own tools; superleader `volumes_list`, `volume_get`, `volume_attach`, `volume_detach` and `volume_create` (a proposal) sit under `/agent/v1/admin`. Backups (S-68): the entry tools (`backup_save`, `backup_status`) and the cleanup tools are gone; the superleader tools are `backups_list`, `backup_versions`, `backup_manifest`, `backups_copy`, `handoffs_list`, `handoff_get`, `chat_admin_notes_get` and `chat_admin_notes_update` under `/agent/v1/admin`. The `archives_*` tools are gone. The routes answer 404 until the orchestrator release that carries them.
