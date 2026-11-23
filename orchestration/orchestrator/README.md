@@ -2,7 +2,8 @@
 
 Distribution `any-mcp-tatara-orchestrator`, module `any_mcp_tatara_orchestrator`, entry point
 `orchestrator` (`any_mcp_tatara_orchestrator:OrchestratorPlugin`). It is the one plugin through which
-agents call the agents-orchestrator agent API `/agent/v1`. It does no network I/O at start; every
+agents call the agents-orchestrator agent API `/agent/v1`. At start it reads only `GET /agent/v1/me`,
+and only when the config names role lists (below); every
 tool is a thin HTTP call that returns the server JSON, and a non-2xx answer becomes a tool error
 carrying the server's `error.code` and message (`not_leader`, `stale_epoch`, `no_peers`, `alone`,
 `static_session`, `out_of_range`, `leader_would_leave`, `invalid_path`, `project_forbidden`,
@@ -10,7 +11,8 @@ carrying the server's `error.code` and message (`not_leader`, `stale_epoch`, `no
 
 Config fields (extra keys are refused): `base_url`, `token`, `session` (session key), `agent` (pod
 name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (default false),
-`auto_compact_pct` (default null). Every request carries `Authorization: Bearer <token>` and
+`auto_compact_pct` (default null), `member_tools` and `leader_tools` (plugin-local tool names,
+default null). Every request carries `Authorization: Bearer <token>` and
 `X-Orch-Session: <session>`; the token is never logged or echoed in a result or error.
 
 | Tool | Route |
@@ -27,6 +29,7 @@ name), `slug`, `max_replicas` (default 1), `static` (default false), `hive` (def
 | `orchestrator_init_scripts_get` | `GET /agent/v1/init-scripts` |
 | `orchestrator_init_scripts_edit(scripts)` | `PUT /agent/v1/init-scripts` |
 | `orchestrator_sessions_list` | `GET /agent/v1/sessions` |
+| `orchestrator_session_send(slug, text, handled?)` | `POST /agent/v1/sessions/{slug}/messages` (leader only: sessions of the own and granted projects, a superleader any; answers `{message_id, handled}`) |
 | `orchestrator_chat_rooms` | `GET /agent/v1/chat/rooms` |
 | `orchestrator_chat_history(before?, after?, from?, limit?)` | `GET /agent/v1/chat/history` (leader; the bound room's messages `m<n>`, `s<n>`, `o<n>`, newest fitting the output budget; default limit 20) |
 | `orchestrator_chat_attachment_fetch(id)` | `POST /agent/v1/chat/attachments` (leader; queues the download of the attachment of `m<n>`, the file arrives later as a new turn) |
@@ -99,7 +102,9 @@ call it on its own slug), webhooks (`webhooks_list`,
 (`history_search`, `history_get`, `history_records`; read and search only, there is no delete
 tool), and change proposals (`proposals_list`, `proposal_get`: your own, or every proposal for
 a superleader; `proposal_withdraw`). Superleader reads (T-120 slice 2): `sessions_admin_list`
-(`GET /agent/v1/admin/sessions`, a compact summary per session; filters `label`, `project`,
+(`GET /agent/v1/admin/sessions`, a compact summary per session; for other leaders and members the
+orchestrator scopes it, `session_events`, `handoffs_list`, `handoff_get`, `chat_admin_history` and
+`chat_admin_notes_get` to the own and granted projects, and `chat_admin_notes_update` to leaders of them; filters `label`, `project`,
 `superleaders`, `session_slug`; over the output budget it answers `{omitted, sessions}`),
 `session_activity`, `session_events` (default `limit` 20; an over-budget page keeps the newest events and reports `omitted`), `session_messages`, `session_locks`,
 `session_commands` (all `GET /agent/v1/admin/sessions/{slug}/...`), `meta_get`, `backups_list`,
@@ -146,8 +151,17 @@ changes and human-only fields of presets, schedules and session specs go there. 
 the target's spec. Proposals carry no secrets; a call with a `secrets` argument is refused by the closed schema before
 any request.
 
-The plugin always lists the sixteen agent tools, the admin tools (vault and proposal tools included). Which an agent sees is decided by the `allow` list of the
+The plugin lists the agent tools and the admin tools (vault and proposal tools included), narrowed to the `allow` list of the
 entry the orchestrator renders (`scale` only on a scalable session, the hive tools only in a hive).
+Role lists (S-83, decision 885): with `member_tools` and `leader_tools` in the config the plugin lists
+only the list of the pod's current role. The role is read from `GET /agent/v1/me` (the pod leads when
+`leader` equals its `pod_name`; a session that is not a hive always leads) and cached 30 seconds; the
+plugin reloads its tools every 30 seconds and right after `orchestrator_me` (which a new leader calls
+first), `orchestrator_leadership_handover`, `orchestrator_handoff_submit` and
+`orchestrator_leadership_withdraw`. When the list changes any-mcp sends
+`notifications/tools/list_changed` and Claude Code re-lists the tools. While the role is unknown
+(`/me` unreadable) both lists are listed; a role without a list, or a config with neither key, gets
+every tool. The plugin never refuses a call on role grounds: the orchestrator's gates decide.
 The session tool `sessions_list` is rendered for every session; the
 orchestrator decides what each session may list and message: a superleader session's leader lists and
 messages every other session (a `<session-send to="slug">` envelope in its own text), any other session's leader lists and messages the other sessions of

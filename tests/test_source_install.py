@@ -66,6 +66,7 @@ ALL_TOOLS = sorted(
         "orchestrator_init_scripts_get",
         "orchestrator_init_scripts_edit",
         "orchestrator_sessions_list",
+        "orchestrator_session_send",
         "orchestrator_chat_rooms",
         "orchestrator_chat_history",
         "orchestrator_chat_attachment_fetch",
