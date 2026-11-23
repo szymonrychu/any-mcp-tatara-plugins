@@ -1120,7 +1120,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "chat_admin_notes_get",
         "GET",
         f"{_A}/chats/rooms/{{room_id}}/notes",
-        "Superleader only: read the notes of any chat room by room_id. Without section it "
+        "Read the notes of a chat room by room_id: a room of your own or granted projects (a "
+        "superleader: any room). Without section it "
         "answers the room totals (chars, max_chars, section_max_chars), the five sections "
         "(preferences, requests, work-in-progress, provided-information, repeatable-workflows) "
         "each with version, chars and inject, the rendered body and rule (the standing "
@@ -1134,7 +1135,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "chat_admin_notes_update",
         "PUT",
         f"{_A}/chats/rooms/{{room_id}}/notes/sections/{{section}}",
-        "Superleader only: replace one section of a chat room's notes with body (the whole new "
+        "Leader only: replace one section of the notes of a chat room of your own or granted "
+        "projects (a superleader: any room) with body (the whole new "
         "text of that section, not a delta); the same item as chat_notes_update. "
         "expected_version is the version of that section from chat_admin_notes_get (0 to "
         "create); 409 version_conflict: re-read that section, merge and retry. 413 "
@@ -1160,8 +1162,10 @@ _ROWS: tuple[AdminRow, ...] = (
         "chat_admin_history",
         "GET",
         f"{_A}/chats/rooms/{{room_id}}/messages",
-        "Read the message history of any chat room by room_id (from chat_admin_rooms). "
-        "Superleader, read only, audited: no attachment fetch. Same page as chat_history: "
+        "Read the message history of a chat room by room_id (from chat_admin_rooms): a room "
+        "of your own or granted "
+        "projects (a superleader: any room); read only, "
+        "audited: no attachment fetch. Same page as chat_history: "
         "{room_id, note, messages, has_more_before, has_more_after}, items keyed by id (m<n> "
         "chat messages, s<n> agent sends, o<n> connector replies and notices), ascending. "
         "Default limit 20; an over-budget page keeps the newest messages and omitted counts "
@@ -1348,7 +1352,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "sessions_admin_list",
         "GET",
         f"{_A}/sessions",
-        "Superleader only: list every session of every project, manageable or not, as a "
+        "List the sessions of your own and granted projects (a superleader: every session of "
+        "every project, manageable or not) as a "
         "summary (slug, preset_name, project, extra_projects, status, desired, labels, hive, "
         "superleader, created_at); session_get shows one in full. On the listed sessions a "
         "superleader can write with session_labels_update, session_scale, session_lock_reassign "
@@ -1389,8 +1394,9 @@ _ROWS: tuple[AdminRow, ...] = (
         "session_events",
         "GET",
         f"{_A}/sessions/{{slug}}/events",
-        "Superleader only: a page of the stored events of any session (chat, tool calls, "
-        "hooks), manageable or not; redacted like the web UI. Not a stream. A page is in "
+        "A page of the stored events of a session of your own or granted projects (a "
+        "superleader: any session) (chat, tool calls, "
+        "hooks); redacted like the web UI. Not a stream. A page is in "
         "ascending id order and, without a cursor, is the newest events. Default limit 20. "
         "When a page outgrows the output budget the oldest events are dropped and omitted "
         "says how many. Page back with before_id (the lowest id seen) or forward with "
@@ -1687,7 +1693,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "handoffs_list",
         "GET",
         f"{_A}/handoffs",
-        "Superleader only: the handoff history of sessions, newest first (id, session, "
+        "The handoff history of the sessions of your own and granted projects (a superleader: "
+        "every session), newest first (id, session, "
         "created_at, a short head), paged by before_id. Filter by session (id or slug); "
         "read one in full with handoff_get.",
         schema(
@@ -1708,7 +1715,8 @@ _ROWS: tuple[AdminRow, ...] = (
         "handoff_get",
         "GET",
         f"{_A}/handoffs/{{id}}",
-        "Superleader only: one handoff in full by id (from handoffs_list). 404 handoff_not_found.",
+        "One handoff in full by id (from handoffs_list), of a session of your own or granted "
+        "projects (a superleader: any). 404 handoff_not_found.",
         schema({"id": {"type": "integer", "minimum": 1, "description": "Handoff id."}}, ("id",)),
     ),
     # superleader spec admin on the task board (accept stays the user's)

@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
+import any_mcp_tatara_orchestrator
+from any_mcp._fastmcp_adapter import InMemoryClient, Server, build_server, in_memory_client
+from any_mcp.config import AnyMcpConfig
 from any_mcp.context import PluginContext
+from any_mcp.discovery import load_plugins
+from any_mcp.registry import ToolRegistry
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.admin import ADMIN_TOOLS
@@ -37,6 +45,7 @@ ALL_TOOLS = {
     "orchestrator_init_scripts_get",
     "orchestrator_init_scripts_edit",
     "orchestrator_sessions_list",
+    "orchestrator_session_send",
     "orchestrator_chat_rooms",
     "orchestrator_chat_history",
     "orchestrator_chat_attachment_fetch",
@@ -1081,7 +1090,6 @@ async def test_removed_chat_tools_are_gone() -> None:
         "orchestrator_chat_send",
         "orchestrator_chat_react",
         "orchestrator_chat_status",
-        "orchestrator_session_send",
         "orchestrator_project_chat_send",
     }
 
@@ -1090,7 +1098,7 @@ def test_no_text_names_a_removed_chat_tool() -> None:
     src = Path(__file__).resolve().parents[1] / "src" / "any_mcp_tatara_orchestrator"
     pattern = re.compile(
         r"orchestrator_chat_(send|react|status)\b|\bchat_(send|react|status)\b"
-        r"|\b(orchestrator_)?(session_send|project_chat_send)\b|<session-message"
+        r"|\b(orchestrator_)?project_chat_send\b|<session-message"
         r"|mcp__ccw__(send_message|peers)|<agent-message"
     )
     hits = [
@@ -1303,3 +1311,111 @@ async def test_chat_history_paths_exist_in_the_orchestrator_openapi() -> None:
     assert "get" in paths["/agent/v1/chat/history"]
     assert "post" in paths["/agent/v1/chat/attachments"]
     assert "get" in paths["/agent/v1/chat/attachments/{request_id}"]
+
+
+MEMBER_LIST = ["me", "lock_list", "task_get"]
+LEADER_LIST = [*MEMBER_LIST, "scale", "session_send"]
+
+
+@asynccontextmanager
+async def legacy_server(
+    handler: Any, **overrides: Any
+) -> AsyncIterator[tuple[Server, InMemoryClient]]:
+    """The plugin behind the real any-mcp server and a handshake-era client, which receives
+    notifications/tools/list_changed (the path Claude Code takes on stdio)."""
+    config = AnyMcpConfig.model_validate(
+        {
+            "plugins": [
+                {
+                    "name": "orchestrator",
+                    "plugin": "any_mcp_tatara_orchestrator:OrchestratorPlugin",
+                    "config": {**CONFIG, **overrides},
+                }
+            ]
+        }
+    )
+    loaded = load_plugins(config, http_transport=httpx.MockTransport(handler))
+    server = build_server(ToolRegistry(loaded, config.tools), config, aclose=loaded.aclose)
+    try:
+        async with in_memory_client(server, legacy=True) as client:
+            yield server, client
+    finally:
+        await loaded.aclose()
+
+
+async def _eventually(check: Callable[[], bool]) -> None:
+    for _ in range(200):
+        if check():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("condition not reached")
+
+
+@pytest.mark.parametrize("trigger", ["me", "ttl"])
+async def test_listing_follows_role(trigger: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    role = {"leader": "agent-1"}
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"pod_name": "agent-0", "leader": role["leader"]})
+
+    lists = {"member_tools": MEMBER_LIST, "leader_tools": LEADER_LIST}
+    async with legacy_server(handler, **lists) as (server, client):
+        names = {t["name"] for t in await client.list_tools()}
+        assert names == {f"orchestrator_{n}" for n in MEMBER_LIST}
+        role["leader"] = "agent-0"
+        if trigger == "me":
+            await client.call_tool("orchestrator_me", {})
+        else:
+            clock = any_mcp_tatara_orchestrator.time.monotonic
+            monkeypatch.setattr(
+                any_mcp_tatara_orchestrator.time,
+                "monotonic",
+                lambda: clock() + any_mcp_tatara_orchestrator.ROLE_TTL,
+            )
+            await server.registry.reload()
+        await _eventually(lambda: client.notifications() == ["notifications/tools/list_changed"])
+        names = {t["name"] for t in await client.list_tools()}
+        assert names == {f"orchestrator_{n}" for n in LEADER_LIST}
+    assert set(seen) == {"/agent/v1/me"}
+
+
+async def test_session_send_tool_posts_route() -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(202, json={"message_id": 7, "handled": [3]})
+
+    tools = await tools_by_name()
+    assert "own and granted projects" in tools["orchestrator_session_send"]["description"]
+    async with harness(handler) as h:
+        result = await h.call(
+            "orchestrator_session_send", {"slug": "other", "text": "hi", "handled": [3]}
+        )
+    assert not result.is_error, result.text
+    assert seen == [("POST", "/agent/v1/sessions/other/messages", {"text": "hi", "handled": [3]})]
+
+
+# Tools other roles than the superleader may call (S-83 role matrix, decision 921).
+SHARED_TOOLS = (
+    "chat_admin_notes_get",
+    "chat_admin_notes_update",
+    "chat_admin_history",
+    "sessions_admin_list",
+    "session_events",
+    "handoffs_list",
+    "handoff_get",
+    "session_send",
+)
+
+
+async def test_no_superleader_only_text_on_shared_tools() -> None:
+    on = await descriptions()
+    wrong = [
+        n
+        for n in SHARED_TOOLS
+        if re.search(r"superleader( only|, read only)", on[f"orchestrator_{n}"], re.I)
+    ]
+    assert not wrong, wrong

@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import httpx
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from any_mcp.errors import UpstreamError, error_result, redact
@@ -76,6 +78,10 @@ _REREAD_RULE = (
     "from the source (orchestrator_task_get, the PR, the proposal) before acting."
 )
 
+# How long a read of the caller's role (``GET /agent/v1/me``) is trusted; the plugin's periodic
+# reload runs at the same interval, so a role change shows within about two of them.
+ROLE_TTL = 30.0
+
 
 class OrchestratorConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -91,6 +97,10 @@ class OrchestratorConfig(BaseModel):
     auto_compact_pct: int | None = None
     secrets_dir: str | None = None
     workdir: str | None = None
+    # Plugin-local tool names listed to a member and to the leader of the session; without
+    # either key every tool is listed. The orchestrator's gates stay authoritative.
+    member_tools: list[str] | None = None
+    leader_tools: list[str] | None = None
 
     @model_validator(mode="after")
     def _default_workdir(self) -> OrchestratorConfig:
@@ -129,6 +139,16 @@ def _with_to_file(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 _PATHS = {"type": "array", "items": {"type": "string"}, "description": "File paths in the workdir."}
+# Calls that read or move leadership: the plugin re-checks the role after them.
+_ROLE_CALLS = frozenset({"me", "leadership_handover", "leadership_withdraw", "handoff_submit"})
+
+
+def _leads(me: Any) -> bool | None:
+    """Whether a ``GET /me`` answer names the caller as leader (``leader`` is the leader's pod
+    name); None for an answer that is not one."""
+    if not isinstance(me, dict) or not isinstance(me.get("pod_name"), str):
+        return None
+    return me.get("leader") == me["pod_name"]
 
 
 class OrchestratorPlugin(Plugin):
@@ -137,7 +157,11 @@ class OrchestratorPlugin(Plugin):
 
     name = "orchestrator"
     Config = OrchestratorConfig
+    reload_every = ROLE_TTL
     _abstract = False
+    # The caller's role: True leader, False member, None not read yet (or the read failed).
+    _leader: bool | None = None
+    _role_read_at: float | None = None
 
     @property
     def cfg(self) -> OrchestratorConfig:
@@ -146,12 +170,70 @@ class OrchestratorPlugin(Plugin):
         return config
 
     async def credentials(self, call: ToolCall) -> Mapping[str, str]:
-        return {
-            "Authorization": f"Bearer {self.cfg.token}",
-            "X-Orch-Session": self.cfg.session,
-        }
+        return self._auth()
+
+    def _auth(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.cfg.token}", "X-Orch-Session": self.cfg.session}
+
+    def _role_lists(self) -> bool:
+        return self.cfg.member_tools is not None or self.cfg.leader_tools is not None
+
+    async def _read_role(self) -> bool | None:
+        """Whether this pod leads its session, from ``GET /me``; None when unreadable. A
+        session that is not a hive has one agent, which leads it."""
+        if not self.cfg.hive:
+            return True
+        url = self.cfg.base_url.rstrip("/") + f"{_BASE}/me"
+        try:
+            response = await self.ctx.http.get(url, headers=self._auth())
+            body = response.json() if response.is_success else None
+        except (httpx.HTTPError, ValueError):
+            return None
+        return _leads(body)
+
+    def _set_role(self, leader: bool | None) -> bool:
+        """Cache a role read; True when it differs from the role the tool list was built for."""
+        changed = leader is not None and leader != self._leader
+        if leader is not None:
+            self._leader = leader
+            self._role_read_at = time.monotonic()
+        return changed
+
+    def _listed(self, specs: Sequence[ToolSpec]) -> list[ToolSpec]:
+        """The tools of the current role: the leader or member list; with the role unknown,
+        both lists; a role without a list gets every tool."""
+        cfg = self.cfg
+        if self._leader is None:
+            lists = (cfg.member_tools, cfg.leader_tools)
+        else:
+            lists = (cfg.leader_tools if self._leader else cfg.member_tools,)
+        if any(names is None for names in lists):
+            return list(specs)
+        wanted = {name for names in lists if names is not None for name in names}
+        return [s for s in specs if s.name in wanted]
+
+    async def _after_role_call(self, call: ToolCall, raw: RawResponse) -> RawResponse:
+        """``me`` answers the role, and a new leader reads it first after taking over: re-list
+        the tools when it changed. A handover or withdrawal also moves leadership: mark the
+        cached role stale so the next reload reads it again."""
+        if not self._role_lists() or not self.cfg.hive:
+            return raw
+        if call.spec.name == "me":
+            try:
+                leader = _leads(raw.json())
+            except ValueError:
+                leader = None
+            if leader is not None:
+                if self._set_role(leader):
+                    self.ctx.request_reload()
+                return raw
+        self._role_read_at = None
+        self.ctx.request_reload()
+        return raw
 
     async def call(self, call: ToolCall) -> RawResponse:
+        if call.spec.name in _ROLE_CALLS:
+            return await self._after_role_call(call, await super().call(call))
         call = mindmap_route(call)
         if call.spec.name == "spec_pull":
             return RawResponse.from_value(await spec_pull(self.ctx.http, self.cfg, call.arguments))
@@ -498,6 +580,15 @@ class OrchestratorPlugin(Plugin):
                 "A session that messaged you in the last 24 hours can be answered with a "
                 "<session-send> envelope even though it is not listed."
             ),
+            "session_send": (
+                "Send a message to the leader of another session by slug. Leader only: the "
+                "sessions of your own and granted projects (a superleader: any session). "
+                "Asynchronous: answers {message_id, handled} at once; a reply arrives later as a "
+                '<message-in channel="session" from="<slug>"> frame. handled lists the ids (the '
+                "id attribute of a <message-in>) of the messages this send answers or that need "
+                "no answer. Errors: 403 not_leader, 403 project_forbidden, 404 not_found, 409 "
+                "session_deleting, 422 self_send, 429 rate_limited, 429 pair_budget."
+            ),
             "chat_rooms": (
                 "List the chat rooms you may post to. A session talks in at most one chat room, "
                 "its bound room: while you are bound the list holds that room only (bound true); "
@@ -559,6 +650,17 @@ class OrchestratorPlugin(Plugin):
         }
 
     async def load_tools(self) -> Sequence[ToolSpec]:
+        """Every tool, narrowed to the role list of this pod when the config names lists; the
+        role is re-read once it is older than ROLE_TTL (the periodic reload runs as often)."""
+        specs = self._all_tools()
+        if not self._role_lists():
+            return specs
+        read_at = self._role_read_at
+        if read_at is None or time.monotonic() - read_at >= ROLE_TTL:
+            self._set_role(await self._read_role())
+        return self._listed(specs)
+
+    def _all_tools(self) -> list[ToolSpec]:
         text = self._descriptions()
         base = self.cfg.base_url
 
@@ -693,6 +795,20 @@ class OrchestratorPlugin(Plugin):
                 "*",
             ),
             spec("sessions_list", "GET", "/sessions", _schema({})),
+            spec(
+                "session_send",
+                "POST",
+                "/sessions/{slug}/messages",
+                _schema(
+                    {
+                        "slug": {"type": "string", "description": "Slug of the target session."},
+                        "text": {"type": "string", "minLength": 1},
+                        "handled": HANDLED,
+                    },
+                    ["slug", "text"],
+                ),
+                "*",
+            ),
             spec("chat_rooms", "GET", "/chat/rooms", _schema({})),
             spec(
                 "chat_history",
