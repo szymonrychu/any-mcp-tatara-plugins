@@ -15,7 +15,7 @@ import tomllib
 from importlib.metadata import distribution
 from pathlib import Path
 
-from any_mcp_tatara_orchestrator.admin import ADMIN_TOOLS
+from any_mcp_tatara_orchestrator.admin import ADMIN_MERGED, ADMIN_TOOLS
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "orchestration" / "orchestrator"
@@ -67,26 +67,17 @@ ALL_TOOLS = sorted(
         "orchestrator_decision_withdraw",
         "orchestrator_todo",
         "orchestrator_session_labels",
-        *(f"orchestrator_{r.name}" for r in ADMIN_TOOLS),
-        "orchestrator_mindmap_map_list",
-        "orchestrator_mindmap_map_get",
-        "orchestrator_mindmap_map_create",
-        "orchestrator_mindmap_map_update",
-        "orchestrator_mindmap_node_get",
-        "orchestrator_mindmap_node_history",
+        *(f"orchestrator_{r.name}" for r in (*ADMIN_TOOLS, *ADMIN_MERGED)),
+        "orchestrator_mindmap_map",
+        "orchestrator_mindmap_node",
         "orchestrator_mindmap_search",
         "orchestrator_mindmap_traverse",
-        "orchestrator_mindmap_node_create",
-        "orchestrator_mindmap_node_update",
         "orchestrator_mindmap_note_put",
         "orchestrator_mindmap_growth_area_update",
-        "orchestrator_mindmap_edge_create",
-        "orchestrator_mindmap_edge_delete",
+        "orchestrator_mindmap_edge",
         "orchestrator_mindmap_link",
         "orchestrator_mindmap_task_nodes",
-        "orchestrator_mindmap_direction_list",
-        "orchestrator_mindmap_direction_create",
-        "orchestrator_mindmap_direction_update",
+        "orchestrator_mindmap_direction",
     ]
 )
 # Literal values only: the plugin does no network I/O at load.

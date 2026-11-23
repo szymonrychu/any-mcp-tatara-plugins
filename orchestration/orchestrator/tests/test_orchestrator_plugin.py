@@ -20,7 +20,7 @@ from any_mcp.discovery import load_plugins
 from any_mcp.registry import ToolRegistry
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
-from any_mcp_tatara_orchestrator.admin import ADMIN_TOOLS
+from any_mcp_tatara_orchestrator.admin import ADMIN_MERGED, ADMIN_TOOLS
 
 OLD_UNIT = "clus" + "ter"
 TOKEN = "s3cr3t-token-value"
@@ -64,10 +64,8 @@ SPEC_TOOLS = {
 MINDMAP_TOOLS = {
     f"orchestrator_mindmap_{n}"
     for n in (
-        "map_list", "map_get", "map_create", "map_update", "node_get", "node_history", "search",
-        "traverse", "node_create", "node_update", "note_put", "growth_area_update",
-        "edge_create", "edge_delete", "link", "task_nodes", "direction_list",
-        "direction_create", "direction_update",
+        "map", "node", "edge", "direction", "search", "traverse", "note_put",
+        "growth_area_update", "link", "task_nodes",
     )
 }  # fmt: skip
 PLAN_TOOLS = {
@@ -118,7 +116,7 @@ async def test_lists_all_tools() -> None:
         | SPEC_TOOLS
         | PLAN_TOOLS
         | MINDMAP_TOOLS
-        | {f"orchestrator_{r.name}" for r in ADMIN_TOOLS}
+        | {f"orchestrator_{r.name}" for r in (*ADMIN_TOOLS, *ADMIN_MERGED)}
     )
     assert set(await descriptions()) == every
     assert set(await descriptions(hive=False)) == every
@@ -588,6 +586,7 @@ async def test_no_io_at_load() -> None:
         + len(PLAN_TOOLS)
         + len(MINDMAP_TOOLS)
         + len(ADMIN_TOOLS)
+        + len(ADMIN_MERGED)
     )
 
 
@@ -964,10 +963,35 @@ async def test_old_names_absent(name: str) -> None:
     assert f"orchestrator_{name}" not in set(await tools_by_name())
 
 
+# Names merged into another tool by S-83 (905-918); history_get, proposal_get, vault_attach,
+# volume_attach, session_restart and session_commands stay as the merged names.
+MERGED_AWAY_ADMIN = (
+    "volumes_status", "volumes_list", "volume_get", "vault_detach", "volume_detach",
+    "proposal_create", "proposal_revise", "proposals_list", "proposal_withdraw", "agent_restart",
+    "command_get", "usage_get", "usage_history", "usage_sessions", "webhooks_list",
+    "webhook_get_meta", "webhook_create", "webhook_update", "webhook_clone", "webhook_rotate",
+    "webhook_delete", "webhook_filters_set", "webhook_events", "webhook_event",
+    "webhook_template_preview", "schedules_list", "schedule_get", "schedule_create",
+    "schedule_update", "schedule_delete", "schedule_run", "schedule_runs", "schedule_runs_all",
+    "schedule_run_get", "schedule_preview", "chat_room_settings", "chat_users",
+    "chat_room_allow", "chat_open", "chat_open_status", "chat_open_confirm", "chat_rules",
+    "chat_rule_add", "chat_rule_delete", "history_records", "handoffs_list", "handoff_get",
+    "backups_list", "backup_versions", "backup_manifest", "mindmap_map_list", "mindmap_map_get",
+    "mindmap_map_create", "mindmap_map_update", "mindmap_node_get", "mindmap_node_history",
+    "mindmap_node_create", "mindmap_node_update", "mindmap_edge_create", "mindmap_edge_delete",
+    "mindmap_direction_list", "mindmap_direction_create", "mindmap_direction_update",
+)  # fmt: skip
+
+
+@pytest.mark.parametrize("name", MERGED_AWAY_ADMIN)
+async def test_old_admin_names_absent(name: str) -> None:
+    assert f"orchestrator_{name}" not in set(await tools_by_name())
+
+
 def test_no_text_names_removed_tool() -> None:
     src = Path(__file__).resolve().parents[1] / "src" / "any_mcp_tatara_orchestrator"
     pattern = re.compile(
-        r"\b(orchestrator_)?(" + "|".join(REMOVED_TOOLS + MERGED_AWAY) + r")\b|"
+        r"\b(orchestrator_)?(" + "|".join(REMOVED_TOOLS + MERGED_AWAY + MERGED_AWAY_ADMIN) + r")\b|"
         r"<session-message"
         r"|mcp__ccw__(send_message|peers)|<agent-message"
     )
@@ -1247,8 +1271,8 @@ SHARED_TOOLS = (
     "chat_history",
     "sessions_admin_list",
     "session_events",
-    "handoffs_list",
-    "handoff_get",
+    "handoffs",
+    "history_get",
     "session_send",
 )
 

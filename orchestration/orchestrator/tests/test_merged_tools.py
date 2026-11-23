@@ -1,4 +1,4 @@
-"""S-83 merges 886-902: each merged tool's op reaches its route with its arguments."""
+"""S-83 merges 886-918: each merged tool's op reaches its route with its arguments."""
 
 from __future__ import annotations
 
@@ -221,6 +221,279 @@ CASES: list[tuple[str, dict[str, Any], tuple[str, str, str, Any]]] = [
         ),
     ),
 ]
+# S-83 905-916: the merged admin tools.
+_SID = "6f1c1c0e-0000-4000-8000-000000000001"
+_EVERY_HOOK = {"type": "github", "preset_id": "p"}
+_SCHED = {"name": "n", "cron": "* * * * *", "preset_id": "p", "prompt": "x"}
+ADMIN_CASES: list[tuple[str, dict[str, Any], tuple[str, str, str, Any]]] = [
+    ("volumes", {}, ("GET", f"{_V}/volumes", "", None)),
+    ("volumes", {"scope": "all"}, ("GET", f"{_ADM}/volumes", "", None)),
+    ("volumes", {"scope": "all", "volume_id": "v-1"}, ("GET", f"{_ADM}/volumes/v-1", "", None)),
+    ("volumes", {"volume_id": "v-1"}, ("GET", f"{_ADM}/volumes/v-1", "", None)),
+    (
+        "vault_attach",
+        {"ref": "web", "entry_id": "E1", "envs": {"TOK": "BOT_TOKEN"}, "replace": True},
+        (
+            "PUT",
+            f"{_ADM}/presets/web/vault/E1",
+            "",
+            {"envs": {"TOK": "BOT_TOKEN"}, "replace": True},
+        ),
+    ),
+    (
+        "vault_attach",
+        {"ref": "web", "entry_id": "E1", "detach": True, "env": "TOK"},
+        ("DELETE", f"{_ADM}/presets/web/vault/E1", "env=TOK", None),
+    ),
+    (
+        "volume_attach",
+        {
+            "ref": "dev",
+            "volume_id": "v-1",
+            "mode": "rw",
+            "mount_path": "/d",
+            "backup_restore": True,
+        },
+        (
+            "POST",
+            f"{_ADM}/presets/dev/volumes/v-1",
+            "",
+            {"mode": "rw", "mount_path": "/d", "backup_restore": True},
+        ),
+    ),
+    (
+        "volume_attach",
+        {"ref": "dev", "volume_id": "v-1", "detach": True},
+        ("DELETE", f"{_ADM}/presets/dev/volumes/v-1", "", None),
+    ),
+    (
+        "proposal_put",
+        {"op": "create", "kind": "preset", "target": "web", "patch": {"a": 1}, "reason": "r"},
+        (
+            "POST",
+            f"{_ADM}/proposals",
+            "",
+            {"kind": "preset", "target": "web", "patch": {"a": 1}, "reason": "r"},
+        ),
+    ),
+    (
+        "proposal_put",
+        {"op": "revise", "id": 5, "patch": {"a": 2}},
+        ("POST", f"{_ADM}/proposals/5/revise", "", {"patch": {"a": 2}}),
+    ),
+    (
+        "proposal_put",
+        {"op": "withdraw", "id": 7},
+        ("POST", f"{_ADM}/proposals/7/withdraw", "", None),
+    ),
+    (
+        "proposal_get",
+        {"status": "all", "limit": 5},
+        ("GET", f"{_ADM}/proposals", "status=all&limit=5", None),
+    ),
+    ("proposal_get", {"id": 7}, ("GET", f"{_ADM}/proposals/7", "", None)),
+    ("session_restart", {"slug": "s"}, ("POST", f"{_ADM}/sessions/s/restart", "", None)),
+    (
+        "session_restart",
+        {"scope": "agent", "slug": "s", "pod": "p-0"},
+        ("POST", f"{_ADM}/sessions/s/agents/p-0/restart", "", None),
+    ),
+    (
+        "session_commands",
+        {"slug": "s", "limit": 5},
+        ("GET", f"{_ADM}/sessions/s/commands", "limit=5", None),
+    ),
+    ("session_commands", {"command_id": "c1"}, ("GET", f"{_ADM}/commands/c1", "", None)),
+    ("usage", {}, ("GET", f"{_ADM}/usage", "", None)),
+    (
+        "usage",
+        {"what": "history", "metric": "five_hour", "max_points": 10},
+        ("GET", f"{_ADM}/usage/history", "metric=five_hour&max_points=10", None),
+    ),
+    (
+        "usage",
+        {"what": "sessions", "from": "2026-01-01", "limit": 3},
+        ("GET", f"{_ADM}/usage/sessions", "from=2026-01-01&limit=3", None),
+    ),
+    ("webhook", {"action": "list"}, ("GET", f"{_ADM}/webhooks/endpoints", "", None)),
+    ("webhook", {"action": "meta"}, ("GET", f"{_ADM}/webhooks/meta", "", None)),
+    (
+        "webhook",
+        {"action": "create", **_EVERY_HOOK, "auth_mode": "hmac"},
+        ("POST", f"{_ADM}/webhooks/endpoints", "", {**_EVERY_HOOK, "auth_mode": "hmac"}),
+    ),
+    (
+        "webhook",
+        {"action": "update", "id": "e1", "then_schedule_ids": None},
+        ("PATCH", f"{_ADM}/webhooks/endpoints/e1", "", {"then_schedule_ids": None}),
+    ),
+    (
+        "webhook",
+        {"action": "clone", "id": "e1", "suffix": "b"},
+        ("POST", f"{_ADM}/webhooks/endpoints/e1/clone", "", {"suffix": "b"}),
+    ),
+    (
+        "webhook",
+        {"action": "rotate", "id": "e1", "username": "u"},
+        ("POST", f"{_ADM}/webhooks/endpoints/e1/rotate", "", {"username": "u"}),
+    ),
+    (
+        "webhook",
+        {"action": "delete", "id": "e1"},
+        ("DELETE", f"{_ADM}/webhooks/endpoints/e1", "", None),
+    ),
+    (
+        "webhook",
+        {"action": "filters", "id": "e1", "allow": [], "deny": ["x"]},
+        ("PUT", f"{_ADM}/webhooks/endpoints/e1/filters", "", {"allow": [], "deny": ["x"]}),
+    ),
+    (
+        "webhook",
+        {"action": "events", "status": "queued", "limit": 5},
+        ("GET", f"{_ADM}/webhooks/events", "status=queued&limit=5", None),
+    ),
+    ("webhook", {"action": "event", "id": "v1"}, ("GET", f"{_ADM}/webhooks/events/v1", "", None)),
+    (
+        "webhook",
+        {"action": "preview", "type": "github", "example": {"a": 1}},
+        ("POST", f"{_ADM}/webhooks/templates/preview", "", {"type": "github", "example": {"a": 1}}),
+    ),
+    ("schedule", {"action": "list"}, ("GET", f"{_ADM}/schedules/schedules", "", None)),
+    (
+        "schedule",
+        {"action": "get", "schedule_id": "7"},
+        ("GET", f"{_ADM}/schedules/schedules/7", "", None),
+    ),
+    (
+        "schedule",
+        {"action": "create", **_SCHED, "enabled": True},
+        ("POST", f"{_ADM}/schedules/schedules", "", {**_SCHED, "enabled": True}),
+    ),
+    (
+        "schedule",
+        {"action": "update", "schedule_id": "7", **_SCHED, "then_schedule_ids": []},
+        ("PUT", f"{_ADM}/schedules/schedules/7", "", {**_SCHED, "then_schedule_ids": []}),
+    ),
+    (
+        "schedule",
+        {"action": "delete", "schedule_id": "7"},
+        ("DELETE", f"{_ADM}/schedules/schedules/7", "", None),
+    ),
+    (
+        "schedule",
+        {"action": "run", "schedule_id": "7"},
+        ("POST", f"{_ADM}/schedules/schedules/7/run", "", None),
+    ),
+    (
+        "schedule",
+        {"action": "runs", "schedule_id": "7", "limit": 3},
+        ("GET", f"{_ADM}/schedules/schedules/7/runs", "limit=3", None),
+    ),
+    (
+        "schedule",
+        {"action": "runs_all", "status": "failed"},
+        ("GET", f"{_ADM}/schedules/runs", "status=failed", None),
+    ),
+    (
+        "schedule",
+        {"action": "run_get", "run_id": "r1"},
+        ("GET", f"{_ADM}/schedules/runs/r1", "", None),
+    ),
+    (
+        "schedule",
+        {"action": "preview", "cron": "* * * * *", "timezone": None},
+        (
+            "POST",
+            f"{_ADM}/schedules/schedules/preview",
+            "",
+            {"cron": "* * * * *", "timezone": None},
+        ),
+    ),
+    (
+        "chat_connector",
+        {"action": "settings", "room_id": "r1", "agent_aliases": []},
+        ("PUT", f"{_ADM}/chats/rooms/r1/settings", "", {"agent_aliases": []}),
+    ),
+    (
+        "chat_connector",
+        {"action": "allow", "room_id": "r1", "trigger": "mention"},
+        ("POST", f"{_ADM}/chats/rooms/r1/allow", "", {"trigger": "mention"}),
+    ),
+    (
+        "chat_connector",
+        {"action": "users", "q": "ann", "limit": 5},
+        ("GET", f"{_ADM}/chats/users", "q=ann&limit=5", None),
+    ),
+    (
+        "chat_connector",
+        {"action": "open", "target": "ann", "task_key": "T-1"},
+        (
+            "POST",
+            f"{_ADM}/chats/room-requests",
+            "",
+            {"action": "open", "target": "ann", "task_key": "T-1"},
+        ),
+    ),
+    (
+        "chat_connector",
+        {"action": "invite", "target": "ann", "task_key": "T-1", "room_id": "r1"},
+        (
+            "POST",
+            f"{_ADM}/chats/room-requests",
+            "",
+            {"action": "invite", "target": "ann", "task_key": "T-1", "room_id": "r1"},
+        ),
+    ),
+    (
+        "chat_connector",
+        {"action": "open_status", "request_id": "7"},
+        ("GET", f"{_ADM}/chats/room-requests/7", "", None),
+    ),
+    (
+        "chat_connector",
+        {"action": "open_confirm", "request_id": "7"},
+        ("POST", f"{_ADM}/chats/room-requests/7/confirm", "", {}),
+    ),
+    ("chat_connector", {"action": "rules"}, ("GET", f"{_ADM}/chats/rules", "", None)),
+    (
+        "chat_connector",
+        {"action": "rule_add", "list": "deny", "kind": "user", "value": "x"},
+        ("POST", f"{_ADM}/chats/rules", "", {"list": "deny", "kind": "user", "value": "x"}),
+    ),
+    (
+        "chat_connector",
+        {"action": "rule_delete", "rule_id": "3"},
+        ("DELETE", f"{_ADM}/chats/rules/3", "", None),
+    ),
+    ("history_get", {"session_id": _SID}, ("GET", f"{_ADM}/history/sessions/{_SID}", "", None)),
+    (
+        "history_get",
+        {"session_id": _SID, "records": True, "kind": "event", "after_id": 0, "limit": 5},
+        (
+            "GET",
+            f"{_ADM}/history/sessions/{_SID}/records",
+            "kind=event&after_id=0&limit=5",
+            None,
+        ),
+    ),
+    (
+        "handoffs",
+        {"session": "mx-1", "limit": 3},
+        ("GET", f"{_ADM}/handoffs", "session=mx-1&limit=3", None),
+    ),
+    ("handoffs", {"id": 4}, ("GET", f"{_ADM}/handoffs/4", "", None)),
+    ("backups", {"q": "a"}, ("GET", f"{_ADM}/backups", "q=a", None)),
+    (
+        "backups",
+        {"name": "a", "limit": 5},
+        ("GET", f"{_ADM}/backups/a/versions", "limit=5", None),
+    ),
+    (
+        "backups",
+        {"name": "a", "version": "v1"},
+        ("GET", f"{_ADM}/backups/a/versions/v1/manifest", "", None),
+    ),
+]
 # Routes the orchestrator relays through a catch-all (``/specs/{path}``, ``/tasks/{path}``).
 _RELAYED = re.compile(r"^/agent/v1/(specs|tasks)/")
 
@@ -251,8 +524,7 @@ def _task() -> dict[str, Any]:
     return {"key": "T-1", "version": 1, "url": "u", "todo": [], "comments": []}
 
 
-@pytest.mark.parametrize(("tool", "args", "expected"), CASES)
-async def test_merged_op_routes(tool: str, args: dict[str, Any], expected: tuple) -> None:
+async def _routed(tool: str, args: dict[str, Any], expected: tuple) -> None:
     seen: list[tuple[str, str, str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -267,6 +539,16 @@ async def test_merged_op_routes(tool: str, args: dict[str, Any], expected: tuple
     assert _known(expected[0], expected[1]), expected
 
 
+@pytest.mark.parametrize(("tool", "args", "expected"), CASES)
+async def test_merged_op_routes(tool: str, args: dict[str, Any], expected: tuple) -> None:
+    await _routed(tool, args, expected)
+
+
+@pytest.mark.parametrize(("tool", "args", "expected"), ADMIN_CASES)
+async def test_merged_admin_op_routes(tool: str, args: dict[str, Any], expected: tuple) -> None:
+    await _routed(tool, args, expected)
+
+
 _MISSING = [
     ("lock", {"action": "claim"}, "paths"),
     ("todo", {"op": "update", "key": "T-1"}, "item_id"),
@@ -276,12 +558,17 @@ _MISSING = [
     ("spec_comment", {"op": "resolve", "spec": "S-1"}, "id"),
     ("chat_notes", {"op": "update", "section": "requests", "body": "b"}, "expected_version"),
     ("chat_attachment", {"op": "status"}, "request_id"),
+    ("schedule", {"action": "runs"}, "schedule_id"),
+    ("chat_connector", {"action": "invite", "target": "a", "task_key": "T-1"}, "room_id"),
+    ("mindmap_node", {"op": "update", "key": "N-1", "notes": "x"}, "version"),
 ]
 _FOREIGN = [
     ("lock", {"action": "claim", "paths": ["a"], "slug": "x"}, "claim+slug"),
     ("scale", {"replicas": 2, "to": "x"}, "to"),
     ("todo", {"op": "set", "key": "T-1", "items": [], "text": "x"}, "text"),
     ("project", {"action": "grant", "ref": "x", "project": "p", "reason": "r"}, "grant"),
+    ("webhook", {"action": "delete", "id": "e1", "to_file": "/tmp/x"}, "to_file"),
+    ("backups", {"version": "v1"}, "version"),
 ]
 
 

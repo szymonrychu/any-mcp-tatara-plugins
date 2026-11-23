@@ -1,15 +1,16 @@
 """The mindmap tools: maps, nodes, edges, notes, links and directions relayed by the orchestrator.
 
 The orchestrator relays ``/agent/v1/mindmap/{path}`` to the mindmap service (GET, POST, PATCH and
-DELETE, an allowlisted route surface; anything else is 404). The plugin registers all 19 tools
+DELETE, an allowlisted route surface; anything else is 404). The plugin registers all 10 tools
 statically, with no ``/meta`` lookup: the orchestrator's rendered ``allow`` list
 (``orchestrator_allow`` in ``k8s/on_start.py``, ``MINDMAP_TOOLS``) decides whether a session sees
 them, and it lists them only when the orchestrator has a mindmap upstream.
 
-Three tools cover more than one service route; ``route`` picks the binding from the arguments:
-``mindmap_node_history`` (version list or one version), ``mindmap_growth_area_update`` (add to a
-node by ``N-n`` key, patch one by ``G-n`` key) and ``mindmap_link`` (add to a map or node,
-remove by link id). Their nominal binding is the first route.
+``mindmap_map``, ``mindmap_node``, ``mindmap_edge`` and ``mindmap_direction`` are merged tools
+(``merged.py``): ``op`` picks the route. Two more tools cover more than one service route;
+``route`` picks the binding from the arguments: ``mindmap_growth_area_update`` (add to a node by
+``N-n`` key, patch one by ``G-n`` key) and ``mindmap_link`` (add to a map or node, remove by link
+id). Their nominal binding is the first route.
 """
 
 from __future__ import annotations
@@ -20,7 +21,9 @@ from typing import Any
 from any_mcp.errors import ToolInputError
 from any_mcp.types import HttpBinding, ToolCall, ToolSpec
 
-__all__ = ["mindmap_tools", "route"]
+from .merged import Merged, Route
+
+__all__ = ["MINDMAP_MERGED", "mindmap_tools", "route"]
 
 _BASE = "/agent/v1/mindmap"
 _GUARD = (
@@ -119,80 +122,6 @@ def mindmap_tools(base_url: str) -> list[ToolSpec]:
 
     return [
         _tool(
-            "mindmap_map_list",
-            "List mind maps (key, slug, title, kind research|knowledge, status, node count, open "
-            "directions). You read your active project only.",
-            _schema(
-                {
-                    "project": _PROJECT,
-                    "status": {"enum": ["active", "archived"]},
-                    "kind": {"enum": ["research", "knowledge"]},
-                }
-            ),
-            bind("GET", "/maps", query=("project", "status", "kind")),
-            read=True,
-        ),
-        _tool(
-            "mindmap_map_get",
-            "Read one map as a graph: node keys, topics, status and parents, and the extra "
-            "edges. Notes are not inlined: read a node with orchestrator_mindmap_node_get. "
-            "depth limits the tree depth below the root (default 10).",
-            _schema({"key": _M, "depth": {"type": "integer", "minimum": 0}}, ["key"]),
-            bind("GET", "/maps/{key}/graph", query=("depth",)),
-            read=True,
-        ),
-        _tool(
-            "mindmap_map_create",
-            "Create a map in a project. kind research (default) holds a research trail, "
-            "knowledge holds durable notes. slug is unique per project. root_topic creates the "
-            "root node. client_key makes a retry return the first result.",
-            _schema(
-                {
-                    "project": _PROJECT,
-                    "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
-                    "title": {"type": "string", "minLength": 1, "maxLength": 200},
-                    "kind": {"enum": ["research", "knowledge"]},
-                    "description": {"type": "string", "maxLength": 8192},
-                    "root_topic": {"type": "string", "minLength": 1, "maxLength": 200},
-                    "client_key": _CLIENT_KEY,
-                },
-                ["project", "slug", "title"],
-            ),
-            bind("POST", "/maps", body="*"),
-        ),
-        _tool(
-            "mindmap_map_update",
-            "Change a map's title or description, or archive it (status archived; maps are "
-            "never hard-deleted by agents). version is required.",
-            _schema(
-                {
-                    "key": _M,
-                    "version": _VERSION,
-                    "title": {"type": "string", "minLength": 1, "maxLength": 200},
-                    "description": {"type": "string", "maxLength": 8192},
-                    "status": {"enum": ["active", "archived"]},
-                },
-                ["key", "version"],
-            ),
-            bind("PATCH", "/maps/{key}", body="*"),
-        ),
-        _tool(
-            "mindmap_node_get",
-            "Read one node in full: topic, notes, status, parent, growth areas, edges, links and "
-            "version.",
-            _schema({"key": _N}, ["key"]),
-            bind("GET", "/nodes/{key}"),
-            read=True,
-        ),
-        _tool(
-            "mindmap_node_history",
-            "List a node's versions (version, author, summary, time); with version, read that "
-            "version's full text.",
-            _schema({"key": _N, "version": {"type": "integer", "minimum": 1}}, ["key"]),
-            bind("GET", "/nodes/{key}/versions"),
-            read=True,
-        ),
-        _tool(
             "mindmap_search",
             "Search nodes by text. mode hybrid (default), lexical or semantic; scope own "
             "(default, your project) or all projects; map and status narrow it. Results carry "
@@ -235,39 +164,6 @@ def mindmap_tools(base_url: str) -> list[ToolSpec]:
             read=True,
         ),
         _tool(
-            "mindmap_node_create",
-            "Publish a full node in a map: topic, notes, summary, status (default seed), parent, "
-            "growth_areas (texts), links to tasks or specs, edges to other nodes, client_key.",
-            _schema(
-                {
-                    "key": _M,
-                    **_NODE_FIELDS,
-                    "status": {"enum": _NODE_STATUS},
-                    "growth_areas": {
-                        "type": "array",
-                        "items": {"type": "string", "minLength": 1, "maxLength": 500},
-                        "maxItems": 50,
-                    },
-                    "links": {"type": "array", "items": _LINK, "maxItems": 20},
-                    "edges": {"type": "array", "items": _EDGE, "maxItems": 20},
-                    "client_key": _CLIENT_KEY,
-                },
-                ["key", "topic"],
-            ),
-            bind("POST", "/maps/{key}/nodes", body="*"),
-        ),
-        _tool(
-            "mindmap_node_update",
-            "Change a node: topic, notes with a summary of the change, status, or parent (a "
-            "re-parent). version is required; a stale one is refused 409, so re-read the node "
-            "and merge.",
-            _schema(
-                {"key": _N, "version": _VERSION, **_NODE_FIELDS, "status": {"enum": _NODE_STATUS}},
-                ["key", "version"],
-            ),
-            bind("PATCH", "/nodes/{key}", body="*"),
-        ),
-        _tool(
             "mindmap_note_put",
             "Capture durable knowledge as a note in your project's knowledge map: topic, notes, "
             "summary, optional parent node, links, edges, client_key.",
@@ -307,28 +203,6 @@ def mindmap_tools(base_url: str) -> list[ToolSpec]:
             bind("POST", "/nodes/{key}/growth-areas", body="*"),
         ),
         _tool(
-            "mindmap_edge_create",
-            "Add an edge between two nodes: kind relates_to (default), builds_on, derived_from, "
-            "contradicts, supersedes or see_also.",
-            _schema(
-                {
-                    "src": _N,
-                    "dst": _N,
-                    "kind": {"enum": _EDGE_KINDS},
-                    "note": {"type": "string", "maxLength": 500},
-                },
-                ["src", "dst"],
-            ),
-            bind("POST", "/edges", body="*"),
-        ),
-        _tool(
-            "mindmap_edge_delete",
-            "Delete an edge by key E-n.",
-            _schema({"key": {"type": "string", "pattern": "^E-[1-9][0-9]{0,17}$"}}, ["key"]),
-            bind("DELETE", "/edges/{key}"),
-            destructive=True,
-        ),
-        _tool(
             "mindmap_link",
             "Link a map or node to a task or spec, or remove a link. action add: target (M-n or "
             "N-n), ref (T-n or S-n), relation (default researched_by), note. action remove: "
@@ -353,55 +227,6 @@ def mindmap_tools(base_url: str) -> list[ToolSpec]:
             _schema({"key": {"type": "string", "pattern": "^(T|S)-[1-9][0-9]{0,17}$"}}, ["key"]),
             bind("GET", "/links", query=("key",)),
             read=True,
-        ),
-        _tool(
-            "mindmap_direction_list",
-            "List directions (steering from the user: look at X) by project, map and status "
-            "open|acknowledged|resolved|withdrawn.",
-            _schema(
-                {
-                    "project": _PROJECT,
-                    "map": _M,
-                    "status": {"enum": ["open", "acknowledged", "resolved", "withdrawn"]},
-                }
-            ),
-            bind("GET", "/directions", query=("project", "map", "status")),
-            read=True,
-        ),
-        _tool(
-            "mindmap_direction_create",
-            "Point a map in a new direction: text, an optional node, an optional task, and seed "
-            "growth_areas.",
-            _schema(
-                {
-                    "key": _M,
-                    "text": {"type": "string", "minLength": 1, "maxLength": 8192},
-                    "node": _N,
-                    "task": _T,
-                    "growth_areas": {
-                        "type": "array",
-                        "items": {"type": "string", "minLength": 1, "maxLength": 500},
-                        "maxItems": 20,
-                    },
-                },
-                ["key", "text"],
-            ),
-            bind("POST", "/maps/{key}/directions", body="*"),
-        ),
-        _tool(
-            "mindmap_direction_update",
-            "Move a direction (D-n): action acknowledge, resolve (with a resolution text) or "
-            "withdraw. version is required.",
-            _schema(
-                {
-                    "key": {"type": "string", "pattern": "^D-[1-9][0-9]{0,17}$"},
-                    "version": _VERSION,
-                    "action": {"enum": ["acknowledge", "resolve", "withdraw"]},
-                    "resolution": {"type": "string", "maxLength": 4096},
-                },
-                ["key", "version", "action"],
-            ),
-            bind("PATCH", "/directions/{key}", body="*"),
         ),
     ]
 
@@ -429,16 +254,6 @@ def route(call: ToolCall) -> ToolCall:
         )
         return dataclasses.replace(call, spec=spec, arguments=rest)
 
-    if name == "mindmap_node_history":
-        if args.get("version") is None:
-            return to("GET", "/nodes/{key}/versions", body=False, key=args["key"])
-        return to(
-            "GET",
-            "/nodes/{key}/versions/{version}",
-            body=False,
-            key=args["key"],
-            version=args["version"],
-        )
     if name == "mindmap_growth_area_update":
         key = args.pop("key")
         if key.startswith("N-"):
@@ -458,4 +273,195 @@ def route(call: ToolCall) -> ToolCall:
     return to("POST", path, target=target, **rest)
 
 
-_ROUTED = frozenset({"mindmap_node_history", "mindmap_growth_area_update", "mindmap_link"})
+_ROUTED = frozenset({"mindmap_growth_area_update", "mindmap_link"})
+
+
+_MM = "/mindmap"
+_OP_WRITE = {**_WRITE, "openWorldHint": False}
+_DIRECTION_STATUS = ["open", "acknowledged", "resolved", "withdrawn"]
+_SEEDS = {
+    "type": "array",
+    "items": {"type": "string", "minLength": 1, "maxLength": 500},
+    "maxItems": 50,
+}
+_NODE_SET = ("notes", "summary", "parent", "status")
+_NODE_UPDATE = Route(
+    "PATCH", f"{_MM}/nodes/{{key}}", ("key", "version"), ("topic", *_NODE_SET), body=True
+)
+_NODE_VERSION = Route("GET", f"{_MM}/nodes/{{key}}/versions/{{version}}", ("key", "version"))
+MINDMAP_MERGED: tuple[Merged, ...] = (
+    Merged(
+        "mindmap_map",
+        "Mind maps. op list (project, status, kind): key, slug, title, kind research|knowledge, "
+        "status, node count, open directions; you read your active project only. op get (key, "
+        "depth, default 10): one map as a graph: node keys, topics, status and parents, and the "
+        "extra edges; notes are not inlined (mindmap_node op get). op create (project, slug, "
+        "title, kind research (default) or knowledge, description, root_topic, client_key); slug "
+        "is unique per project. op update (key, version, title, description, status archived; "
+        "maps are never hard-deleted by agents)." + _GUARD,
+        {
+            "op": {"type": "string", "enum": ["list", "get", "create", "update"]},
+            "key": _M,
+            "project": _PROJECT,
+            "status": {"enum": ["active", "archived"]},
+            "kind": {"enum": ["research", "knowledge"]},
+            "depth": {"type": "integer", "minimum": 0},
+            "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
+            "title": {"type": "string", "minLength": 1, "maxLength": 200},
+            "description": {"type": "string", "maxLength": 8192},
+            "root_topic": {"type": "string", "minLength": 1, "maxLength": 200},
+            "version": _VERSION,
+            "client_key": _CLIENT_KEY,
+        },
+        {
+            "list": Route(
+                "GET",
+                f"{_MM}/maps",
+                (),
+                ("project", "status", "kind"),
+                query=("project", "status", "kind"),
+            ),
+            "get": Route(
+                "GET", f"{_MM}/maps/{{key}}/graph", ("key",), ("depth",), query=("depth",)
+            ),
+            "create": Route(
+                "POST",
+                f"{_MM}/maps",
+                ("project", "slug", "title"),
+                ("kind", "description", "root_topic", "client_key"),
+                body=True,
+            ),
+            "update": Route(
+                "PATCH",
+                f"{_MM}/maps/{{key}}",
+                ("key", "version"),
+                ("title", "description", "status"),
+                body=True,
+            ),
+        },
+        selectors=("op",),
+        required=("op",),
+        annotations=_OP_WRITE,
+    ),
+    Merged(
+        "mindmap_node",
+        "Mind map nodes. op get (key N-n): one node in full: topic, notes, status, parent, "
+        "growth areas, edges, links and version. op history (key): its versions (version, "
+        "author, summary, time); with version that version's full text. op create (key M-n of "
+        "the map, topic, notes, summary, status default seed, parent, growth_areas, links, "
+        "edges, client_key) publishes a full node. op update (key, version, topic, notes with "
+        "a summary of the change, status, parent to re-parent); a stale version is refused 409: "
+        "re-read the node and merge." + _GUARD,
+        {
+            "op": {"type": "string", "enum": ["get", "history", "create", "update"]},
+            "key": {
+                "type": "string",
+                "pattern": "^[MN]-[1-9][0-9]{0,17}$",
+                "description": "Node key N-n (op create: the map key M-n).",
+            },
+            "version": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "op history: the version to read; op update: the version you "
+                "read (a stale one is refused 409 with the current version).",
+            },
+            **_NODE_FIELDS,
+            "status": {"enum": _NODE_STATUS},
+            "growth_areas": _SEEDS,
+            "links": {"type": "array", "items": _LINK, "maxItems": 20},
+            "edges": {"type": "array", "items": _EDGE, "maxItems": 20},
+            "client_key": _CLIENT_KEY,
+        },
+        {
+            "get": Route("GET", f"{_MM}/nodes/{{key}}", ("key",)),
+            "history": Route("GET", f"{_MM}/nodes/{{key}}/versions", ("key",)),
+            "history+version": _NODE_VERSION,
+            "create": Route(
+                "POST",
+                f"{_MM}/maps/{{key}}/nodes",
+                ("key", "topic"),
+                (*_NODE_SET, "growth_areas", "links", "edges", "client_key"),
+                body=True,
+            ),
+            # Without version the update op still resolves, to refuse the missing version.
+            "update": _NODE_UPDATE,
+            "update+version": _NODE_UPDATE,
+        },
+        selectors=("op",),
+        scopes=("version",),
+        required=("op", "key"),
+        annotations=_OP_WRITE,
+    ),
+    Merged(
+        "mindmap_edge",
+        "Edges between mind map nodes. op create (src, dst, kind relates_to (default), "
+        "builds_on, derived_from, contradicts, supersedes or see_also, note). op delete (key "
+        "E-n)." + _GUARD,
+        {
+            "op": {"type": "string", "enum": ["create", "delete"]},
+            "src": _N,
+            "dst": _N,
+            "kind": {"enum": _EDGE_KINDS},
+            "note": {"type": "string", "maxLength": 500},
+            "key": {"type": "string", "pattern": "^E-[1-9][0-9]{0,17}$"},
+        },
+        {
+            "create": Route("POST", f"{_MM}/edges", ("src", "dst"), ("kind", "note"), body=True),
+            "delete": Route("DELETE", f"{_MM}/edges/{{key}}", ("key",)),
+        },
+        selectors=("op",),
+        required=("op",),
+        annotations={**_OP_WRITE, "destructiveHint": True},
+    ),
+    Merged(
+        "mindmap_direction",
+        "Directions (steering from the user: look at X). op list (project, map, status open|"
+        "acknowledged|resolved|withdrawn). op create (key M-n, text, an optional node and task, "
+        "seed growth_areas) points a map in a new direction. op update (key D-n, version, "
+        "action acknowledge, resolve with a resolution text, or withdraw)." + _GUARD,
+        {
+            "op": {"type": "string", "enum": ["list", "create", "update"]},
+            "key": {
+                "type": "string",
+                "pattern": "^[MD]-[1-9][0-9]{0,17}$",
+                "description": "op create: map key M-n; op update: direction key D-n.",
+            },
+            "project": _PROJECT,
+            "map": _M,
+            "status": {"enum": _DIRECTION_STATUS},
+            "text": {"type": "string", "minLength": 1, "maxLength": 8192},
+            "node": _N,
+            "task": _T,
+            "growth_areas": {**_SEEDS, "maxItems": 20},
+            "version": _VERSION,
+            "action": {"enum": ["acknowledge", "resolve", "withdraw"]},
+            "resolution": {"type": "string", "maxLength": 4096},
+        },
+        {
+            "list": Route(
+                "GET",
+                f"{_MM}/directions",
+                (),
+                ("project", "map", "status"),
+                query=("project", "map", "status"),
+            ),
+            "create": Route(
+                "POST",
+                f"{_MM}/maps/{{key}}/directions",
+                ("key", "text"),
+                ("node", "task", "growth_areas"),
+                body=True,
+            ),
+            "update": Route(
+                "PATCH",
+                f"{_MM}/directions/{{key}}",
+                ("key", "version", "action"),
+                ("resolution",),
+                body=True,
+            ),
+        },
+        selectors=("op",),
+        required=("op",),
+        annotations=_OP_WRITE,
+    ),
+)

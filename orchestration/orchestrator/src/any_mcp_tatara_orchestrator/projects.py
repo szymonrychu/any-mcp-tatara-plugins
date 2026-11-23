@@ -33,8 +33,8 @@ PROJECT_MERGED = (
         "project (target session or preset, ref its slug or preset id or name). A grant is a "
         "change proposal the user approves on the Proposals page (202 with the proposal, "
         "follow it with proposal_get; 200 with the first proposal on a client_key replay); "
-        "withdraw it with proposal_withdraw and grant again. At most 9 extra projects. Grant "
-        "errors: own_project, already_granted, unknown_project, project_archived, "
+        "withdraw it with proposal_put op withdraw and grant again. At most 9 extra projects. "
+        "Grant errors: own_project, already_granted, unknown_project, project_archived, "
         "too_many_projects, not_found. A revoke applies at once; running sessions keep the "
         "extra projects a preset revoke removes. Writes on a target that is not manageable "
         "answer 403 not_manageable.",
