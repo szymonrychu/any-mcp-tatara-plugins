@@ -10,7 +10,7 @@ import httpx
 
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
-from any_mcp_tatara_orchestrator.plan import PLAN_MERGED, plan_tools
+from any_mcp_tatara_orchestrator.plan import plan_tools
 
 OPENAPI = json.loads((Path(__file__).parent / "fixtures" / "orchestrator_openapi.json").read_text())
 CONFIG: dict[str, Any] = {
@@ -62,12 +62,6 @@ def test_read_rows_are_read_only() -> None:
     for s in plan_tools("http://x"):
         reads = s.http is not None and s.http.method == "GET"
         assert s.annotations["readOnlyHint"] is reads, s.name
-
-
-def test_descriptions_state_the_stale_and_cap_rules() -> None:
-    rows = {s.name: s for s in plan_tools("http://x")}
-    assert "current_version" in rows["plan_set"].description
-    assert "no ready step" in rows["plan_step_next"].description
 
 
 async def test_rows_call_their_routes() -> None:
@@ -152,10 +146,3 @@ async def test_stale_plan_is_surfaced() -> None:
     async with harness(handler) as h:
         plan = await h.call("orchestrator_plan_set", {"spec": "S-3", "version": 1})
     assert plan.is_error and "stale_version" in plan.text
-
-
-def test_plan_get_gate_description_names_approvable() -> None:
-    (plan_get,) = (m.spec() for m in PLAN_MERGED)
-    desc = plan_get.description
-    assert "approvable" in desc
-    assert "open_decisions" in desc

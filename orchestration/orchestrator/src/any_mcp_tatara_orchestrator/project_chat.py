@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from any_mcp.types import HttpBinding, ToolSpec
 
+from .descriptions import DESCRIPTIONS
+
 __all__ = ["PROJECT_CHAT_READ_LIMIT", "project_chat_tools"]
 
 _BASE = "/agent/v1"
@@ -18,13 +20,6 @@ _PROJECT = {
     "description": "Project slug. Required for a superleader session; a leader may name any of its "
     "projects (home or granted), default its home project.",
 }
-_READ = (
-    "Read a project room of yours (home by default, or a granted one with project), newest "
-    "first, limit posts per page (default 20, at most 100); "
-    "next_before_id pages back, after_id reads posts newer than an id. Leader only. A "
-    "superleader session must give project and may read any project. To answer the room write a "
-    "<project-post> envelope; to answer one session a <session-send> envelope."
-)
 
 
 def project_chat_tools(base_url: str) -> list[ToolSpec]:
@@ -32,7 +27,7 @@ def project_chat_tools(base_url: str) -> list[ToolSpec]:
     return [
         ToolSpec(
             name="project_chat_read",
-            description=_READ,
+            description=DESCRIPTIONS["project_chat_read"],
             input_schema={
                 "type": "object",
                 "properties": {

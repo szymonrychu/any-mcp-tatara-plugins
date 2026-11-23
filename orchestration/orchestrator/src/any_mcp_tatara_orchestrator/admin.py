@@ -9,12 +9,14 @@ credentials are issued by the upstream and stored by the orchestrator (see ``sec
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
+from .descriptions import DESCRIPTIONS
 from .fit import measure
 from .merged import Merged, Route
 from .secrets_local import OVERWRITE_SCHEMA, TO_FILE_SCHEMA
+from .slim import LIST_LIMIT
 
 __all__ = [
     "ADMIN_MERGED",
@@ -32,6 +34,7 @@ __all__ = [
 ]
 
 _A = "/admin"
+_PAGE = {"limit": LIST_LIMIT}
 
 
 # Spec keys kept in the sessions_admin_list summary; "superleader" is spec.session_messaging.
@@ -157,21 +160,6 @@ _GRANT_SCHEMA = {
     },
     "client_key": {"type": "string", "maxLength": 200},
 }
-_NOT_MANAGEABLE = (
-    " A target that is not manageable (superleader_manageable false) answers 403 "
-    "not_manageable: the change needs the user's approval."
-)
-_READ_ANY = (
-    " Writes on a target that is not manageable (superleader_manageable false) answer 403 "
-    "not_manageable (needs the user's approval)."
-)
-# Rows that write to a preset, session, webhook endpoint or schedule: they get _NOT_MANAGEABLE.
-_WRITE_NAMES = frozenset(
-    {
-        "preset_patch", "preset_delete", "preset_copy", "session_patch", "session_discard",
-        "leadership_withdraw", "session_message_cancel",
-    }
-)  # fmt: skip
 _SLUG = _str("Session slug.")
 _POD = _str("Agent pod name.")
 _SCHED = _str("Schedule id.")
@@ -299,16 +287,14 @@ _ROWS: tuple[AdminRow, ...] = (
         "preset_get",
         "GET",
         f"{_A}/presets/{{ref}}",
-        "Show a preset by id or name, manageable or not. A secret value is never shown."
-        + _READ_ANY,
+        DESCRIPTIONS["preset_get"],
         schema({"ref": _REF}, ("ref",)),
     ),
     AdminRow(
         "preset_create",
         "POST",
         f"{_A}/presets",
-        "Create a preset. Secret values come from the vault: after creating, attach entries "
-        "with vault_attach.",
+        DESCRIPTIONS["preset_create"],
         schema({"name": {"type": "string"}, "spec": _SPEC}, ("name",)),
         "*",
     ),
@@ -316,12 +302,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "preset_patch",
         "PATCH",
         f"{_A}/presets/{{ref}}",
-        "Change part of a preset (name, labels, project, spec) by id or name. "
-        "Set project to move the preset to another existing project (422 unknown_project; "
-        "422 vault_label_mismatch when its vault "
-        "refs no longer match the project label; 422 project_archived when the target project "
-        "is archived); running sessions keep their project. Example: "
-        '{"ref": "webhook", "spec": {"usage_quota": {"five_hour_pct": 80}}}.',
+        DESCRIPTIONS["preset_patch"],
         schema(
             {
                 "ref": _REF,
@@ -346,15 +327,14 @@ _ROWS: tuple[AdminRow, ...] = (
         "preset_delete",
         "DELETE",
         f"{_A}/presets/{{ref}}",
-        "Delete a preset.",
+        DESCRIPTIONS["preset_delete"],
         schema({"ref": _REF}, ("ref",)),
     ),
     AdminRow(
         "preset_copy",
         "POST",
         f"{_A}/presets/{{ref}}/copy",
-        "Copy a preset under a new name (default: derived). Check the copy's vault "
-        "attachments with vault_list.",
+        DESCRIPTIONS["preset_copy"],
         schema({"ref": _REF, "name": _NULL_STR}, ("ref",)),
         "*",
     ),
@@ -362,10 +342,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "preset_manageable_request",
         "POST",
         f"{_A}/presets/{{ref}}/manageable",
-        "Ask the user to make a preset manageable by superleaders (superleader_manageable "
-        "true): files a change proposal of kind preset_manageable that the user approves or "
-        "denies in the UI; answers the proposal. 409 already_manageable when it already is. "
-        "Setting it with preset_patch is refused.",
+        DESCRIPTIONS["preset_manageable_request"],
         schema(
             {
                 "ref": _REF,
@@ -381,14 +358,13 @@ _ROWS: tuple[AdminRow, ...] = (
         "vault_list",
         "GET",
         f"{_A}/vault",
-        "List vault entries (name, description, labels, env names, readable values, "
-        "attachments) and presets with env names to re-attach. Entries of other projects "
-        "show without values (names and ids only). Choose an entry by name and "
-        "description; protected values are never shown. Each attachment has manageable "
-        "(bool: whether its preset is superleader_manageable) and privileged "
-        "(bool): true means the preset's sessions have cluster access or docker/dind and "
-        "can read every Secret in the namespace, so the entry's values are exposed to them.",
-        schema({"q": _str("Filter entries by name or description.")}),
+        DESCRIPTIONS["vault_list"],
+        schema(
+            {
+                "q": _str("Filter entries by name or description."),
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+            }
+        ),
         None,
         ("q",),
     ),
@@ -397,25 +373,20 @@ _ROWS: tuple[AdminRow, ...] = (
         "session_get",
         "GET",
         f"{_A}/sessions/{{slug}}",
-        "Show a session by slug, with its agents. A superleader reads any session, manageable "
-        "or not, any other leader its own. project is its home project, extra_projects the "
-        "other projects it fully belongs to. start_state (booting, ready, bootstrap_failed) and "
-        "bootstrap_failures (pod, step, message, redacted log_tail) say why an agent failed to "
-        "start: read them and act without the user. Superleader writes on another session: "
-        "session_labels op update, scale, lock and session_message_cancel with its slug."
-        + _READ_ANY,
-        schema({"slug": _SLUG}, ("slug",)),
+        DESCRIPTIONS["session_get"],
+        schema(
+            {
+                "slug": _SLUG,
+                "view": {"type": "string", "enum": ["summary", "spec"]},
+            },
+            ("slug",),
+        ),
     ),
     AdminRow(
         "session_patch",
         "PATCH",
         f"{_A}/sessions/{{slug}}",
-        "Change part of a live session's spec (JSON merge patch, RFC 7396). A superleader may "
-        "patch its own or any manageable session, any other leader only its own. The change "
-        "is applied when the pods are replaced, once the session is idle; the source preset "
-        "is never written. Arrays replace whole. replicas, max_replicas, static, workdir, "
-        "pvc_size and cache cannot change on a live session. Example: "
-        '{"slug": "my-hive", "spec": {"usage_quota": {"five_hour_pct": 50}}}.',
+        DESCRIPTIONS["session_patch"],
         schema({"slug": _SLUG, "spec": _PATCH_SPEC_SESSION}, ("slug", "spec")),
         "*",
     ),
@@ -423,17 +394,14 @@ _ROWS: tuple[AdminRow, ...] = (
         "session_message_cancel",
         "DELETE",
         f"{_A}/sessions/{{slug}}/messages/{{message_id}}",
-        "Superleader only: cancels a QUEUED message of that session. "
-        "404 not_found for an id of another session; 409 not_queued once it was delivered.",
+        DESCRIPTIONS["session_message_cancel"],
         schema({"slug": _SLUG, "message_id": {"type": "integer"}}, ("slug", "message_id")),
     ),
     AdminRow(
         "session_create",
         "POST",
         f"{_A}/sessions",
-        "Create a session from a preset (preset_id), a spec, or a preset with spec overrides. "
-        "The new session is not a trigger session and has its own leader. project places it "
-        "(default: the preset's project); it also gets the preset's extra projects.",
+        DESCRIPTIONS["session_create"],
         schema(
             {
                 "preset_id": _NULL_STR,
@@ -452,11 +420,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "session_discard",
         "DELETE",
         f"{_A}/sessions/{{slug}}",
-        "Discard a session by slug. Your own session is refused (own_session). Set force true "
-        "only when the session has been stuck in phase deleting because a pre-discard hook "
-        "keeps failing: the owed hooks are abandoned (reason forced) and the discard finishes "
-        "at once, so the history export may be lost; the workspace PVC is kept. Without force "
-        "the discard is unchanged.",
+        DESCRIPTIONS["session_discard"],
         schema(
             {
                 "slug": _SLUG,
@@ -474,14 +438,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "leadership_withdraw",
         "POST",
         f"{_A}/sessions/{{slug}}/leadership/withdraw",
-        "Withdraw a pending leadership handover request so it is never applied: request_id "
-        "(from orchestrator_handoff_submit with handover) withdraws that one, without it every "
-        "pending handover of the session is withdrawn. The orchestrator's own rollout "
-        "handover request is never withdrawn: it stays queued, and by request_id it is 409 "
-        "rollout_request. A session's leader may withdraw on its own slug; "
-        "a superleader on its own or any manageable session. Answers {withdrawn: [ids]}; the "
-        "requester gets the usual leadership-request note (rejected: withdrawn). 409 not_pending "
-        "when the request is already decided.",
+        DESCRIPTIONS["leadership_withdraw"],
         schema(
             {"slug": _SLUG, "request_id": {"type": ["integer", "null"], "minimum": 1}},
             ("slug",),
@@ -493,14 +450,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "history_search",
         "GET",
         f"{_A}/history/sessions",
-        "List or search the stored history of discarded sessions, newest first. "
-        + _HISTORY_MATCH
-        + " Filters: from and to (ISO 8601 timestamps), preset, session (id or slug part). "
-        "Each entry shows the session and, for a q search, up to 3 snippets. A page holds up to "
-        "limit sessions (default 20, at most 200). The answer is "
-        "{next_before_id, sessions: [...]}: a page can be short or even empty while more "
-        "sessions exist, so while next_before_id is not null call again with it as before_id; "
-        "null means the end." + _HISTORY_SCOPE,
+        DESCRIPTIONS["history_search"],
         schema(
             {
                 "q": _HISTORY_Q,
@@ -521,16 +471,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "sessions_admin_list",
         "GET",
         f"{_A}/sessions",
-        "List the sessions of your own and granted projects (a superleader: every session of "
-        "every project, manageable or not) as a "
-        "summary (slug, preset_name, project, extra_projects, status, desired, labels, hive, "
-        "superleader, created_at); session_get shows one in full. On the listed sessions a "
-        "superleader can write with session_labels op update, scale, lock and "
-        "session_message_cancel with their slug. Filter by label, project, "
-        "session_slug or superleaders (include, with project: also list its superleader sessions; "
-        "without project every session is listed). When the list "
-        "outgrows the output budget the answer is {omitted, sessions} with the first sessions "
-        "that fit and the count left out: narrow it with a filter.",
+        DESCRIPTIONS["sessions_admin_list"],
         schema(
             {
                 "label": _str("Only sessions with this label."),
@@ -551,13 +492,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "session_events",
         "GET",
         f"{_A}/sessions/{{slug}}/events",
-        "A page of the stored events of a session of your own or granted projects (a "
-        "superleader: any session) (chat, tool calls, "
-        "hooks); redacted like the web UI. Not a stream. A page is in "
-        "ascending id order and, without a cursor, is the newest events. Default limit 20. "
-        "When a page outgrows the output budget the oldest events are dropped and omitted "
-        "says how many. Page back with before_id (the lowest id seen) or forward with "
-        "after_id; agent_id and types (comma-separated kinds) filter.",
+        DESCRIPTIONS["session_events"],
         schema(
             {
                 "slug": _SLUG,
@@ -580,21 +515,14 @@ _ROWS: tuple[AdminRow, ...] = (
         "volume_save",
         "POST",
         "/volumes/{name}/save",
-        "Save a mounted volume as a new version of its backup now (answers 202, the save runs "
-        "in the background; volumes shows the result). Only for a volume attached with "
-        "backup_restore true, else 403 backup_not_enabled. 404 for a name that is not mounted "
-        "in this session, 409 volume_busy while the volume is not ready (saving, restoring or "
-        "resizing).",
+        DESCRIPTIONS["volume_save"],
         schema({"name": _str("Volume name (from volumes).")}, ("name",)),
     ),
     AdminRow(
         "volume_create",
         "POST",
         f"{_A}/volumes",
-        "Ask for a new volume: this never creates it, it files a volume_create proposal "
-        "(answer 202) the user approves on the Proposals page; follow it with proposal_get. "
-        "name is lowercase letters, digits and hyphens, at most 40 characters. size is a "
-        "Kubernetes quantity such as 10Gi (default from the deploy, capped).",
+        DESCRIPTIONS["volume_create"],
         schema(
             {
                 "name": _str("Volume name, ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$."),
@@ -628,9 +556,7 @@ _ROWS: tuple[AdminRow, ...] = (
         "backups_copy",
         "POST",
         f"{_A}/backups/copy",
-        "Superleader only: copy a backup version to a target backup name. The copy becomes the "
-        "target's current version; the target's earlier versions stay. source_version omitted "
-        "copies the current version of the source. There is no merge. 404 backup_not_found.",
+        DESCRIPTIONS["backups_copy"],
         schema(
             {
                 "source": _str("Source backup name."),
@@ -646,16 +572,12 @@ _ROWS: tuple[AdminRow, ...] = (
         "spec_delete",
         "DELETE",
         f"{_A}/specs/{{key}}",
-        "Superleader only: deletes a spec on the task board (204). To accept a spec stays the "
-        "user's decision in the web UI.",
+        DESCRIPTIONS["spec_delete"],
         schema({"key": {"type": "string", "pattern": "^S-[0-9]+$"}}, ("key",)),
     ),
 )
 
-ADMIN_TOOLS: tuple[AdminRow, ...] = tuple(
-    replace(r, description=r.description + _NOT_MANAGEABLE) if r.name in _WRITE_NAMES else r
-    for r in _ROWS
-)
+ADMIN_TOOLS: tuple[AdminRow, ...] = _ROWS
 
 # Merged admin tools (S-83 905-916): an argument picks the route (``merged.py``).
 _W = f"{_A}/webhooks"
@@ -681,12 +603,7 @@ _ENV_NAME = {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]{0,127}$"}
 ADMIN_MERGED: tuple[Merged, ...] = (
     Merged(
         "volumes",
-        "Shared volumes. scope own (default): the volumes mounted in this session (name, mount "
-        "path, mode ro or rw, backup_restore, state, last save and restore result). scope all "
-        "(superleader only): the volumes that share a project with you (id, name, projects, size, "
-        "state, attached presets and mounted sessions); with volume_id one volume with the "
-        "presets that attach it (preset, mode, mount path, backup_restore); 404 volume_not_found. "
-        "Names, ids, sizes and states only, never file listings or manifests.",
+        DESCRIPTIONS["volumes"],
         {
             "scope": {"type": "string", "enum": ["own", "all"]},
             "volume_id": _VOLUME_ID,
@@ -703,17 +620,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "vault_attach",
-        "Attach a vault entry to a preset, or with detach true detach it. Attach: all envs of "
-        "the entry under their own names, or only the envs you map (envs: entry env name to "
-        "preset env name, which also renames). The entry labels must match the preset (labels "
-        "plus project), else 422 vault_label_mismatch. Privileged presets included: no proposal "
-        "is needed and nothing is refused. The response has attachment_privileged (bool): true "
-        "means the preset's sessions have cluster access or docker/dind and can read every "
-        "Secret in the namespace, so attaching exposes the entry's values to them; weigh that "
-        "before attaching sensitive entries. A preset env of the same name that is not a "
-        "reference to the same entry env gives 409 env_exists unless replace is true. Detach: "
-        "one env of the entry when env is given, else every env of the entry. Read entry ids "
-        "and env names from vault_list." + _NOT_MANAGEABLE,
+        DESCRIPTIONS["vault_attach"],
         {
             "ref": _REF,
             "entry_id": _ENTRY_ID,
@@ -742,16 +649,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "volume_attach",
-        "Attach a volume to a manageable preset (mounted in its new sessions), or with detach "
-        "true detach it (running sessions keep the mount; the volume and its content stay). "
-        "mode ro or rw, mount_path absolute (default /volumes/<name>), backup_restore true opts "
-        "into the automatic restore and save-on-last-release. An attach that would share the "
-        "volume between a privileged preset (cluster access, namespace access, docker) and any "
-        "other preset, or that is RW on a privileged preset, is a cross-trust attach: nothing "
-        "is applied and the answer is 202 with a proposal the user approves (follow it with "
-        "proposal_get); any other attach answers 200 with the preset. Errors: 403 "
-        "volume_cross_trust, 409 when the volume is busy or the attach conflicts, 422 for an "
-        "invalid mount path or attachment.",
+        DESCRIPTIONS["volume_attach"],
         {
             "ref": _REF,
             "volume_id": _VOLUME_ID,
@@ -775,13 +673,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "proposal_put",
-        "File, revise or withdraw a change proposal for a human to review. "
-        + _PROPOSAL_TEXT
-        + "op create: kind preset, schedule or session; target the preset id or name, schedule "
-        "id or session slug; patch, reason; client_key makes a retry return the first proposal. "
-        "op revise (id, patch, reason): a new revision after a rework verdict or a stale notice, "
-        "a full proposal against the target as it is now, not a delta. op withdraw (id): "
-        "withdraw one of your open proposals. Answers the proposal.",
+        DESCRIPTIONS["proposal_put"],
         {
             "op": {"type": "string", "enum": ["create", "revise", "withdraw"]},
             "id": {"type": "integer", "description": "Proposal id."},
@@ -809,32 +701,26 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "proposal_get",
-        "Change proposals (your own; a superleader sees every proposal). Without id: list them, "
-        "newest first, current revision only, filtered by status active (default: open, rework, "
-        "stale), open, closed or all; kind session_projects or preset_projects is a project "
-        "grant, preset_manageable asks to make a preset manageable. With id: one proposal with "
-        "every revision: per item the before and after values, the human's verdict (pending, "
-        "approved, rework, denied) and note; after a rework verdict or a stale notice send a "
-        "new revision with proposal_put op revise.",
+        DESCRIPTIONS["proposal_get"],
         {
             "id": {"type": "integer", "description": "Proposal id; omitted: the list."},
+            "all_revisions": {
+                "type": "boolean",
+                "description": "With id: every revision, not only the latest.",
+            },
             "status": _str("active, open, closed or all."),
             "limit": _LIMIT,
         },
         {
             "": Route("GET", f"{_A}/proposals", (), ("status", "limit"), query=("status", "limit")),
             "id": Route("GET", f"{_A}/proposals/{{id}}", ("id",)),
+            "id+all_revisions": Route("GET", f"{_A}/proposals/{{id}}", ("id",)),
         },
-        scopes=("id",),
+        scopes=("id", "all_revisions"),
     ),
     Merged(
         "session_restart",
-        "Restart every agent of a session (scope session, default) or one agent pod (scope "
-        "agent, pod). Answers command ids; read them with session_commands command_id. "
-        "Restarting your own session is a self-restart: it has a cooldown (429 "
-        "restart_cooldown, with retry_after) and you get a note when you are back. Restarting "
-        "an agent that never bootstrapped reruns the same install and reports a warning; a "
-        "command may end failed with interrupted_by_restart." + _NOT_MANAGEABLE,
+        DESCRIPTIONS["session_restart"],
         {
             "scope": {"type": "string", "enum": ["session", "agent"]},
             "slug": _SLUG,
@@ -851,8 +737,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "session_commands",
-        "Superleader only: the recent commands (restarts and so on) of any session (slug), "
-        "manageable or not; with command_id the status of any command.",
+        DESCRIPTIONS["session_commands"],
         {"slug": _SLUG, "limit": _LIMIT, "command_id": _str("Command id.")},
         {
             "": Route(
@@ -864,14 +749,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "usage",
-        "The account's Claude usage, read-only. what current (default): the current reading, "
-        "from the same source the usage_quota gate uses: {configured, available, source, "
-        "updated_at, five_hour, seven_day}; each window is {utilization_pct, resets_at, stale, "
-        "observed_at, source} or null when unknown. available false means the usage service is "
-        "not configured or not reachable (the gate allows starts then); stale true means an old "
-        "reading, a lower bound. Superleader only: what history (five_hour and seven_day points "
-        "between from and to, ISO 8601; metric picks the window, max_points downsamples) and "
-        "what sessions (the session start and end marks between from and to).",
+        DESCRIPTIONS["usage"],
         {
             "what": {"type": "string", "enum": ["current", "history", "sessions"]},
             "from": _str("Start, ISO 8601."),
@@ -902,16 +780,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "webhook",
-        "Webhook endpoints (superleader only). action list; meta (supported types, auth modes, "
-        "template fields); create (type, preset_id); update (id; only the fields given change, "
-        "a new auth mode issues a new credential); clone (id, optionally to another preset_id "
-        "or suffix); rotate (id) the credential; delete (id) with its stored credential; filters "
-        "(id, allow, deny) replaces the filters; events (received events, newest first, "
-        "before_id pages back); event (id) one event; preview (type, example, template) "
-        "renders a prompt template."
-        + _CRED
-        + " to_file writes it to a file instead."
-        + _NOT_MANAGEABLE,
+        DESCRIPTIONS["webhook"],
         {
             "action": {
                 "type": "string",
@@ -986,6 +855,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
                 (),
                 ("status", "endpoint_id", "limit", "before_id"),
                 query=("status", "endpoint_id", "limit", "before_id"),
+                fill=_PAGE,
             ),
             "event": Route("GET", f"{_W}/events/{{id}}", ("id",)),
             "preview": Route(
@@ -1001,12 +871,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "schedule",
-        "Schedules (superleader only): a cron expression that starts a session from a preset "
-        "with a prompt. action list; get (schedule_id); create (name, cron, preset_id, prompt); "
-        "update (schedule_id and all required fields again; then_schedule_ids omitted keeps the "
-        "current links); delete; run (fire it now); runs (the runs of one schedule, newest "
-        "first); runs_all (the runs of all schedules); run_get (run_id); preview (cron: the "
-        "next fire times and the rendered prompt)." + _NOT_MANAGEABLE,
+        DESCRIPTIONS["schedule"],
         {
             "action": {
                 "type": "string",
@@ -1053,7 +918,12 @@ ADMIN_MERGED: tuple[Merged, ...] = (
                 query=("limit",),
             ),
             "runs_all": Route(
-                "GET", f"{_SC}/runs", (), ("status", "limit"), query=("status", "limit")
+                "GET",
+                f"{_SC}/runs",
+                (),
+                ("status", "limit"),
+                query=("status", "limit"),
+                fill=_PAGE,
             ),
             "run_get": Route("GET", f"{_SC}/runs/{{run_id}}", ("run_id",)),
             "preview": Route(
@@ -1069,21 +939,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "chat_connector",
-        "The chat connector (superleader only). action settings (room_id): a room's trigger "
-        "(all or mention), the preset that serves it, agents_may_initiate and agent_aliases; "
-        "allow (room_id): allow and configure a room, also accepts a Messenger message request "
-        "(an invited room is joined on the next sync)." + _ROOM_REPLACED + " action users (q): "
-        "people the connector knows by name or Facebook id. action open (target, task_key) "
-        "asks to open a Messenger chat with a person, invite (target, task_key, room_id) to "
-        "invite them to a room: it asks the user on the taskboard under task_key; when you get "
-        "'Task T-n was updated', call open_confirm (request_id), then poll open_status "
-        "(request_id) until done; allow the new room; session_create, then message it with a "
-        "<session-send> envelope; it posts there with a <chat-send> envelope. target is a "
-        "Facebook id, a profile.php?id= link or a name; when several people match, the answer "
-        "has candidates: call again with the chosen Facebook id. A vanity link "
-        "(facebook.com/some.name) cannot be resolved: pass the name instead. action rules "
-        "lists the allow and deny rules, rule_add (list allow or deny, kind, value) adds one, "
-        "rule_delete (rule_id) deletes one.",
+        DESCRIPTIONS["chat_connector"],
         {
             "action": {
                 "type": "string",
@@ -1154,12 +1010,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "history_get",
-        "One stored session of the history of discarded sessions: provenance, preset, "
-        "timestamps and record counts. With records true: page its stored records (chat "
-        "events, commands and so on) in id order, filtered by kind and by text: "
-        + _HISTORY_MATCH
-        + " Page forward with after_id (the last id seen) or backward with before_id."
-        + _HISTORY_SCOPE,
+        DESCRIPTIONS["history_get"],
         {
             "session_id": _HISTORY_SESSION_ID,
             "records": {"type": "boolean", "description": "Page the session's records."},
@@ -1182,6 +1033,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
                 ("session_id",),
                 _RECORDS,
                 query=_RECORDS,
+                fill=_PAGE,
             ),
         },
         scopes=("records",),
@@ -1189,10 +1041,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "handoffs",
-        "The handoff history of the sessions of your own and granted projects (a superleader: "
-        "every session). Without id: newest first (id, session, created_at, a short head), "
-        "paged by before_id, filtered by session (id or slug). With id: one handoff in full; "
-        "404 handoff_not_found.",
+        DESCRIPTIONS["handoffs"],
         {
             "id": {"type": "integer", "minimum": 1, "description": "Handoff id."},
             "session": _str("Only handoffs of this session (id or slug)."),
@@ -1210,6 +1059,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
                 (),
                 ("session", "limit", "before_id"),
                 query=("session", "limit", "before_id"),
+                fill=_PAGE,
             ),
             "id": Route("GET", f"{_A}/handoffs/{{id}}", ("id",)),
         },
@@ -1217,13 +1067,7 @@ ADMIN_MERGED: tuple[Merged, ...] = (
     ),
     Merged(
         "backups",
-        "Superleader only: the named backups. Without name: the backups (name, current version, "
-        "sizes, times), filtered by q (substring of the name). With name: its versions, newest "
-        "first (version id, actor, size, time, which one is current). With name and version: "
-        "the file list (paths, sizes) of that version, without any file content. Lists page "
-        "with the cursor of the previous page. There is no download. 400 bad_request for a bad "
-        "cursor, 404 backup_not_found or version_not_found, 503 unavailable when backups are "
-        "not configured.",
+        DESCRIPTIONS["backups"],
         {
             "name": _str("Backup name."),
             "version": _str("Version id."),

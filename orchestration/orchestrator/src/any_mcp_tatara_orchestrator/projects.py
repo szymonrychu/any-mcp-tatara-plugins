@@ -8,6 +8,7 @@ the ``project`` parameter of the task tools takes. ``project`` is a merged tool 
 
 from __future__ import annotations
 
+from .descriptions import DESCRIPTIONS
 from .merged import Merged, Route
 
 __all__ = ["PROJECT_MERGED"]
@@ -22,22 +23,7 @@ _GRANT = ("ref", "project", "reason")
 PROJECT_MERGED = (
     Merged(
         "project",
-        "Projects. action list (default): the projects you can use: your home project, then the "
-        "extra projects granted to your session, in which you have the same access as their "
-        "own members (archived or not); a superleader gets every project. Each entry has slug, "
-        "name, description and archived; the slug is the project parameter of the task tools. "
-        "action summary: counts of tasks and specs per project in your scope (project narrows "
-        "it to one). Superleader only: create (project, name, description; projects are never "
-        "deleted, only archived; 409 project_exists), update (rename, describe, archive or "
-        "unarchive; archiving default is 409 default_project), grant and revoke an extra "
-        "project (target session or preset, ref its slug or preset id or name). A grant is a "
-        "change proposal the user approves on the Proposals page (202 with the proposal, "
-        "follow it with proposal_get; 200 with the first proposal on a client_key replay); "
-        "withdraw it with proposal_put op withdraw and grant again. At most 9 extra projects. "
-        "Grant errors: own_project, already_granted, unknown_project, project_archived, "
-        "too_many_projects, not_found. A revoke applies at once; running sessions keep the "
-        "extra projects a preset revoke removes. Writes on a target that is not manageable "
-        "answer 403 not_manageable.",
+        DESCRIPTIONS["project"],
         {
             "action": {
                 "type": "string",

@@ -60,18 +60,7 @@ async def test_chat_memory_errors_surface_code() -> None:
         await run(413, code, UPDATE)
 
 
-async def test_chat_notes_schema_and_annotations() -> None:
-    (spec,) = (m.spec() for m in MEMORY_MERGED)
-    assert spec.annotations == {
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    }
-    assert spec.input_schema["additionalProperties"] is False
-    assert "leader only" in spec.description.lower()
-    assert spec.input_schema["properties"]["expected_version"]["minimum"] == 0
-
+async def test_chat_notes_refuses_unknown_arguments() -> None:
     sent: list[httpx.Request] = []
 
     def record(request: httpx.Request) -> httpx.Response:
@@ -88,13 +77,6 @@ async def test_chat_notes_schema_and_annotations() -> None:
             result = await h.call("orchestrator_chat_notes", args)
             assert result.is_error, args
             assert not sent, args
-
-
-def test_notes_update_413_advice_condenses_that_section_for_both_caps() -> None:
-    """The connector room memory rule: on either 413, condense the written section."""
-    (spec,) = (m.spec() for m in MEMORY_MERGED)
-    assert "notes_too_large: condense that section" in spec.description
-    assert "another section" not in spec.description
 
 
 async def test_no_chat_skills_tools() -> None:

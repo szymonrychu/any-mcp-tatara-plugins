@@ -14,6 +14,7 @@ from typing import Any
 
 from any_mcp.types import HttpBinding, ToolSpec
 
+from .descriptions import DESCRIPTIONS
 from .merged import Merged, Route
 
 __all__ = ["SPEC_KEY_PATTERN", "SPEC_MERGED", "SPEC_PARAM", "spec_tools"]
@@ -94,11 +95,7 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             "spec_list",
             "GET",
             "/specs",
-            "List specs, newest first. A spec is a named set of markdown documents (plan, "
-            "research, notes) with versions and comments. Filter by project, status, label or "
-            "exact name. Pages of limit specs; pass next_cursor as cursor for the next page. "
-            "Document bodies are not listed: spec_get shows the documents of one spec and "
-            "spec_pull copies them to files.",
+            DESCRIPTIONS["spec_list"],
             _schema(
                 {
                     "project": {"type": "string", "description": _PROJECT_RULE},
@@ -120,10 +117,7 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             "spec_create",
             "POST",
             "/specs",
-            "Create an empty spec. name is a stable slug (a-z 0-9 and hyphen, at most 80, "
-            "unique in the project), title is for people. Documents are added with spec_push, "
-            "which also creates a spec when its name is new. Link the improvement's task with "
-            "task_update spec.",
+            DESCRIPTIONS["spec_create"],
             _schema(
                 {
                     "project": {
@@ -148,14 +142,7 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             "spec_update",
             "PATCH",
             "/specs/{spec}",
-            "Edit a spec: title, status, labels, project, or assign it to your session with "
-            "assignee_self. version is the version you last read (spec_get); a stale one is "
-            "refused (HTTP 412 stale_version): read it again and retry. Status moves between "
-            "draft, review, approved and archived. An agent sets approved once plan_get view "
-            "gate says approvable (no open decision on the spec's open or in_progress "
-            "tasks); otherwise it is refused 409 decisions_open listing the open decisions "
-            "(answer or withdraw them first). A superleader and the user may always approve. "
-            "Archive the spec after its retro. Document edits go through spec_push.",
+            DESCRIPTIONS["spec_update"],
             _schema(
                 {
                     "spec": SPEC_PARAM,
@@ -178,9 +165,7 @@ def spec_tools(base_url: str) -> list[ToolSpec]:
             "spec_comments",
             "GET",
             "/specs/{spec}/comments",
-            "List the comments of a spec, oldest first: id, path, version, anchor, body, "
-            "suggestion and its status, author, resolved or not. path limits them to one "
-            "document, open to the unresolved ones.",
+            DESCRIPTIONS["spec_comments"],
             _schema(
                 {
                     "spec": SPEC_PARAM,
@@ -199,12 +184,7 @@ _READ = _hints(read_only=True, idempotent=True)
 SPEC_MERGED = (
     Merged(
         "spec_get",
-        "Read one spec: key, project, name, title, status, labels, version, url, its documents "
-        "(path, version, size, note, author; never the bodies), linked task keys and the open "
-        "comment count. With path and versions true: the versions of that document, newest "
-        "first (pages of limit; pass next_cursor as cursor). With path and section (a heading "
-        "slug): that section of the document under the tool output budget (truncated true when "
-        "cut; version picks an older document version). spec_pull copies whole bodies to files.",
+        DESCRIPTIONS["spec_get"],
         {
             "spec": SPEC_PARAM,
             "path": _PATH,
@@ -238,11 +218,7 @@ SPEC_MERGED = (
     ),
     Merged(
         "spec_comment",
-        "Comment on a spec (op comment, default): on the spec or one document (path, optionally "
-        "a version and an anchor inside it), or give a replacement text as suggestion; the user "
-        "accepts or dismisses a suggestion in the web UI; safe to retry with the same "
-        "client_key. op resolve marks comment id resolved once handled. op dismiss (superleader "
-        "only) dismisses suggestion comment id; accepting stays the user's.",
+        DESCRIPTIONS["spec_comment"],
         {
             "op": {"type": "string", "enum": ["comment", "resolve", "dismiss"]},
             "spec": SPEC_PARAM,
@@ -277,13 +253,7 @@ SPEC_MERGED = (
     ),
     Merged(
         "spec_queue",
-        "The implementation start queue of approved specs per project (FIFO by position, no "
-        "expiry): the project's autostart limits, state (off = autostart off until the user "
-        "sets both limits, idle, usage_unknown, usage_refused, at_limit, usage_high, "
-        "orchestrator_unavailable, ready) and queued specs; position is a dense 1-based rank. "
-        "With move (a queue item id, superleader only): move it to position or before another "
-        "queue item id; give exactly one of them (422 otherwise; 403 superleader_only, 409 "
-        "not_queued once a start began). Removing an item is the user's, in the web UI.",
+        DESCRIPTIONS["spec_queue"],
         {
             "project": {"type": "string", "description": _PROJECT_RULE},
             "move": {"type": "integer", "minimum": 1, "description": "Queue item id to move."},

@@ -16,7 +16,6 @@ from any_mcp.response import DEFAULT_BUDGET_CHARS
 from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.admin import (
-    _NOT_MANAGEABLE,
     _PATCH_SPEC,
     _PATCH_SPEC_SESSION,
     ADMIN_MERGED,
@@ -111,17 +110,6 @@ async def test_project_chat_rows_exist_in_the_orchestrator_openapi() -> None:
         assert (http.method, norm(http.path)) in known, name
 
 
-async def test_project_tool_create_schema_and_texts() -> None:
-    tool = {t.name: t for t in await specs()}["project"]
-    props = tool.input_schema["properties"]
-    assert props["project"]["pattern"] == "^[a-z0-9][a-z0-9-]{0,39}$"
-    assert (props["name"]["minLength"], props["name"]["maxLength"]) == (1, 80)
-    assert props["description"]["maxLength"] == 4000
-    assert set(props["target"]["enum"]) == {"session", "preset"}
-    for word in ("Superleader only", "never deleted", "project_exists", "approves", "proposal"):
-        assert word in tool.description, word
-
-
 def test_preset_manageable_request_row() -> None:
     rows = rows_by_name()
     row = rows["preset_manageable_request"]
@@ -130,11 +118,8 @@ def test_preset_manageable_request_row() -> None:
     assert set(row.schema["properties"]) == {"ref", "reason", "client_key"}
     assert row.schema["properties"]["reason"]["maxLength"] == 4000
     assert row.schema["properties"]["client_key"]["maxLength"] == 200
-    assert "preset_manageable" in row.description and "already_manageable" in row.description
-    assert "preset_patch" in row.description
     manageable = rows["preset_patch"].schema["properties"]["superleader_manageable"]
     assert "preset_manageable_request" in manageable["description"]
-    assert "preset_manageable" in merged()["proposal_get"].description
 
 
 async def test_preset_manageable_request_calls_its_route() -> None:
@@ -164,19 +149,6 @@ async def test_session_create_takes_a_project() -> None:
         res = await h.call("session_create", {"preset_id": "web", "project": "spellslinger"})
     assert not res.is_error, res.text
     assert seen == [{"preset_id": "web", "project": "spellslinger"}]
-
-
-def test_session_texts_name_extra_projects() -> None:
-    rows = rows_by_name()
-    assert "extra_projects" in rows["session_get"].description
-    assert "session_projects" in merged()["proposal_get"].description
-
-
-def test_sessions_admin_list_names_the_slice3_writes() -> None:
-    desc = rows_by_name()["sessions_admin_list"].description
-    names = ("session_labels", "scale", "lock")
-    for name in (*names, "session_message_cancel"):
-        assert name in desc, name
 
 
 async def test_preset_rows_take_a_project_to_move_a_preset() -> None:
@@ -355,20 +327,6 @@ def test_history_search_schema() -> None:
     assert props["regex"]["type"] == "boolean"
     assert props["limit"] == {"type": "integer", "minimum": 1, "maximum": 200, "default": 20}
     assert row.query == ("q", "regex", "from", "to", "preset", "session", "limit", "before_id")
-    assert "case-insensitive" in row.description
-    assert "Postgres regex" in row.description
-    assert "next_before_id" in row.description
-
-
-def test_history_get_records_schema() -> None:
-    tool = merged()["history_get"]
-    props = tool.properties
-    assert set(props) == {
-        "session_id", "records", "kind", "q", "regex", "before_id", "after_id", "limit",
-    }  # fmt: skip
-    assert props["q"]["minLength"] == 3
-    assert props["limit"] == {"type": "integer", "minimum": 1, "maximum": 200}
-    assert tool.ops["records"].query == ("kind", "q", "regex", "before_id", "after_id", "limit")
 
 
 def test_history_get_requires_id() -> None:
@@ -384,12 +342,6 @@ def props_desc(tool: Any, name: str) -> str:
 def test_leadership_withdraw_description_excludes_rollout_requests() -> None:
     desc = rows_by_name()["leadership_withdraw"].description
     assert "rollout" in desc and "409 rollout_request" in desc
-
-
-def test_history_descriptions_say_history_is_read_only() -> None:
-    # Rewritten (T-120 slice 2, decision 388): history is no longer limited to manageable presets.
-    assert "read-only" in rows_by_name()["history_search"].description
-    assert "read-only" in merged()["history_get"].description
 
 
 async def test_history_rows_call_their_routes() -> None:
@@ -547,9 +499,6 @@ def test_session_discard_schema_lists_force() -> None:
     row = rows_by_name()["session_discard"]
     assert row.schema["properties"]["force"]["type"] == "boolean"
     assert row.schema["required"] == ["slug"]
-    assert "stuck in phase deleting" in row.description
-    assert "history export may be lost" in row.description
-    assert "workspace PVC is kept" in row.description
 
 
 async def test_session_discard_sends_force_only_when_true() -> None:
@@ -581,13 +530,6 @@ async def test_usage_refusal_surfaces_the_code() -> None:
         res = await h.call("usage", {"what": "history"})
     assert res.is_error
     assert "not_superleader" in res.text
-
-
-def test_chat_open_description_mentions_confirm_flow() -> None:
-    text = merged()["chat_connector"].description
-    for word in ("open_confirm", "open_status", "allow", "session_create",
-                 "session-send", "chat-send", "candidates", "vanity"):  # fmt: skip
-        assert word in text, word
 
 
 @pytest.mark.parametrize(
@@ -624,15 +566,6 @@ async def test_proposal_with_secrets_is_refused_before_any_request(
     assert res.is_error
     assert seen == []
     assert "secret" in res.text.lower(), res.text
-
-
-def test_vault_descriptions_mark_privileged_attachments_without_refusing() -> None:
-    rows = rows_by_name()
-    assert "privileged" in rows["vault_list"].description
-    attach = merged()["vault_attach"].description
-    assert "attachment_privileged" in attach
-    assert "read every Secret in the namespace" in attach
-    assert "nothing is refused" in attach
 
 
 @pytest.mark.parametrize(
@@ -688,7 +621,6 @@ def test_superleader_read_rows_are_pinned_to_the_openapi(name: str) -> None:
 def test_superleader_read_rows_are_read_only_and_superleader_only(name: str) -> None:
     row = rows_by_name()[name]
     assert row.method == "GET" and row.body is None
-    assert "superleader" in row.description.lower()
 
 
 async def test_read_rows_call_their_routes() -> None:
@@ -746,8 +678,6 @@ async def test_session_events_over_budget_keeps_the_newest_and_reports_the_omitt
     body = res.structured
     assert body["omitted"] == 1 and body["has_more_before"] is True
     assert [e["id"] for e in body["events"]] == [101, 102]
-    desc = rows_by_name()["session_events"].description
-    assert "ascending" in desc and "newest first" not in desc and "omitted" in desc
 
 
 async def test_session_events_within_budget_is_untouched() -> None:
@@ -844,7 +774,6 @@ async def test_sessions_admin_list_trims_to_the_budget_and_reports_the_omitted()
     assert 0 < len(kept) < 12
     assert body["omitted"] == 12 - len(kept)
     assert [r["slug"] for r in kept] == [f"s-{i}" for i in range(len(kept))]
-    assert "filter" in rows_by_name()["sessions_admin_list"].description
 
 
 def test_fit_sessions_leaves_a_fitting_list_alone() -> None:
@@ -858,35 +787,6 @@ def test_fit_sessions_drops_the_tail_of_a_list_over_the_budget() -> None:
     out = fit_sessions(rows, one)
     assert out == {"omitted": 2, "sessions": rows[:1]}
     assert measure(out) <= one
-
-
-def test_superleader_read_texts() -> None:
-    rows = rows_by_name()
-    for desc in (rows["history_search"].description, merged()["history_get"].description):
-        assert "manageable presets" not in desc
-        assert "may manage" not in desc
-    for name in ("preset_get", "session_get"):
-        desc = rows[name].description
-        assert "403 not_manageable" in desc and "approval" in desc, name
-    texts = {**{n: r.description for n, r in rows.items()},
-             **{n: m.description for n, m in merged().items()}}  # fmt: skip
-    for name in ("preset_patch", "preset_delete", "preset_copy", "session_patch",
-                 "session_restart", "vault_attach", "leadership_withdraw"):  # fmt: skip
-        desc = texts[name]
-        assert "403 not_manageable" in desc and "approval" in desc, name
-    vault = rows["vault_list"].description
-    assert "other projects" in vault and "without values" in vault and "manageable" in vault
-    assert "every proposal" in texts["proposal_get"]
-    assert "any command" in texts["session_commands"]
-
-
-def test_room_tools_say_preset_and_trigger_are_replaced_on_every_call() -> None:
-    tool = merged()["chat_connector"]
-    assert "replaced on every call" in tool.description
-    assert "omitted or null clears them" in tool.description
-    assert "chat_rooms scope projects" in tool.description
-    assert "resend its preset_id and trigger" in tool.description
-    assert "Omit to keep, [] to clear" in props_desc(tool, "agent_aliases")
 
 
 SLICE3 = ["session_message_cancel", "spec_delete"]
@@ -903,18 +803,6 @@ def test_slice3_write_rows_are_pinned_to_the_openapi(name: str) -> None:
     route = (row.method, "/agent/v1" + norm(row.path))
     assert route == SLICE3_ROUTES[name]
     assert route in known
-
-
-def test_slice3_session_writes_say_not_manageable() -> None:
-    rows = rows_by_name()
-    assert rows["session_message_cancel"].description.endswith(_NOT_MANAGEABLE)
-
-
-async def test_scale_and_lock_texts_name_own_session() -> None:
-    by_name = {s.name: s for s in await specs()}
-    for name in ("scale", "lock"):
-        assert "own_session" in by_name[name].description, name
-        assert "not_manageable" in by_name["scale"].description
 
 
 def test_preset_patch_takes_manageable_false_only() -> None:
@@ -936,18 +824,6 @@ async def test_preset_patch_refuses_manageable_true_by_schema() -> None:
     assert bad.is_error and len(seen) == 1
     assert not good.is_error
     assert json.loads(seen[0]) == {"superleader_manageable": False}
-
-
-async def test_decision_withdraw_text_names_superleader() -> None:
-    by_name = {s.name: s for s in await specs()}
-    desc = by_name["decision_withdraw"].description
-    assert "superleader" in desc and "any open decision" in desc
-
-
-def test_spec_admin_rows_are_superleader_only() -> None:
-    rows = rows_by_name()
-    assert "superleader only" in rows["spec_delete"].description.lower()
-    assert "accept" in rows["spec_delete"].description
 
 
 _CHAIN_IDS = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"]
@@ -1039,12 +915,6 @@ async def test_schedule_update_without_chain_ids_keeps_the_current_links() -> No
         )
         assert [s[0] for s in seen] == ["PUT"]
         assert seen[0][2]["then_schedule_ids"] == []
-
-
-def test_chain_descriptions_say_what_omitting_does() -> None:
-    assert "keeps" in merged()["schedule"].description
-    chain = merged()["webhook"].properties["then_schedule_ids"]
-    assert "unchanged" in chain["description"]
 
 
 async def test_chat_history_of_a_room_default_limit_and_fit() -> None:

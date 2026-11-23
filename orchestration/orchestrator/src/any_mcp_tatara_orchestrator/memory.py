@@ -8,6 +8,7 @@ notes go by room id under ``/agent/v1/admin/chats/rooms``. ``chat_notes`` is a m
 
 from __future__ import annotations
 
+from .descriptions import DESCRIPTIONS
 from .merged import Merged, Route
 
 __all__ = ["MEMORY_MERGED", "SECTIONS"]
@@ -41,20 +42,7 @@ _NOTE_ARGS = ("section", "body", "expected_version")
 MEMORY_MERGED = (
     Merged(
         "chat_notes",
-        "The notes of a chat room: your bound room, or room_id. Five sections: preferences, "
-        "requests, work-in-progress, provided-information, repeatable-workflows. op get "
-        "(default): without section the room totals (chars, max_chars, section_max_chars), "
-        "each section's version, chars and inject, the rendered body and rule (the standing "
-        "instructions for room notes); with section that section in full "
-        "(provided-information and repeatable-workflows are not in the first prompt). Your bound "
-        "room is leader only. op "
-        "update (leader only): replace one section with body (the whole new text, not a "
-        "delta; empty forgets it); expected_version is that section's version from your last "
-        "read (0 to create). 409 version_conflict: re-read that section and merge. 413 "
-        "section_too_large or notes_too_large: condense that section. 409 room_unbound when "
-        'you have no bound room yet (it comes with the first <chat-send room="..."> '
-        "envelope or chat message). Rules files in the notes apply from the next session of "
-        "the room. Never store secrets.",
+        DESCRIPTIONS["chat_notes"],
         {
             "op": {"type": "string", "enum": ["get", "update"]},
             "room_id": _ROOM_ID,

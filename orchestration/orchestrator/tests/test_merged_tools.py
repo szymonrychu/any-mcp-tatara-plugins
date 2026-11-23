@@ -392,7 +392,7 @@ ADMIN_CASES: list[tuple[str, dict[str, Any], tuple[str, str, str, Any]]] = [
     (
         "schedule",
         {"action": "runs_all", "status": "failed"},
-        ("GET", f"{_ADM}/schedules/runs", "status=failed", None),
+        ("GET", f"{_ADM}/schedules/runs", "status=failed&limit=20", None),
     ),
     (
         "schedule",
