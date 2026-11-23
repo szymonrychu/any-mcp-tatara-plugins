@@ -238,6 +238,17 @@ _CHAIN_PATCH = {
     **_CHAIN,
     "description": _CHAIN["description"] + " Omitted or null leaves the links unchanged.",
 }
+_SESSION_OVERRIDES = {
+    "type": ["object", "null"],
+    "properties": {
+        "replicas": {"type": "integer", "minimum": 1},
+        "start_prompt": {"type": "string"},
+    },
+    "additionalProperties": False,
+    "description": "Per-run overrides of the preset's session: replicas (>= 1, within the "
+    "preset max_replicas) and start_prompt (empty: no start message). On action update, "
+    "omitting it keeps the stored overrides (resent by the plugin); null clears them.",
+}
 _SCHED_FIELDS = {
     "name": {"type": "string"},
     "cron": {"type": "string", "description": "Five-field cron expression."},
@@ -245,6 +256,7 @@ _SCHED_FIELDS = {
     "prompt": {"type": "string"},
     "enabled": {"type": "boolean"},
     "timezone": _NULL_STR,
+    "session_overrides": _SESSION_OVERRIDES,
     "then_schedule_ids": {
         **_CHAIN,
         "description": _CHAIN["description"]
@@ -584,7 +596,7 @@ _VOLUME = f"{_A}/presets/{{ref}}/volumes/{{volume_id}}"
 _ISSUED = ("to_file", "overwrite")
 _HOOK_EDIT = ("filters", "prompt_template", "suffix", "then_schedule_ids", *_AUTH, *_ISSUED)
 _ROOM_SET = ("trigger", "preset_id", "agents_may_initiate", "agent_aliases")
-_SCHED_SET = ("enabled", "timezone", "then_schedule_ids")
+_SCHED_SET = ("enabled", "timezone", "session_overrides", "then_schedule_ids")
 _SCHED_REQ = ("name", "cron", "preset_id", "prompt")
 _RECORDS = ("kind", "q", "regex", "before_id", "after_id", "limit")
 _ROOM_REPLACED = (

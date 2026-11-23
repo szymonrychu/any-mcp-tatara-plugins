@@ -124,8 +124,9 @@ DESCRIPTIONS: dict[str, str] = {
     "scale": "Scale this session to a number of agents (leader only); slug (superleader) "
     "scales another manageable session. Errors: usage_quota, static_session, "
     "leader_would_leave, session_deleting, out_of_range, own_session, not_manageable.",
-    "schedule": "Superleader: manage cron schedules that start a session from a preset, and "
-    "read their runs. Errors: 403 not_manageable, 404 not_found, 409 conflict, "
+    "schedule": "Superleader: manage cron schedules that start a session from a preset "
+    "(optional session_overrides: replicas, start_prompt), and read their runs. "
+    "Errors: 403 not_manageable, 404 not_found, 409 conflict, "
     "422 invalid_request.",
     "self_close": "Close this session once your work is done and reported; leader only, the "
     "last action, after the final answer. Errors: 403 not_leader, 422 own_session.",

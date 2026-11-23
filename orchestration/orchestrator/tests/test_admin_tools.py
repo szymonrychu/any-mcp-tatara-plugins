@@ -829,7 +829,10 @@ async def test_chain_ids_are_forwarded_in_the_body() -> None:
     async with harness(handler) as h:
         for name, args in (
             ("schedule", {"action": "create", **sched}),
-            ("schedule", {"action": "update", "schedule_id": "7", **sched}),
+            (
+                "schedule",
+                {"action": "update", "schedule_id": "7", **sched, "session_overrides": None},
+            ),
             ("webhook", {"action": "create", "type": "github", "preset_id": "p"}),
             ("webhook", {"action": "update", "id": "e1"}),
         ):
@@ -888,10 +891,68 @@ async def test_schedule_update_without_chain_ids_keeps_the_current_links() -> No
                 "preset_id": "p",
                 "prompt": "x",
                 "then_schedule_ids": [],
+                "session_overrides": None,
             },
         )
         assert [s[0] for s in seen] == ["PUT"]
         assert seen[0][2]["then_schedule_ids"] == []
+
+
+_OVERRIDES = {"replicas": 2, "start_prompt": "dream"}
+_SCHED_ARGS = {
+    "schedule_id": "7",
+    "name": "n",
+    "cron": "* * * * *",
+    "preset_id": "p",
+    "prompt": "x",
+}
+
+
+@pytest.mark.parametrize("action", ["create", "update"])
+async def test_schedule_sends_session_overrides(action: str) -> None:
+    seen: list[tuple[str, str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"id": "7"})
+
+    async with harness(handler) as h:
+        args = {**_SCHED_ARGS, "session_overrides": _OVERRIDES, "then_schedule_ids": []}
+        if action == "create":
+            args.pop("schedule_id")
+        res = await h.call("schedule", {"action": action, **args})
+        assert not res.is_error, res.text
+        assert seen[-1][2]["session_overrides"] == _OVERRIDES
+        args["session_overrides"] = {"replicas": 0}
+        bad = await h.call("schedule", {"action": action, **args})
+        assert bad.is_error
+
+
+async def test_schedule_update_without_session_overrides_keeps_the_stored_ones() -> None:
+    seen: list[tuple[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, body))
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={"id": "7", "then_schedule_ids": [], "session_overrides": _OVERRIDES},
+            )
+        return httpx.Response(200, json={"ok": True})
+
+    async with harness(handler) as h:
+        res = await h.call("schedule", {"action": "update", **_SCHED_ARGS})
+        assert not res.is_error, res.text
+        assert seen[1][1]["session_overrides"] == _OVERRIDES
+        seen.clear()
+        await h.call(
+            "schedule",
+            {"action": "update", **_SCHED_ARGS, "then_schedule_ids": [], "session_overrides": None},
+        )
+        assert [s[0] for s in seen] == ["PUT"]
+        assert seen[0][1]["session_overrides"] is None
 
 
 async def test_chat_history_of_a_room_default_limit_and_fit() -> None:
