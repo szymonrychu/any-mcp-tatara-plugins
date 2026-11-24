@@ -183,3 +183,25 @@ def test_no_top_level_combinators_in_tool_schemas() -> None:
     for spec in [*spec_tools("http://x"), *(m.spec() for m in SPEC_MERGED)]:
         for combinator in ("oneOf", "anyOf", "allOf"):
             assert combinator not in spec.input_schema, (spec.name, combinator)
+
+
+async def test_handoff_refusal_keeps_waiting_on_and_missing_past_the_text_cut() -> None:
+    body = {
+        "error": {
+            "code": "in_flight",
+            "message": "work is still in flight " + "x " * 2000,
+            "waiting_on": ["T-7 step 3", "session abc"],
+            "missing": ["summary"],
+            "rejects": 2,
+        }
+    }
+    async with harness(lambda r: httpx.Response(409, json=body)) as h:
+        res = await h.call("orchestrator_handoff_submit", {})
+    assert res.is_error
+    assert "waiting on: T-7 step 3, session abc" in res.text
+    assert "missing: summary" in res.text
+    assert "(HTTP 409)" in res.text
+    err = res.structured["error"]
+    assert err["waiting_on"] == ["T-7 step 3", "session abc"]
+    assert err["missing"] == ["summary"]
+    assert err["rejects"] == 2

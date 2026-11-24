@@ -662,7 +662,7 @@ class OrchestratorPlugin(Plugin):
         if not isinstance(exc, UpstreamError):
             return error_result(exc, plugin=self.ctx.name, secrets=secrets)
         status = exc.response.status
-        code, message, extra = None, "", {}
+        code, message, extra, tail = None, "", {}, ""
         try:
             error = exc.response.json().get("error")
             if isinstance(error, dict):
@@ -673,6 +673,13 @@ class OrchestratorPlugin(Plugin):
                 fields = error.get("fields")
                 if isinstance(fields, list) and all(isinstance(f, str) for f in fields):
                     extra["fields"] = fields
+                for key in ("waiting_on", "missing"):
+                    items = error.get(key)
+                    if isinstance(items, list) and all(isinstance(i, str) for i in items):
+                        extra[key] = items
+                        tail += f" [{key.replace('_', ' ')}: {', '.join(items)}]"
+                if isinstance(error.get("rejects"), int):
+                    extra["rejects"] = error["rejects"]
                 decisions = error.get("decisions")
                 if isinstance(decisions, list) and all(isinstance(d, dict) for d in decisions):
                     extra["decisions"] = decisions
@@ -685,7 +692,7 @@ class OrchestratorPlugin(Plugin):
         if not isinstance(code, str) or not code:
             return error_result(exc, plugin=self.ctx.name, secrets=secrets)
         text = f"orchestrator error {code}" + (f": {message}" if message else "")
-        text = redact(" ".join(text.split())[:_ERROR_LIMIT], secrets)
+        text = redact(" ".join(text.split())[:_ERROR_LIMIT] + tail, secrets)
         text += " (proposable: true)" if extra.get("proposable") else ""
         text += f" (HTTP {status})"
         error_body = {"kind": "upstream", "code": code, "message": text, "status": status, **extra}
