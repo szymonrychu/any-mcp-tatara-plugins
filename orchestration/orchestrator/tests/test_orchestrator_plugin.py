@@ -539,6 +539,59 @@ async def test_refused_edit_surfaces_proposable() -> None:
         assert "proposable" not in r.structured["error"]
 
 
+LONG = "work is still in flight " + "x " * 2000
+
+
+@pytest.mark.parametrize(
+    ("status", "error", "tail"),
+    [
+        (
+            409,
+            {"code": "in_flight", "message": LONG, "waiting_on": ["T-7 step 3", "session abc"]},
+            "[waiting on: T-7 step 3, session abc]",
+        ),
+        (
+            422,
+            {
+                "code": "handoff_rejected",
+                "message": LONG,
+                "missing": ["missing:summary", "unreferenced:task abc"],
+            },
+            "[reasons: missing:summary, unreferenced:task abc]",
+        ),
+    ],
+)
+async def test_cut_error_message_keeps_the_list_tail(status: int, error: dict, tail: str) -> None:
+    async with harness(lambda r: httpx.Response(status, json={"error": error})) as h:
+        res = await h.call("orchestrator_handoff_submit", {})
+    assert res.is_error
+    assert tail in res.text and f"(HTTP {status})" in res.text
+    key = "waiting_on" if "waiting_on" in error else "missing"
+    assert res.structured["error"][key] == error[key]
+
+
+async def test_uncut_error_message_gets_no_tail() -> None:
+    error = {"code": "in_flight", "message": "short", "waiting_on": ["T-7"]}
+    async with harness(lambda r: httpx.Response(409, json={"error": error})) as h:
+        res = await h.call("orchestrator_handoff_submit", {})
+    assert "[waiting on" not in res.text
+    assert res.structured["error"]["waiting_on"] == ["T-7"]
+
+
+async def test_error_tail_is_capped() -> None:
+    error = {"code": "in_flight", "message": LONG, "waiting_on": [f"item{i}" for i in range(30)]}
+    async with harness(lambda r: httpx.Response(409, json={"error": error})) as h:
+        res = await h.call("orchestrator_handoff_submit", {})
+    assert "item9, +20 more]" in res.text and "item10" not in res.text
+
+
+async def test_cut_error_with_empty_list_gets_no_tail() -> None:
+    error = {"code": "in_flight", "message": LONG, "waiting_on": []}
+    async with harness(lambda r: httpx.Response(409, json={"error": error})) as h:
+        res = await h.call("orchestrator_handoff_submit", {})
+    assert "[waiting on" not in res.text
+
+
 async def tools_by_name() -> dict[str, dict[str, Any]]:
     async with harness(ok) as h:
         return {t["name"]: t for t in await h.list_tools()}

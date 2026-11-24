@@ -71,6 +71,8 @@ _BASE = "/agent/v1"
 # The relay sends the upstream's next page cursor in this header (also on an empty page).
 _NEXT_CURSOR_HEADER = "x-next-before-id"
 _ERROR_LIMIT = 1000
+_TAIL_ITEMS = 10
+_TAIL_LIMIT = 600
 # Answers the plugin shrinks itself are read whole, bounded: the default read cap is the output
 # budget in bytes and would cut a larger body into invalid JSON.
 _LARGE_READ_CAP = 16 * 1024 * 1024
@@ -662,7 +664,7 @@ class OrchestratorPlugin(Plugin):
         if not isinstance(exc, UpstreamError):
             return error_result(exc, plugin=self.ctx.name, secrets=secrets)
         status = exc.response.status
-        code, message, extra, tail = None, "", {}, ""
+        code, message, extra, lists = None, "", {}, []
         try:
             error = exc.response.json().get("error")
             if isinstance(error, dict):
@@ -673,13 +675,14 @@ class OrchestratorPlugin(Plugin):
                 fields = error.get("fields")
                 if isinstance(fields, list) and all(isinstance(f, str) for f in fields):
                     extra["fields"] = fields
-                for key in ("waiting_on", "missing"):
+                for key, label in (("waiting_on", "waiting on"), ("missing", "reasons")):
                     items = error.get(key)
                     if isinstance(items, list) and all(isinstance(i, str) for i in items):
                         extra[key] = items
-                        tail += f" [{key.replace('_', ' ')}: {', '.join(items)}]"
-                if isinstance(error.get("rejects"), int):
-                    extra["rejects"] = error["rejects"]
+                        lists.append((label, [" ".join(i.split()) for i in items]))
+                rejects = error.get("rejects")
+                if isinstance(rejects, int) and not isinstance(rejects, bool):
+                    extra["rejects"] = rejects
                 decisions = error.get("decisions")
                 if isinstance(decisions, list) and all(isinstance(d, dict) for d in decisions):
                     extra["decisions"] = decisions
@@ -692,7 +695,15 @@ class OrchestratorPlugin(Plugin):
         if not isinstance(code, str) or not code:
             return error_result(exc, plugin=self.ctx.name, secrets=secrets)
         text = f"orchestrator error {code}" + (f": {message}" if message else "")
-        text = redact(" ".join(text.split())[:_ERROR_LIMIT] + tail, secrets)
+        text = " ".join(text.split())
+        tail = ""
+        if len(text) > _ERROR_LIMIT:
+            for label, items in lists:
+                if items:
+                    more = f", +{len(items) - _TAIL_ITEMS} more" if len(items) > _TAIL_ITEMS else ""
+                    tail += f" [{label}: {', '.join(items[:_TAIL_ITEMS])}{more}]"
+            text = text[:_ERROR_LIMIT] + tail[:_TAIL_LIMIT]
+        text = redact(text, secrets)
         text += " (proposable: true)" if extra.get("proposable") else ""
         text += f" (HTTP {status})"
         error_body = {"kind": "upstream", "code": code, "message": text, "status": status, **extra}
