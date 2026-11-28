@@ -30,5 +30,12 @@ known-first-party = ["any_mcp", "any_mcp_tatara_orchestrator"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "*/*/tests"]
 # Plugins may each hold a test module of the same name.
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib --strict-markers"
 asyncio_mode = "auto"
+markers = [
+    "unit: fast isolated test",
+    "integration: needs external services",
+    "e2e: end-to-end test",
+    "live: needs a live environment",
+    "critical: guards a user-visible flow, data integrity or security",
+]

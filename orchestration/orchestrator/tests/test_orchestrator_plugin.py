@@ -22,6 +22,8 @@ from any_mcp.testing import PluginHarness
 from any_mcp_tatara_orchestrator import OrchestratorPlugin
 from any_mcp_tatara_orchestrator.admin import ADMIN_MERGED, ADMIN_TOOLS
 
+pytestmark = pytest.mark.critical
+
 OLD_UNIT = "clus" + "ter"
 TOKEN = "s3cr3t-token-value"
 CONFIG: dict[str, Any] = {
