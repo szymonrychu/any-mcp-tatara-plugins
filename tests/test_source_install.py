@@ -15,7 +15,11 @@ import tomllib
 from importlib.metadata import distribution
 from pathlib import Path
 
+import pytest
+
 from any_mcp_tatara_orchestrator.admin import ADMIN_MERGED, ADMIN_TOOLS
+
+pytestmark = pytest.mark.critical
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "orchestration" / "orchestrator"

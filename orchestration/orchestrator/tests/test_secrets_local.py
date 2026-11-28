@@ -12,6 +12,8 @@ from any_mcp_tatara_orchestrator.secrets_local import (
     write_credential,
 )
 
+pytestmark = pytest.mark.critical
+
 
 def test_no_overwrite_create_is_atomic_against_a_racing_file(tmp_path: Path) -> None:
     target = tmp_path / "cred"
