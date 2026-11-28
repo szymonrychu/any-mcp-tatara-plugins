@@ -33,7 +33,7 @@ class Board:
     def add(self, path: str, body: str, version: int = 1) -> None:
         self.specs["S-3"]["docs"][path] = {"version": version, "body": body}
 
-    def __call__(self, request: httpx.Request) -> httpx.Response:
+    def __call__(self, request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         p = request.url.path
         self.requests.append((request.method, p, request.url.query.decode(), request.content))
         if m := re.fullmatch(r"/agent/v1/specs/(S-\d+)", p):

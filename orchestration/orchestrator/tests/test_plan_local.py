@@ -42,7 +42,7 @@ class Board:
         self.decisions.append(decision)
         return decision
 
-    def __call__(self, request: httpx.Request) -> httpx.Response:
+    def __call__(self, request: httpx.Request) -> httpx.Response:  # noqa: C901, PLR0911, PLR0912
         p = request.url.path
         body = json.loads(request.content) if request.content else None
         self.requests.append((request.method, p, request.url.query.decode(), body))

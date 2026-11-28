@@ -21,6 +21,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+extend-select = ["C90", "PLR0911", "PLR0912", "PLR0915", "RET", "ERA"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.ruff.lint.isort]
 # any-mcp and the plugins import as one first-party block, as in any-mcp itself, so code moved

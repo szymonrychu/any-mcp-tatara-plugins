@@ -437,7 +437,7 @@ class OrchestratorPlugin(Plugin):
         fitted = fit_records(page, self.ctx.response_budget_chars)
         return raw if fitted is page else RawResponse.from_value(fitted)
 
-    async def _call(self, call: ToolCall, whole: bool) -> RawResponse:
+    async def _call(self, call: ToolCall, whole: bool) -> RawResponse:  # noqa: C901, PLR0911, PLR0912, PLR0915
         merged = _MERGED.get(call.spec.name)
         key = merged.key_of(call.arguments) if merged is not None else ""
         # A schedule update replaces every field: resend stored chain links and session
@@ -652,7 +652,7 @@ class OrchestratorPlugin(Plugin):
         cursor = int(header) if header.isascii() and header.isdigit() else None
         return RawResponse.from_value({"next_before_id": cursor, "sessions": page})
 
-    async def on_error(self, call: ToolCall, exc: Exception) -> ToolResult:
+    async def on_error(self, call: ToolCall, exc: Exception) -> ToolResult:  # noqa: C901, PLR0912
         if isinstance(exc, SecretResolveError):
             return secret_error_result(exc, call.spec.name)
         if isinstance(exc, SpecLocalError):
